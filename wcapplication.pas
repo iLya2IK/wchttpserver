@@ -1,3 +1,16 @@
+{
+ WCApplication:
+   Custom application class to integrate with LCL
+
+   Part of WCHTTPServer project
+
+   Copyright (c) 2020-2021 by Ilya Medvedkov
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+}
+
 unit wcapplication;
 
 {$mode objfpc}{$H+}
@@ -139,12 +152,13 @@ type
     Procedure InitRequest(ARequest : TAbsHTTPConnectionRequest); override;
     Procedure InitResponse(AResponse : TAbsHTTPConnectionResponse); override;
     function AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
-                               aOpenMode: THTTP2OpenMode;
-                               aServerDoConsume : THttp2SocketConsume): TWCHTTP2Connection;
+      aOpenMode: THTTP2OpenMode; aServerDoConsume: THttp2SocketConsume;
+  aSendData: THttp2SendData): TWCHTTP2Connection;
     property  MaxPreClientsThreads : Byte read FMaxPreClientsThreads write SetMaxPreClientsThreads;
     property  MaxMainClientsThreads : Byte read FMaxMainClientsThreads write SetMaxMainClientsThreads;
     function  ServerActive : Boolean;
     procedure DoConnectToSocketRef(SockRef : TWCHTTPSocketReference);
+    procedure DoSendData(aConnection : TWCHTTP2Connection);
     destructor Destroy; override;
 
     property  HTTP2Connections : TWCHTTP2Connections read FHTTP2Connections;
@@ -437,6 +451,17 @@ type
     property  Socket : TSocketStream read GetSocket;
   end;
 
+  { TWCHttp2SendDataJob }
+
+  TWCHttp2SendDataJob = class(TJob)
+  private
+    FConnection : TWCHTTP2Connection;
+  public
+    constructor Create(aConnection : TWCHTTP2Connection);
+    destructor Destroy; override;
+    procedure Execute; override;
+  end;
+
 var
   vPath : unicodestring;// = '/webclient';
   WebContainer : TWebClientsContainer;
@@ -655,6 +680,30 @@ begin
   except
     if ShowCleanUpErrors then
       Raise;
+  end;
+end;
+
+{ TWCHttp2SendDataJob }
+
+constructor TWCHttp2SendDataJob.Create(aConnection: TWCHTTP2Connection);
+begin
+  inherited Create;
+  FConnection := aConnection;
+  FConnection.IncReference;
+end;
+
+destructor TWCHttp2SendDataJob.Destroy;
+begin
+  FConnection.DecReference;
+  inherited Destroy;
+end;
+
+procedure TWCHttp2SendDataJob.Execute;
+begin
+  try
+    FConnection.SendFrames;
+  except
+    FConnection.ConnectionState:= wcDROPPED;
   end;
 end;
 
@@ -1061,7 +1110,8 @@ begin
         begin
           HTTP2Con := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
                                                               h2openmode,
-                                                              @(TWCHttpServer(Server).DoConnectToSocketRef));
+                                                              @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                              @(TWCHttpServer(Server).DoSendData));
           HTTP2Con.IncReference; // reference not incremented here, need to increment
         end;
         if FInput.Size > 0 then
@@ -1327,13 +1377,14 @@ begin
 end;
 
 function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
-  aOpenMode: THTTP2OpenMode; aServerDoConsume: THttp2SocketConsume
-  ): TWCHTTP2Connection;
+  aOpenMode: THTTP2OpenMode; aServerDoConsume: THttp2SocketConsume;
+  aSendData : THttp2SendData): TWCHTTP2Connection;
 begin
   Result := TWCHTTP2Connection.Create(Application.GarbageCollector,
                                       aSocket,
                                       aOpenMode,
-                                      aServerDoConsume);
+                                      aServerDoConsume,
+                                      aSendData);
   Application.GarbageCollector.Add(Result);
   FHTTP2Connections.Push_back(Result);
 end;
@@ -1372,6 +1423,11 @@ begin
   end;
   Con.OnRequestError:=@HandleRequestError;
   CreateConnectionThread(Con);
+end;
+
+procedure TWCHttpServer.DoSendData(aConnection: TWCHTTP2Connection);
+begin
+  FPreThreadPool.Add(TWCHttp2SendDataJob.Create(aConnection));
 end;
 
 destructor TWCHttpServer.Destroy;
@@ -2363,4 +2419,3 @@ Finalization
   DoneHTTP;
 
 end.
-
