@@ -13,6 +13,9 @@ The project builds on fpWeb modules and extends them to increase functionality:
 9. Added the ability to save the master key and a random set of client data on the server side (necessary for debugging TLS dumps using WireShark);
 10. Working both under Windows and Linux.
 
+# Development environment
+Free Pascal (v.3.2.0) + Lazarus (v.2.0.10)
+
 # Necessary libraries
 1. SQLite
 2. OpenSSL (v.1.0.2 of higher)
