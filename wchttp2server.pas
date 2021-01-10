@@ -334,6 +334,7 @@ type
   end;
 
   THttp2SocketConsume = procedure (SockRef : TWCHTTPSocketReference) of object;
+  THttp2SendData = procedure (aConnection : TWCHTTP2Connection) of object;
 
   { TWCHTTPConnection }
 
@@ -402,6 +403,8 @@ type
     FErrorStream : Cardinal;
     FSocketRef : TWCHTTPSocketReference;
     FSocketConsume : THttp2SocketConsume;
+    FSendData      : THttp2SendData;
+    FDataSending  : TThreadBoolean;
     FHPackDecoder : TThreadSafeHPackDecoder;
     FHPackEncoder : TThreadSafeHPackEncoder;
 
@@ -414,7 +417,6 @@ type
     function GetConnSetting(id : Word): Cardinal;
     function GetLifeTime: Cardinal;
     procedure Refresh;
-    procedure SendFrames;
     procedure TryToConsumeFrames(const TS: Qword);
     procedure TryToSendFrames(const TS: Qword);
   protected
@@ -424,10 +426,10 @@ type
     property  CurHPackEncoder : TThreadSafeHPackEncoder read FHPackEncoder;
   public
     constructor Create(aGarbageCollector: TNetReferenceList;
-                       aSocket: TWCHTTPSocketReference;
-                       aOpenningMode: THTTP2OpenMode;
-                       aSocketConsume : THttp2SocketConsume);
+        aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
+        aSocketConsume: THttp2SocketConsume; aSendData: THttp2SendData);
     procedure ConsumeNextFrame(Mem : TBufferedStream);
+    procedure SendFrames;
     destructor Destroy; override;
     class function CheckProtocolVersion(Data : Pointer; sz : integer) :
                                              TWCProtocolVersion;
@@ -1647,7 +1649,7 @@ end;
 
 function TWCHTTP2Connection.ReadyToWrite(const TS: QWord): Boolean;
 begin
-  Result := (TS - FWriteStamp.Value) > 10;
+  Result := ((TS - FWriteStamp.Value) > 10) and (not FDataSending.Value);
 end;
 
 function TWCHTTP2Connection.AddNewStream(aStreamID : Cardinal): TWCHTTPStream;
@@ -1674,7 +1676,8 @@ end;
 
 constructor TWCHTTP2Connection.Create(aGarbageCollector: TNetReferenceList;
   aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
-  aSocketConsume: THttp2SocketConsume);
+  aSocketConsume: THttp2SocketConsume;
+  aSendData : THttp2SendData);
 var i : integer;
     CSet : PHTTP2SettingsPayload;
 begin
@@ -1689,6 +1692,8 @@ begin
   FWriteTailSize:= 0;
   FLastStreamID := 0;
   FSocketConsume:= aSocketConsume;
+  FSendData := aSendData;
+  FDataSending := TThreadBoolean.Create(false);
   FReadStamp := TThreadQWord.Create(GetTickCount64);
   FWriteStamp:= TThreadQWord.Create(GetTickCount64);
   FConSettings := TThreadSafeConnSettings.Create;
@@ -2266,6 +2271,7 @@ begin
   FWriteStamp.Free;
   FTimeStamp.Free;
   FConnectionState.Free;
+  FDataSending.Free;
   inherited Destroy;
 end;
 
@@ -2365,6 +2371,7 @@ begin
     end;
   finally
     WrBuf.Free;
+    FDataSending.Value := false;
     Refresh;
   end;
 end;
@@ -2424,9 +2431,12 @@ begin
      (FFramesToSend.Count > 0) and
      ReadyToWrite(TS) then
   begin
-    FWriteStamp.Value:= TS;
+    FDataSending.Value := True;
+    FWriteStamp.Value  := TS;
     try
-      SendFrames;
+      if assigned(FSendData) then
+        FSendData(Self) else
+        SendFrames;
     except
       ConnectionState := wcDROPPED;
     end;
@@ -2696,4 +2706,3 @@ begin
 end;
 
 end.
-
