@@ -1217,17 +1217,20 @@ begin
             aClient.Initialize;
           end;
         end;
-      end;
-      FConn.SetSessionParams(aClient, aSession);
+        FConn.SetSessionParams(aClient, aSession);
+      end else aClient := nil;
     finally
       WebContainer.Clients.UnLock;
     end;
     //
-    ASynThread := GenerateClientJob;
-    if Assigned(ASynThread) then
+    if assigned(aClient) then
     begin
-      FConn := nil; //now fconn is part of ASynThread job
-      Application.ESServer.AddToMainPool(ASynThread);
+      ASynThread := GenerateClientJob;
+      if Assigned(ASynThread) then
+      begin
+        FConn := nil; //now fconn is part of ASynThread job
+        Application.ESServer.AddToMainPool(ASynThread);
+      end;
     end;
     //
   end;
@@ -2282,23 +2285,26 @@ function TWebClientsContainer.CreateSession(ARequest: TWCRequest
   ): TSqliteWebSession;
 var reqHeaders  : TStringList;
 begin
-  Result := TSqliteWebSession(Sessions.CreateSession(ARequest));
-
-  if Application.NetDebugMode then
+  if Assigned(ARequest) then
   begin
-    reqHeaders := TStringList.Create;
-    try
-      ARequest.CollectHeaders(reqHeaders);
-      PREP_OnCreateSession.Execute([ARequest.HeaderLine,
-                                    ARequest.Socket.Handle,
-                                    Trim(reqHeaders.Text),
-                                    Trim(ARequest.CookieFields.Text),
-                                    Trim(ARequest.Method),
-                                    Trim(ARequest.Content)]);
-    finally
-      reqHeaders.Free;
+    Result := TSqliteWebSession(Sessions.CreateSession(ARequest));
+    if Application.NetDebugMode then
+    begin
+      reqHeaders := TStringList.Create;
+      try
+        ARequest.CollectHeaders(reqHeaders);
+        PREP_OnCreateSession.Execute([ARequest.HeaderLine,
+                                      ARequest.Socket.Handle,
+                                      Trim(reqHeaders.Text),
+                                      Trim(ARequest.CookieFields.Text),
+                                      Trim(ARequest.Method),
+                                      Trim(ARequest.Content)]);
+      finally
+        reqHeaders.Free;
+      end;
     end;
-  end;
+  end else
+    Result := nil;
 end;
 
 Function ESSocketAddrToString(ASocketAddr: TSockAddr): String;
