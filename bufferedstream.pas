@@ -1,3 +1,7 @@
+{ BufferedStream
+   stream class with non-owned memory buffer
+   Copyright (c) 2018-2019 Ilya Medvedkov   }
+
 unit BufferedStream;
 
 {$mode objfpc}{$H+}
