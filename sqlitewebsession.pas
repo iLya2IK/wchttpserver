@@ -2,7 +2,7 @@
  SqliteWebSession:
    Session Factory based on sqlite database routings
 
-   Part of WCHTTP2Server project
+   Part of WCHTTPServer project
 
    Copyright (c) 2021 by Ilya Medvedkov
 
