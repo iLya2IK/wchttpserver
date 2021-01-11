@@ -65,63 +65,93 @@ uses
   wcapplication,
   fphttp,
   http2consts,
-  WCTestClient;
+  IniFiles,
+  WCTestClient, SortedThreadPool;
 
+const
+  CFG_MAIN_SEC       = 'Main';
+  CFG_SERVER_NAME    = 'ServerName';
+  CFG_MAIN_URI       = 'MainURI';
+  CFG_SESSIONS_LOC   = 'SessionsLoc';
+  CFG_CLIENTS_DB     = 'ClientsDb';
+  CFG_LOG_DB         = 'LogDb';
+  CFG_MIME_NAME      = 'MimeName';
+  CFG_ALPN_USE_HTTP2 = 'UseHTTP2';
+
+
+  CFG_OPENSSL_SEC  = 'OpenSSL';
+  CFG_USE_SSL      = 'UseSSL';
+  CFG_HOST_NAME    = 'HostName';
+  CFG_SSL_LOC      = 'SSLLoc';
+  CFG_SSL_CIPHER   = 'SSLCipherList';
+  CFG_PRIVATE_KEY  = 'PrivateKeyLoc';
+  CFG_CERTIFICATE  = 'CertificateLoc';
+  CFG_TLSKEY_LOG   = 'TLSKeyLog';
+
+
+var CfgFile : TIniFile;
 {$IFDEF LOAD_DYNAMICALLY}
-var vLibPath : String;
+vLibPath : String;
 {$ENDIF}
 begin
   Randomize;
   InitializeJobsTree;
-  {$IFDEF LOAD_DYNAMICALLY}
-  vLibPath := ExtractFilePath(Application.ExeName);
-  {$IFDEF Windows}
-  {$IF defined(Win32)}
-  vLibPath := vLibPath + 'libs\win32\';
-  {$ElseIf defined(Win64)}
-  vLibPath := vLibPath + 'libs\win64\';
-  {$ENDIF}
-  {$else}
-  {$ENDIF}
-  InitializeSQLite(UnicodeString(vLibPath + Sqlite3Lib));
-  {$ENDIF}
-  Application.Title:='WCTestServer';
-  Application.LegacyRouting := true;
-  Application.Threaded:=True;
-  Application.MainURI:= 'index.html';
-  Application.SessionsLoc:= 'sessions';
-  Application.SessionsDb := 'clients.db';
-  Application.LogDb := 'logwebtest.db';
-  Application.MimeLoc := 'mime.txt';
-  //SSL/TLS configuration
-  Application.UseSSL:=true;
-  Application.HostName:='localhost';
-  Application.SSLLoc := 'openssl' + cSysDelimiter;
-  Application.ESServer.CertificateData.CipherList :=
-                'ECDHE-RSA-AES128-GCM-SHA256:'+
-                'ECDHE-ECDSA-AES128-GCM-SHA256:'+
-                'ECDHE-ECDSA-CHACHA20-POLY1305:'+
-                'ECDHE-RSA-AES128-SHA256:'+
-                'AES128-GCM-SHA256:'+
-                'ECDHE-ECDSA-AES256-GCM-SHA384:'+
-                'ECDHE-ECDSA-AES256-SHA384'+
-                '';
-  Application.ESServer.PrivateKey:='localhost.key';
-  Application.ESServer.Certificate:='localhost.crt';
-  Application.ESServer.SSLMasterKeyLog := 'tlskey.log';
-  Application.ESServer.SSLType:= stTLSv1_2;
-  Application.ESServer.AlpnList.Add('h2');  // comment this line to turn off http2
-  Application.ESServer.AlpnList.Add('http/1.1');
-  //
-  HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
-  HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
-  Application.WebFilesLoc := 'webclienttest' + cSysDelimiter;
+  CfgFile := TIniFile.Create(ExtractFilePath(Application.ExeName) + 'server.cfg');
+  try
+    {$IFDEF LOAD_DYNAMICALLY}
+    vLibPath := ExtractFilePath(Application.ExeName);
+    {$IFDEF Windows}
+    {$IF defined(Win32)}
+    vLibPath := vLibPath + 'libs\win32\';
+    {$ElseIf defined(Win64)}
+    vLibPath := vLibPath + 'libs\win64\';
+    {$ENDIF}
+    {$else}
+    {$ENDIF}
+    InitializeSQLite(UnicodeString(vLibPath + Sqlite3Lib));
+    {$ENDIF}
+    Application.Title:=CfgFile.ReadString(CFG_MAIN_SEC, CFG_SERVER_NAME, 'WCTestServer');
+    Application.LegacyRouting := true;
+    Application.Threaded:=True;
+    Application.MainURI:= CfgFile.ReadString(CFG_MAIN_SEC, CFG_MAIN_URI, 'index.html');
+    Application.SessionsLoc:= CfgFile.ReadString(CFG_MAIN_SEC, CFG_SESSIONS_LOC, 'sessions');
+    Application.SessionsDb := CfgFile.ReadString(CFG_MAIN_SEC, CFG_CLIENTS_DB, 'clients.db');
+    Application.LogDb := CfgFile.ReadString(CFG_MAIN_SEC, CFG_LOG_DB, 'logwebtest.db');
+    Application.MimeLoc := CfgFile.ReadString(CFG_MAIN_SEC, CFG_MIME_NAME, 'mime.txt');
+    //SSL/TLS configuration
+    Application.UseSSL:= CfgFile.ReadBool(CFG_OPENSSL_SEC, CFG_USE_SSL, true);
+    Application.HostName:=CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_HOST_NAME, 'localhost');
+    Application.SSLLoc := CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_SSL_LOC, 'openssl') + cSysDelimiter;
+    Application.ESServer.CertificateData.CipherList :=
+      CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_SSL_CIPHER,
+                  'ECDHE-RSA-AES128-GCM-SHA256:'+
+                  'ECDHE-ECDSA-AES128-GCM-SHA256:'+
+                  'ECDHE-ECDSA-CHACHA20-POLY1305:'+
+                  'ECDHE-RSA-AES128-SHA256:'+
+                  'AES128-GCM-SHA256:'+
+                  'ECDHE-ECDSA-AES256-GCM-SHA384:'+
+                  'ECDHE-ECDSA-AES256-SHA384'+
+                  '');
+    Application.ESServer.PrivateKey:=CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_PRIVATE_KEY, 'localhost.key');
+    Application.ESServer.Certificate:=CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_CERTIFICATE, 'localhost.crt');
+    Application.ESServer.SSLMasterKeyLog := CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_TLSKEY_LOG, ''); // tlskey.log
+    Application.ESServer.SSLType:= stTLSv1_2;
+    if CfgFile.ReadBool(CFG_OPENSSL_SEC, CFG_ALPN_USE_HTTP2, True) then
+      Application.ESServer.AlpnList.Add('h2');  // comment this line to turn off http2
+    Application.ESServer.AlpnList.Add('http/1.1');
+    //
+    HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
+    HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
+    Application.WebFilesLoc := 'webclienttest' + cSysDelimiter;
+  finally
+    CfgFile.Free;
+  end;
   Application.MaxPrepareThreads := 5;
   Application.MaxMainThreads := 6;
   Application.ServerAnalizeJobClass:= WCMainTest.TWCPreThread;
@@ -130,5 +160,3 @@ begin
   Application.Run;
   DisposeJobsTree;
 end.
-
-
