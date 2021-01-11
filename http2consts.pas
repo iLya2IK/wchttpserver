@@ -2,7 +2,7 @@
  HTTP2Consts: Basic HTTP2 protocol constants and structures
    according RFC 7540
 
-   Part of WCHTTP2Server project
+   Part of WCHTTPServer project
 
    Copyright (c) 2021 by Ilya Medvedkov
 
