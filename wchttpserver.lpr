@@ -15,7 +15,7 @@
   * Do not forget to generate a certificate and key file for your 
     localhost (put them in ./openssl folder).
     Command-line to start testing server: 
-    "wchttpserver {PORTNUM} [-debug]" 
+    "wchttpserver <PORTNUM> [-debug]" 
     (PORTNUM - is a number of the listening port - 
      8080 for example)
 
