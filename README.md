@@ -22,7 +22,7 @@ The project builds on fpWeb modules and extends them to increase functionality:
 # How to deal with the example?
 * Build it using the necessary development environment and libraries or download precompiled release.
 * Do not forget to generate a certificate and key file for your localhost (put them in ./openssl folder). 
-* Command-line to start server: "wchttpserver {PORTNUM} [-debug]"
+* Command-line to start server: "wchttpserver {PORTNUM} [-debug]" (PORTNUM - is a number of the listening port - 8080 for example)
 
 # Development environment
 Free Pascal (v.3.2.0) + Lazarus (v.2.0.10)
@@ -30,3 +30,6 @@ Free Pascal (v.3.2.0) + Lazarus (v.2.0.10)
 # Necessary libraries
 1. SQLite
 2. OpenSSL (v.1.0.2 or higher)
+
+# Copyrights
+
