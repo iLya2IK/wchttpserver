@@ -1,3 +1,7 @@
+{ OGLFastList
+   lightweighted lists, collections and seqs
+   Copyright (c) 2018-2019 Ilya Medvedkov   }
+
 unit OGLFastList;
 
 {$ifdef fpc}
