@@ -1,3 +1,17 @@
+{
+ ExtSqlite3DS:
+   Extension of CustomSqliteDataset module to use sqlite preparation 
+   objects and functions.
+
+   Part of ESolver project
+
+   Copyright (c) 2019-2020 by Ilya Medvedkov
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+}
+
 unit ExtSqlite3DS;
 
 {$mode objfpc}{$H+}
