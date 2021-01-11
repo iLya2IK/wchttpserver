@@ -1,3 +1,8 @@
+{
+  This file is a part of example.
+  look more in WCHTTPServer.lpr
+}
+
 unit WCTestClient;
 
 {$mode objfpc}{$H+}
