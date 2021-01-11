@@ -3,7 +3,7 @@
    HTTP2 to HTTP1.1 and backward conversions
    according RFC 7540, 7541
 
-   Part of WCHTTP2Server project
+   Part of WCHTTPServer project
 
    Copyright (c) 2021 by Ilya Medvedkov
 
