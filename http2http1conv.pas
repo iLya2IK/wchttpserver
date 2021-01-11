@@ -22,6 +22,14 @@ uses
   Classes, SysUtils, AvgLvlTree, httpprotocol;
 
 type
+
+  { THeadersTree }
+
+  THeadersTree = class(TStringToPointerTree)
+  public
+    procedure DisposeItem(p: PStringMapItem); override;
+  end;
+
   THTTP2Header = (hh2Unknown,
                   hh2Authority,
                   hh2Method,
@@ -92,7 +100,7 @@ begin
     Result:=Pred(Result);
 end;
 
-var H2H1Headers : TStringToPointerTree;
+var H2H1Headers : THeadersTree = nil;
 
 function GetHTTPHeaderType(const AHeader: String): PHTTPHeader;
 begin
@@ -122,7 +130,8 @@ end;
 
 procedure InitializeH2H1Headers;
 begin
-  H2H1Headers := TStringToPointerTree.Create(false);
+  if Assigned(H2H1Headers) then Exit;
+  H2H1Headers := THeadersTree.Create(false);
   H2H1Headers.FreeValues:=True;
 
   H2H1Headers.Values[HTTP2HeaderAuthority]  := aHeader(hh2Authority);
@@ -191,7 +200,18 @@ end;
 
 procedure DisposeH2H1Headers;
 begin
-  FreeAndNil(H2H1Headers);
+  if assigned(H2H1Headers) then FreeAndNil(H2H1Headers);
+end;
+
+{ THeadersTree }
+
+procedure THeadersTree.DisposeItem(p: PStringMapItem);
+var
+  Item: PStringToPointerTreeItem absolute p;
+begin
+  if FreeValues then
+    FreeMem(Item^.Value);
+  Dispose(Item);
 end;
 
 initialization

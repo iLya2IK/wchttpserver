@@ -189,6 +189,7 @@ type
     FServerAnalizeJobClass : TWCPreAnalizeClientJobClass;
     FMainHTTP, FSessionsLoc, FSessionsDb, FLogDbLoc,
     FWebFilesLoc, FSSLLoc : String;
+    procedure DoOnLoggerException(Sender : TObject; E : Exception);
     procedure DoOnException(Sender : TObject; E : Exception);
     Procedure DoGetModule(Sender : TObject; ARequest : TRequest;
                                Var ModuleClass : TCustomHTTPModuleClass);
@@ -1790,6 +1791,11 @@ end;
 
 procedure TWCHTTPApplication.DoOnException(Sender: TObject; E: Exception);
 begin
+  WriteLn('An error handled: ' + E.Message);
+end;
+
+procedure TWCHTTPApplication.DoOnLoggerException(Sender: TObject; E: Exception);
+begin
   DoError(E.Message);
 end;
 
@@ -1803,6 +1809,8 @@ constructor TWCHTTPApplication.Create(AOwner: TComponent);
 var I : integer;
 begin
   inherited Create(AOwner);
+
+  OnException:=@DoOnException;
 
   FNetDebugMode:=False;
 
@@ -1837,6 +1845,7 @@ begin
   if assigned(FReferences) then FreeAndNil(FReferences);
   if assigned(FSocketsReferences) then FreeAndNil(FSocketsReferences);
   //
+  OnException:=@DoOnException;
   FLogDB.Free;
   inherited Destroy;
 end;
@@ -1927,7 +1936,7 @@ procedure TWCHTTPApplication.Initialize;
 begin
   vPath := UnicodeString(ExtractFilePath(ExeName) + WebFilesLoc);
   FLogDB := TSqliteLogger.Create(ExtractFilePath(ExeName) + LogDb);
-  OnException:=@DoOnException;
+  OnException:=@DoOnLoggerException;
   DoInfo('Server started');
 
   inherited Initialize;

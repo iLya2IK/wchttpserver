@@ -96,7 +96,6 @@ vLibPath : String;
 {$ENDIF}
 begin
   Randomize;
-  InitializeJobsTree;
   CfgFile := TIniFile.Create(ExtractFilePath(Application.ExeName) + 'server.cfg');
   try
     {$IFDEF LOAD_DYNAMICALLY}
@@ -157,7 +156,12 @@ begin
   Application.MaxMainThreads := 6;
   Application.ServerAnalizeJobClass:= WCMainTest.TWCPreThread;
   Application.WebClientClass:= WCTestClient.TWCTestWebClient;
-  Application.Initialize;
-  Application.Run;
-  DisposeJobsTree;
+  //
+  InitializeJobsTree;
+  try
+    Application.Initialize;
+    Application.Run;
+  finally
+    DisposeJobsTree;
+  end;
 end.

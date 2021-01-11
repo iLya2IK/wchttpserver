@@ -14,15 +14,9 @@
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
-    <MacroValues Count="1">
-      <Macro1 Name="LCLWidgetType" Value="nogui"/>
-    </MacroValues>
     <BuildModes Count="2">
       <Item1 Name="Debug" Default="True"/>
       <Item2 Name="Release">
-        <MacroValues Count="1">
-          <Macro1 Name="LCLWidgetType" Value="nogui"/>
-        </MacroValues>
         <CompilerOptions>
           <Version Value="11"/>
           <Target>
