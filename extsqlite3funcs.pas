@@ -1,3 +1,16 @@
+{
+ ExtSqlite3Funcs:
+   Classes to realize additional sqlite functions.
+   Example contains the Bitwise-Or aggregate function.
+   
+   Part of ESolver project
+   Copyright (c) 2019-2020 by Ilya Medvedkov
+   
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+}
+
 unit extsqlite3funcs;
 
 {$mode objfpc}{$H+}
