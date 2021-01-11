@@ -36,7 +36,7 @@ Free Pascal (v3.2.0) + Lazarus (v2.0.10)
 
 # Necessary libraries
 1. SQLite
-2. OpenSSL (v1.0.2 or higher)
+2. OpenSSL (v1.1.0 or higher)
 
 # Copyrights
 * [fcl-web (fpWeb) - part of Free Pascal's Free Component Library (FCL), focusing on web (related) application development](https://wiki.lazarus.freepascal.org/fcl-web)
