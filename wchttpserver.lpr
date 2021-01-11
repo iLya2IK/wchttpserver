@@ -1,3 +1,47 @@
+{
+  This project file is the example how can be realized WCHTTPServer
+  Project contains:
+  wchttpserver.lpi, 
+  wchttpserver.lpr, 
+  wctestclient.pas, 
+  wcservertestjobs.pas, 
+  wcmaintest.pas, 
+  sample site ./webclienttest/*
+  
+  How to deal with the example?
+
+  * Build it using the necessary development environment and 
+    ibraries or download precompiled release.
+  * Do not forget to generate a certificate and key file for your 
+    localhost (put them in ./openssl folder).
+    Command-line to start testing server: 
+    "wchttpserver {PORTNUM} [-debug]" 
+    (PORTNUM - is a number of the listening port - 
+     8080 for example)
+
+  How to write your own server?
+
+  * Rewrite wchttpserver.lpr - write here locations for your own 
+    files (certificates, keys, mime file, site files, session 
+    database, log database, list of using ciphers, list of 
+    necessary protocols, initial values for http/2 headers, num of 
+    threads) or do it more clever way - by external config file 
+    for example.
+  * Rewrite wcmaintest.pas - write here your own 
+    TWCPreAnalizeClientJob descendant class to implement the task 
+    which pre-analyzing requests and creating corresponding async 
+    tasks. Adwise you to using data trees like in example to 
+    realize such pre-analyzing task.
+  * Rewrite wctestclient.pas - implement here your own descendant 
+    class for TWebClient where add your own properties and 
+    functionality (just look how this is done in example file).
+  * Rewrite wcservertestjobs.pas - write your own server's async 
+    tasks here (descendant class for TWCMainClientJob). Every task 
+    is connected to the requesting client.
+  * Add your own site files - scripts, pages, CSS, images, and 
+    so on in the projects folder.
+}
+
 program wchttpserver;
 
 {$mode objfpc}{$H+}
