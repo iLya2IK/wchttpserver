@@ -535,7 +535,9 @@ end;
 
 procedure TAbsCustomHttpServer.SetSSLMasterKeyLog(AValue: String);
 begin
-  FSSLMasterKeyLog:= FSSLLoc + AValue;
+  if Length(AValue) > 0 then
+    FSSLMasterKeyLog:= FSSLLoc + AValue else
+      FSSLMasterKeyLog:= '';
 end;
 
 procedure TAbsCustomHttpServer.SetThreaded(const AValue: Boolean);
@@ -687,4 +689,3 @@ begin
 end;
 
 end.
-
