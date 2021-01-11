@@ -3,7 +3,7 @@
    Implementation for gzip and deflate compression
    based on zlib
 
-   Part of WCHTTP2Server project
+   Part of WCHTTPServer project
 
    Copyright (c) 2021 by Ilya Medvedkov
 
