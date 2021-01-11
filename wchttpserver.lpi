@@ -14,9 +14,15 @@
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
+    <MacroValues Count="1">
+      <Macro1 Name="LCLWidgetType" Value="nogui"/>
+    </MacroValues>
     <BuildModes Count="2">
       <Item1 Name="Debug" Default="True"/>
       <Item2 Name="Release">
+        <MacroValues Count="1">
+          <Macro1 Name="LCLWidgetType" Value="nogui"/>
+        </MacroValues>
         <CompilerOptions>
           <Version Value="11"/>
           <Target>
@@ -61,7 +67,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="23">
+    <Units Count="24">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -158,6 +164,11 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="WCServerTestJobs"/>
       </Unit22>
+      <Unit23>
+        <Filename Value="sortedthreadpool.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="SortedThreadPool"/>
+      </Unit23>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
