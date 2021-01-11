@@ -40,6 +40,7 @@
     is connected to the requesting client.
   * Add your own site files - scripts, pages, CSS, images, and 
     so on in the projects folder.
+
 }
 
 program wchttpserver;
@@ -79,14 +80,14 @@ const
   CFG_ALPN_USE_HTTP2 = 'UseHTTP2';
 
 
-  CFG_OPENSSL_SEC  = 'OpenSSL';
-  CFG_USE_SSL      = 'UseSSL';
-  CFG_HOST_NAME    = 'HostName';
-  CFG_SSL_LOC      = 'SSLLoc';
-  CFG_SSL_CIPHER   = 'SSLCipherList';
-  CFG_PRIVATE_KEY  = 'PrivateKeyLoc';
-  CFG_CERTIFICATE  = 'CertificateLoc';
-  CFG_TLSKEY_LOG   = 'TLSKeyLog';
+  CFG_OPENSSL_SEC    = 'OpenSSL';
+  CFG_USE_SSL        = 'UseSSL';
+  CFG_HOST_NAME      = 'HostName';
+  CFG_SSL_LOC        = 'SSLLoc';
+  CFG_SSL_CIPHER     = 'SSLCipherList';
+  CFG_PRIVATE_KEY    = 'PrivateKeyLoc';
+  CFG_CERTIFICATE    = 'CertificateLoc';
+  CFG_TLSKEY_LOG     = 'TLSKeyLog';
 
 
 var CfgFile : TIniFile;
