@@ -3,7 +3,7 @@
    Abstract implementation of THttpServer
    based on fphttpserver and replace it.
 
-   Part of WCHTTP2Server project
+   Part of WCHTTPServer project
 
    Copyright (c) 2021 by Ilya Medvedkov
 
