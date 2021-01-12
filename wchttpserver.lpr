@@ -77,7 +77,6 @@ const
   CFG_CLIENTS_DB     = 'ClientsDb';
   CFG_LOG_DB         = 'LogDb';
   CFG_MIME_NAME      = 'MimeName';
-  CFG_ALPN_USE_HTTP2 = 'UseHTTP2';
 
 
   CFG_OPENSSL_SEC    = 'OpenSSL';
@@ -88,6 +87,7 @@ const
   CFG_PRIVATE_KEY    = 'PrivateKeyLoc';
   CFG_CERTIFICATE    = 'CertificateLoc';
   CFG_TLSKEY_LOG     = 'TLSKeyLog';
+  CFG_ALPN_USE_HTTP2 = 'UseHTTP2';
 
 
 var CfgFile : TIniFile;
