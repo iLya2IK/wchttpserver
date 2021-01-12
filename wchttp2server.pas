@@ -2277,35 +2277,19 @@ end;
 
 class function TWCHTTP2Connection.CheckProtocolVersion(Data: Pointer; sz: integer
   ): TWCProtocolVersion;
-var b : Byte;
-    pb : PByteArray;
-    pos : integer;
 begin
-  Result:= wcUNK;
   if sz >= H2P_PREFACE_SIZE then
   begin
-    pb := PByteArray(Data);
-    pos := 0;
-    while true do
+    if CompareByte(Data^, HTTP2Preface[0], H2P_PREFACE_SIZE) = 0 then
     begin
-      b := pb^[pos];
-
-      if not (b = HTTP2Preface[pos]) then
-      begin
-        if (b in HTTP1HeadersAllowed) then
-          Result:=wcHTTP1 else
-          Result:=wcUNK; // other protocol
-        break;
-      end;
-
-      inc(pos);
-      if pos = H2P_PREFACE_SIZE then
-      begin
-        Result:=wcHTTP2;
-        break;
-      end;
+      Result:=wcHTTP2;
+    end else
+    begin
+      if (PByteArray(Data)^[0] in HTTP1HeadersAllowed) then
+        Result:=wcHTTP1 else
+        Result:=wcUNK; // other protocol
     end;
-  end;
+  end else Result:= wcUNK;
 end;
 
 procedure TWCHTTP2Connection.PushFrame(aFrameType: Byte; StrID: Cardinal;

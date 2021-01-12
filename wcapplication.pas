@@ -2074,6 +2074,7 @@ begin
 
   FDeflateCache := nil;
 
+  //todo : move this to config file
   if (Pos('image/',    FMimeType) = 1) or
      (((Pos('text/html', FMimeType) = 1) or
        (Pos('text/css',  FMimeType) = 1) or
