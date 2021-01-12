@@ -117,7 +117,7 @@ type
     constructor Create(aConnection : TWCHTTP2Connection;
                        aStream : TWCHTTPStream); virtual;
     destructor Destroy; override;
-    // avaible data and header
+    // avaible data
     procedure PushData(Data : Pointer; sz : Cardinal); overload;
     procedure PushData(Strm: TStream; startAt: Int64); overload;
     procedure PushData(Strings: TStrings); overload;
@@ -296,7 +296,7 @@ type
     property ParentStream : Cardinal read FParentStream;
     property Priority :  Byte read FPriority;
     property RecursedPriority : Byte read GetRecursedPriority;
-    // avaible requests
+    // avaible request
     function RequestReady : Boolean;
     property Request : TWCHTTP2Request read FCurRequest;
     property ResponseProceed : Boolean read GetResponseProceed write SetResponseProceed;

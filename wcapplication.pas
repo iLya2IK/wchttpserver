@@ -663,13 +663,11 @@ begin
   Request.ProtocolVersion:=trim(S);
 end;
 
-
 Procedure InitHTTP;
 begin
   Application:=TWCHTTPApplication.Create(Nil);
   if not assigned(CustomApplication) then
     CustomApplication := Application;
-  //
 end;
 
 Procedure DoneHTTP;
@@ -795,7 +793,7 @@ begin
     if WCConn.HTTPVersion = wcHTTP2 then
     begin
       WCConn.HTTP2Str.Request.Response.PushData(Pointer(@(S[1])), L);
-      WCConn.HTTP2Str.Request.Response.SerializeData(false);
+      WCConn.HTTP2Str.Request.Response.SerializeData(not KeepStreamAlive);
     end else
     begin
       C := WCConn.Socket.Write(S[1], L);
@@ -1089,9 +1087,10 @@ begin
             ReadReqContent(FRequest);
           FRequest.InitRequestVars;
           //check here if http1.1 upgrade to http2
-          //  !!
-          //    !!
-          //      !!
+          //here can be implmented simple mechanism for transitioning
+          //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
+          //
+          //this mechanism is not implemented due to its rare use
           if FProtocolVersion = wcHTTP1 then
           begin
             // Create Response
@@ -1105,7 +1104,7 @@ begin
       begin
         // read http/2 frames
         // RFC 7540
-        // find stream, consume data
+        // consume socket data, pop new request
         Result := True;
         if not Assigned(HTTP2Con) then
         begin
@@ -1281,7 +1280,7 @@ end;
 
 procedure TWCMainClientJob.Execute;
 begin
-  // do something in ancestor's class
+  // do something in descendant class
   if ResponseReadyToSend then
     Connection.Response.SendContent;
 end;
