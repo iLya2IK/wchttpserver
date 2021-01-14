@@ -504,13 +504,13 @@ type
     FLastUsedConnection : TIteratorObject;
     FMaintainStamp : QWord;
     {$ifdef socket_epoll_mode}
-    FInLoop : TThreadBoolean;
     FTimeout: cInt;
     FEvents: array of TEpollEvent;
     FEventsRead: array of TEpollEvent;
     FEpollReadFD: THandle;   // this one monitors LT style for READ
     FEpollFD: THandle;       // this one monitors ET style for other
     FEpollMasterFD: THandle; // this one monitors the first two
+    FEpollLocker : TNetCustomLockedObject;
     procedure AddSocketEpoll(ASocket : TWCHTTPSocketReference);
     procedure RemoveSocketEpoll(ASocket : TWCHTTPSocketReference);
     procedure Inflate;
@@ -1614,12 +1614,17 @@ procedure TWCHTTP2Connections.Inflate;
 var
   OldLength: Integer;
 begin
-  OldLength := Length(FEvents);
-  if OldLength > 1 then
-    SetLength(FEvents, Sqr(OldLength))
-  else
-    SetLength(FEvents, BASE_SIZE);
-  SetLength(FEventsRead, Length(FEvents));
+  FEpollLocker.Lock;
+  try
+    OldLength := Length(FEvents);
+    if OldLength > 1 then
+      SetLength(FEvents, Sqr(OldLength))
+    else
+      SetLength(FEvents, BASE_SIZE);
+    SetLength(FEventsRead, Length(FEvents));
+  finally
+    FEpollLocker.UnLock;
+  end;
 end;
 
 procedure TWCHTTP2Connections.CallActionEpoll(aCount: Integer);
@@ -1628,9 +1633,6 @@ var
   Temp, TempRead: TWCHTTPSocketReference;
   MasterEvents: array[0..1] of TEpollEvent;
 begin
-  if FInLoop.Value then
-    Exit;
-
   Changes := 0;
   ReadChanges := 0;
 
@@ -1645,29 +1647,29 @@ begin
       raise ESocketError.CreateFmt('Error on epoll %d', [err]);
   end else
   begin
-    err := 0;
-    for i := 0 to MasterChanges - 1 do begin
-      if MasterEvents[i].Data.fd = FEpollFD then
+    FEpollLocker.Lock;
+    try
+      err := 0;
+      for i := 0 to MasterChanges - 1 do begin
+        if MasterEvents[i].Data.fd = FEpollFD then
+        begin
+          repeat
+            Changes := epoll_wait(FEpollFD, @FEvents[0], aCount, 0);
+            err := SocketError;
+          until (Changes >= 0) or (err <> ESysEINTR);
+        end
+        else
+          repeat
+            ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
+            err := SocketError;
+          until (ReadChanges >= 0) or (err <> ESysEINTR);
+      end;
+      if (Changes < 0) or (ReadChanges < 0) then
       begin
-        repeat
-          Changes := epoll_wait(FEpollFD, @FEvents[0], aCount, 0);
-          err := SocketError;
-        until (Changes >= 0) or (err <> ESysEINTR);
-      end
-      else
-        repeat
-          ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
-          err := SocketError;
-        until (ReadChanges >= 0) or (err <> ESysEINTR);
-    end;
-    if (Changes < 0) or (ReadChanges < 0) then
-    begin
-      if (err <> 0) and (err <> ESysEINTR) then
-        raise ESocketError.CreateFmt('Error on epoll %d', [err]);
-    end else
-    begin
-      FInLoop.Value := True;
-      try
+        if (err <> 0) and (err <> ESysEINTR) then
+          raise ESocketError.CreateFmt('Error on epoll %d', [err]);
+      end else
+      begin
         m := Changes;
         if ReadChanges > m then m := ReadChanges;
         for i := 0 to m - 1 do begin
@@ -1689,9 +1691,9 @@ begin
                 TempRead.SetCanRead;
           end; // reads
         end;
-      finally
-        FInLoop.Value := False;
       end;
+    finally
+      FEpollLocker.UnLock;
     end;
   end;
 end;
@@ -1748,8 +1750,8 @@ begin
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
   {$ifdef SOCKET_EPOLL_MODE}
+  FEpollLocker := TNetCustomLockedObject.Create;
   Inflate;
-  FInLoop := TThreadBoolean.Create(false);
   FTimeout := 1;
   FEpollFD := epoll_create(BASE_SIZE);
   FEpollReadFD := epoll_create(BASE_SIZE);
@@ -1783,7 +1785,7 @@ begin
   end;
   {$ifdef SOCKET_EPOLL_MODE}
   fpClose(FEpollFD);
-  FInLoop.free;
+  FEpollLocker.Free;
   {$endif}
   inherited Destroy;
 end;
