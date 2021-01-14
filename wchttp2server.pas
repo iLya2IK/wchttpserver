@@ -17,6 +17,14 @@
 unit wchttp2server;
 
 {$mode objfpc}{$H+}
+{$ifdef linux}
+{epoll mode appeared thanks to the lNet project
+ CopyRight (C) 2004-2008 Ales Katona}
+{$define socket_epoll_mode}
+{.$define socket_select_mode}
+{$else}
+{$define socket_select_mode}
+{$endif}
 
 interface
 
@@ -30,6 +38,9 @@ uses
   {$ifdef unix}
     BaseUnix,Unix,
   {$endif}
+  {$ifdef linux}{$ifdef socket_epoll_mode}
+    Linux,
+  {$endif}{$endif}
   {$ifdef windows}
     winsock2, windows,
   {$endif}
@@ -309,24 +320,33 @@ type
 
   TWCHTTPSocketReference = class(TNetReferencedObject)
   private
+    {$ifdef socket_select_mode}
     FReadFDSet,
       FWriteFDSet,
       FErrorFDSet: PFDSet;
     FWaitTime : TTimeVal;
+    {$endif}
     FSocket : TSocketStream;
     FSocketStates: TSocketStates;
     FReadingLocks, FWritingLocks : Integer;
   public
     constructor Create(aSocket : TSocketStream);
     destructor Destroy; override;
+
+    {$ifdef socket_select_mode}
     procedure GetSocketStates;
-    function CanRead : Boolean;
-    function CanSend : Boolean;
-    function StartReading : Boolean;
-    procedure StopReading;
-    function StartSending : Boolean;
-    procedure StopSending;
+    {$endif}
+    procedure SetCanRead;
+    procedure SetCanSend;
     procedure PushError;
+
+    function  CanRead : Boolean;
+    function  CanSend : Boolean;
+    function  StartReading : Boolean;
+    procedure StopReading;
+    function  StartSending : Boolean;
+    procedure StopSending;
+
     function Write(const Buffer; Size : Integer) : Integer;
     function Read(var Buffer; Size : Integer) : Integer;
     property Socket : TSocketStream read FSocket;
@@ -470,20 +490,41 @@ type
     procedure RemoveClosedStreams;
   end;
 
+  {$ifdef socket_epoll_mode}
+  PEpollEvent = ^epoll_event;
+  TEpollEvent = epoll_event;
+  PEpollData = ^epoll_data;
+  TEpollData = epoll_data;
+  {$endif}
+
   { TWCHTTP2Connections }
 
   TWCHTTP2Connections = class(TThreadSafeFastSeq)
   private
     FLastUsedConnection : TIteratorObject;
     FMaintainStamp : QWord;
+    {$ifdef socket_epoll_mode}
+    FInLoop : TThreadBoolean;
+    FTimeout: cInt;
+    FEvents: array of TEpollEvent;
+    FEventsRead: array of TEpollEvent;
+    FEpollReadFD: THandle;   // this one monitors LT style for READ
+    FEpollFD: THandle;       // this one monitors ET style for other
+    FEpollMasterFD: THandle; // this one monitors the first two
+    procedure AddSocketEpoll(ASocket : TWCHTTPSocketReference);
+    procedure RemoveSocketEpoll(ASocket : TWCHTTPSocketReference);
+    procedure Inflate;
+    procedure CallActionEpoll(aCount : Integer);
+    {$endif}
     function IsConnDead(aConn: TObject; data: pointer): Boolean;
     procedure AfterConnExtracted(aObj : TObject);
   public
     constructor Create;
     destructor Destroy; override;
-    function GetByHandle(aSocket : Cardinal) : TWCHTTP2Connection;
-    procedure RemoveDeadConnections(MaxLifeTime : Cardinal);
-    procedure Idle;
+    procedure  AddConnection(FConn : TWCHTTP2Connection);
+    function   GetByHandle(aSocket : Cardinal) : TWCHTTP2Connection;
+    procedure  RemoveDeadConnections(MaxLifeTime : Cardinal);
+    procedure  Idle;
   end;
 
 implementation
@@ -492,6 +533,9 @@ uses uhpackimp;
 
 const
   HTTP1HeadersAllowed = [$0A,$0D,$20,$21,$24,$25,$27..$39,$40..$5A,$61..$7A];
+{$ifdef socket_epoll_mode}
+  BASE_SIZE = 100;
+{$endif}
 
 { TThreadSafeConnectionState }
 
@@ -620,6 +664,7 @@ constructor TWCHTTPSocketReference.Create(aSocket: TSocketStream);
 begin
   inherited Create;
   FSocket := aSocket;
+  {$ifdef socket_select_mode}
   {$ifdef windows}
   FReadFDSet:= GetMem(Sizeof(Cardinal) + Sizeof(TSocket)*1);
   FWriteFDSet:= GetMem(Sizeof(Cardinal) + Sizeof(TSocket)*1);
@@ -635,7 +680,8 @@ begin
   //FD_ZERO(FErrorFDSet);
   FWaitTime.tv_sec := 0;
   FWaitTime.tv_usec := 1000;
-  FSocketStates:=[ssCanRead, ssCanSend];
+  {$endif}
+  FSocketStates:=[ssCanSend, ssCanRead];
   FReadingLocks := 0;
   FWritingLocks := 0;
 end;
@@ -643,12 +689,15 @@ end;
 destructor TWCHTTPSocketReference.Destroy;
 begin
   if assigned(FSocket) then FreeAndNil(FSocket);
+  {$ifdef socket_select_mode}
   FreeMem(FReadFDSet);
   FreeMem(FWriteFDSet);
   FreeMem(FErrorFDSet);
+  {$endif}
   inherited Destroy;
 end;
 
+{$ifdef socket_select_mode}
 procedure TWCHTTPSocketReference.GetSocketStates;
 var
   n : integer;
@@ -703,6 +752,27 @@ begin
          FSocketStates:=FSocketStates + [ssError];
       {$endif}
     end;
+  finally
+    UnLock;
+  end;
+end;
+{$endif}
+
+procedure TWCHTTPSocketReference.SetCanRead;
+begin
+  Lock;
+  try
+    FSocketStates:=FSocketStates + [ssCanRead];
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCHTTPSocketReference.SetCanSend;
+begin
+  Lock;
+  try
+    FSocketStates:=FSocketStates + [ssCanSend];
   finally
     UnLock;
   end;
@@ -800,11 +870,34 @@ begin
   end;
 end;
 
+const
+  SSL_ERROR_WANT_READ = 2;
+  SSL_ERROR_WANT_WRITE = 3;
+{$IFDEF WINDOWS}
+function IsBlockError(const anError: Integer): Boolean; inline;
+begin
+  Result := (anError = ESysEWOULDBLOCK) or (anError = ESysENOBUFS) or
+            (anError = SSL_ERROR_WANT_READ) or (anError = SSL_ERROR_WANT_WRITE);
+end;
+{$else}
+function IsBlockError(const anError: Integer): Boolean; inline;
+begin
+  Result := (anError = ESysEWOULDBLOCK) or (anError = ESysENOBUFS) or
+            (anError = SSL_ERROR_WANT_READ) or (anError = SSL_ERROR_WANT_WRITE);
+end;
+{$endif}
+
 function TWCHTTPSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
   try
     Result := FSocket.Write(Buffer, Size);
+    Lock;
+    try
+      FSocketStates := FSocketStates - [ssCanSend];
+    finally
+      UnLock;
+    end;
   finally
     StopSending;
   end else Result := 0;
@@ -815,6 +908,12 @@ begin
   if StartReading then
   try
     Result := FSocket.Read(Buffer, Size);
+    Lock;
+    try
+      FSocketStates := FSocketStates - [ssCanRead];
+    finally
+      UnLock;
+    end;
   finally
     StopReading;
   end else Result := 0;
@@ -1509,6 +1608,122 @@ end;
 
 { TWCHTTP2Connections }
 
+{$ifdef SOCKET_EPOLL_MODE}
+
+procedure TWCHTTP2Connections.Inflate;
+var
+  OldLength: Integer;
+begin
+  OldLength := Length(FEvents);
+  if OldLength > 1 then
+    SetLength(FEvents, Sqr(OldLength))
+  else
+    SetLength(FEvents, BASE_SIZE);
+  SetLength(FEventsRead, Length(FEvents));
+end;
+
+procedure TWCHTTP2Connections.CallActionEpoll(aCount: Integer);
+var
+  i, MasterChanges, Changes, ReadChanges, m, err: Integer;
+  Temp, TempRead: TWCHTTPSocketReference;
+  MasterEvents: array[0..1] of TEpollEvent;
+begin
+  if FInLoop.Value then
+    Exit;
+
+  Changes := 0;
+  ReadChanges := 0;
+
+  repeat
+    MasterChanges := epoll_wait(FEpollMasterFD, @MasterEvents[0], 2, FTimeout);
+    err := SocketError;
+  until (MasterChanges >= 0) or (err <> ESysEINTR);
+
+  if MasterChanges <= 0 then
+  begin
+    if (MasterChanges < 0) and (err <> 0) and (err <> ESysEINTR) then
+      raise ESocketError.CreateFmt('Error on epoll %d', [err]);
+  end else
+  begin
+    err := 0;
+    for i := 0 to MasterChanges - 1 do begin
+      if MasterEvents[i].Data.fd = FEpollFD then
+      begin
+        repeat
+          Changes := epoll_wait(FEpollFD, @FEvents[0], aCount, 0);
+          err := SocketError;
+        until (Changes >= 0) or (err <> ESysEINTR);
+      end
+      else
+        repeat
+          ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
+          err := SocketError;
+        until (ReadChanges >= 0) or (err <> ESysEINTR);
+    end;
+    if (Changes < 0) or (ReadChanges < 0) then
+    begin
+      if (err <> 0) and (err <> ESysEINTR) then
+        raise ESocketError.CreateFmt('Error on epoll %d', [err]);
+    end else
+    begin
+      FInLoop.Value := True;
+      try
+        m := Changes;
+        if ReadChanges > m then m := ReadChanges;
+        for i := 0 to m - 1 do begin
+          Temp := nil;
+          if i < Changes then begin
+            Temp := TWCHTTPSocketReference(FEvents[i].data.ptr);
+
+            if  ((FEvents[i].events and EPOLLOUT) = EPOLLOUT) then
+                Temp.SetCanSend;
+
+            if  ((FEvents[i].events and EPOLLERR) = EPOLLERR) then
+                Temp.PushError;// 'Handle error' + Inttostr(SocketError));
+          end; // writes
+
+          if i < ReadChanges then begin
+            TempRead := TWCHTTPSocketReference(FEventsRead[i].data.ptr);
+
+            if  ((FEventsRead[i].events and (EPOLLIN or EPOLLHUP or EPOLLPRI)) > 0) then
+                TempRead.SetCanRead;
+          end; // reads
+        end;
+      finally
+        FInLoop.Value := False;
+      end;
+    end;
+  end;
+end;
+
+procedure TWCHTTP2Connections.AddSocketEpoll(ASocket: TWCHTTPSocketReference);
+var
+  lEvent: TEpollEvent;
+begin
+  ASocket.IncReference;
+  lEvent.events := {EPOLLET or }EPOLLOUT or EPOLLERR;
+  lEvent.data.ptr := ASocket;
+  if epoll_ctl(FEpollFD, EPOLL_CTL_ADD, ASocket.FSocket.Handle, @lEvent) < 0 then
+    raise ESocketError.CreateFmt('Error adding handle to epoll', [SocketError]);
+  lEvent.events := EPOLLIN or EPOLLPRI or EPOLLHUP;
+  if epoll_ctl(FEpollReadFD, EPOLL_CTL_ADD, ASocket.FSocket.Handle, @lEvent) < 0 then
+    raise ESocketError.CreateFmt('Error adding handle to epoll', [SocketError]);
+  if Count > High(FEvents) then
+    Inflate;
+end;
+
+procedure TWCHTTP2Connections.RemoveSocketEpoll(ASocket: TWCHTTPSocketReference);
+begin
+  try
+    epoll_ctl(FEpollFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
+    epoll_ctl(FEpollReadFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
+  finally
+    ASocket.DecReference;
+  end;
+end;
+
+{$endif}
+
 function TWCHTTP2Connections.IsConnDead(aConn: TObject; data: pointer
   ): Boolean;
 begin
@@ -1518,14 +1733,37 @@ end;
 
 procedure TWCHTTP2Connections.AfterConnExtracted(aObj: TObject);
 begin
+  {$ifdef SOCKET_EPOLL_MODE}
+  RemoveSocketEpoll(TWCHTTP2Connection(aObj).FSocketRef);
+  {$endif}
   TWCHTTP2Connection(aObj).DecReference;
 end;
 
 constructor TWCHTTP2Connections.Create;
+{$ifdef SOCKET_EPOLL_MODE}
+var lEvent : TEpollEvent;
+{$endif}
 begin
   inherited Create;
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
+  {$ifdef SOCKET_EPOLL_MODE}
+  Inflate;
+  FInLoop := TThreadBoolean.Create(false);
+  FTimeout := 1;
+  FEpollFD := epoll_create(BASE_SIZE);
+  FEpollReadFD := epoll_create(BASE_SIZE);
+  FEpollMasterFD := epoll_create(2);
+  if (FEPollFD < 0) or (FEpollReadFD < 0) or (FEpollMasterFD < 0) then
+    raise Exception.CreateFmt('Unable to create epoll: %d', [fpgeterrno]);
+  lEvent.events := EPOLLIN or EPOLLOUT or EPOLLPRI or EPOLLERR or EPOLLHUP;// or EPOLLET;
+  lEvent.data.fd := FEpollFD;
+  if epoll_ctl(FEpollMasterFD, EPOLL_CTL_ADD, FEpollFD, @lEvent) < 0 then
+    raise Exception.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
+  lEvent.data.fd := FEpollReadFD;
+  if epoll_ctl(FEpollMasterFD, EPOLL_CTL_ADD, FEpollReadFD, @lEvent) < 0 then
+    raise Exception.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
+  {$endif}
 end;
 
 destructor TWCHTTP2Connections.Destroy;
@@ -1543,7 +1781,19 @@ begin
   finally
     UnLock;
   end;
+  {$ifdef SOCKET_EPOLL_MODE}
+  fpClose(FEpollFD);
+  FInLoop.free;
+  {$endif}
   inherited Destroy;
+end;
+
+procedure TWCHTTP2Connections.AddConnection(FConn: TWCHTTP2Connection);
+begin
+  Push_back(FConn);
+  {$ifdef socket_epoll_mode}
+  AddSocketEpoll(FConn.FSocketRef);
+  {$endif}
 end;
 
 function TWCHTTP2Connections.GetByHandle(aSocket: Cardinal): TWCHTTP2Connection;
@@ -1585,6 +1835,9 @@ begin
     RemoveDeadConnections(120);
     FMaintainStamp := TS;
   end;
+  {$ifdef SOCKET_EPOLL_MODE}
+  CallActionEpoll(Count);
+  {$endif}
   Lock;
   try
     P := ListBegin;
@@ -2343,6 +2596,7 @@ begin
           Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
           if Sz < WrBuf.Position then
           begin
+            if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
             FWriteTailSize := WrBuf.Position - Sz;
             Move(Pointer(CurBuffer + Sz)^, CurBuffer^, FWriteTailSize);
           end else FWriteTailSize:= 0;
@@ -2380,7 +2634,9 @@ begin
   Result := false;
   if assigned(FSocketRef) and ReadyToReadWrite(TS) then
   begin
+    {$ifdef socket_select_mode}
     FSocketRef.GetSocketStates;
+    {$endif}
     if ssError in FSocketRef.States then
     begin
       ConnectionState:= wcDROPPED;

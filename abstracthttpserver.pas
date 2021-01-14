@@ -83,6 +83,8 @@ Type
   { TAbsInetServer }
 
   TAbsInetServer = Class(TInetServer)
+  public
+//    Function SockToStream (ASocket : Longint) : TSocketStream;Override;
   end;
 
   { TAbsCustomHttpServer }
@@ -585,6 +587,7 @@ begin
   FServer.OnAcceptError:=@DoAcceptError;
   FServer.OnIdle:=OnAcceptIdle;
   FServer.AcceptIdleTimeOut:=AcceptIdleTimeout;
+  //FServer.SetNonBlocking;
 end;
 
 procedure TAbsCustomHttpServer.StartServerSocket;

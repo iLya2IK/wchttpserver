@@ -71,11 +71,6 @@ implementation
 {$IFDEF WINDOWS}
 uses Winsock2, Windows, lws2tcpip;
 
-function IsBlockError(const anError: Integer): Boolean; inline;
-begin
-  Result := anError = WSAEWOULDBLOCK;
-end;
-
 function IsNonFatalError(const anError: Integer): Boolean; inline;
 begin
   Result := (anError = WSAEINVAL) or (anError = WSAEFAULT)
@@ -96,11 +91,6 @@ end;
 
 uses BaseUnix, NetDB, Errors, UnixUtil;
 
-function IsBlockError(const anError: Integer): Boolean; inline;
-begin
-  Result := (anError = ESysEWOULDBLOCK) or (anError = ESysENOBUFS);
-end;
-
 function IsNonFatalError(const anError: Integer): Boolean; inline;
 begin
   Result := (anError = ESysEINTR) or (anError = ESysEMSGSIZE)
@@ -120,7 +110,6 @@ Resourcestring
   SErrNoLibraryInit = 'Could not initialize OpenSSL library';
 
 Procedure MaybeInitSSLInterface;
-
 begin
   if not IsSSLloaded then
     if not InitSSLInterface then
@@ -223,30 +212,28 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.FetchErrorInfo: Boolean;
-
 var
   S : AnsiString;
-
 begin
   FSSLLastErrorString:='';
   FSSLLastError:=ErrGetError;
   ErrClearError;
   Result:=(FSSLLastError<>0);
   if Result then
-    begin
+  begin
     S:=StringOfChar(#0,256);
     ErrErrorString(FSSLLastError,S,256);
     FSSLLastErrorString:=s;
-    end;
+  end;
 end;
 
 procedure TExtOpenSSLSocketHandler.HandleSSLIOError(aResult: Integer; isSend : Boolean);
 begin
-  if aResult < 0 then begin
-    FLastError := aResult;
-    if not IsSSLBlockError(LastError) then
+  FLastError := aResult;
+  if aResult <> 0 then begin
+    if not IsSSLBlockError(FSSLLastError) then
     begin
-      if not IsSSLNonFatalError(LastError, aResult) then
+      if not IsSSLNonFatalError(FSSLLastError, aResult) then
       begin
         if IsSend and (IsPipeError(LastError)) then
           raise ESSLIOError.CreateFmt('pipe error %d', [LastError])
@@ -258,14 +245,13 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.CheckSSL(SSLResult : Integer) : Boolean;
-
 begin
-  Result:=SSLResult>=1;
+  Result:=(SSLResult > 0);
   if Not Result then
-     begin
+  begin
      FSSLLastError:=SSLResult;
      FetchErrorInfo;
-     end;
+  end;
 end;
 
 function TExtOpenSSLSocketHandler.CheckSSL(SSLResult: Pointer): Boolean;
@@ -276,7 +262,6 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.DoneContext: Boolean;
-
 begin
   FreeAndNil(FSSL);
   FreeAndNil(FCTX);
@@ -286,11 +271,9 @@ begin
 end;
 
 Function HandleSSLPwd(buf : PAnsiChar; len:Integer; flags:Integer; UD : Pointer):Integer; cdecl;
-
 var
   Pwd: AnsiString;
   H :  TExtOpenSSLSocketHandler;
-
 begin
   if Not Assigned(UD) then
     PWD:=''
@@ -307,7 +290,6 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.InitSslKeys: boolean;
-
 begin
   Result:=(FCTX<>Nil);
   if not Result then
@@ -461,39 +443,22 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.Send(const Buffer; Count: Integer): Integer;
-var
-  e: integer;
 begin
-  FSSLLastError := 0;
-  FSSLLastErrorString:='';
-  repeat
-    Result:=FSsl.Write(@Buffer,Count);
-    e:=FSsl.GetError(Result);
-  until Not IsSSLBlockError(e);
-  if (E=SSL_ERROR_ZERO_RETURN) then
-    Result:=0
-  else if (e<>0) then
-    FSSLLastError:=e;
+  Result:=FSsl.Write(@Buffer, Count);
+  FSSLLastError:=FSsl.GetError(Result);
+  if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
+    Result:=0;
   HandleSSLIOError(FSSLLastError, true);
 end;
 
 function TExtOpenSSLSocketHandler.Recv(const Buffer; Count: Integer): Integer;
-
-var
-  e: integer;
 begin
-  FSSLLastError:=0;
-  FSSLLastErrorString:= '';
-  repeat
-    Result:=FSSL.Read(@Buffer ,Count);
-    e:=FSSL.GetError(Result);
-    if (e=SSL_ERROR_WANT_READ) and (Socket.IOTimeout>0) then
-      e:=SSL_ERROR_ZERO_RETURN;
-  until Not IsSSLBlockError(e);
-  if (E=SSL_ERROR_ZERO_RETURN) then
-    Result:=0
-  else if (e<>0) then
-    FSSLLastError:=e;
+  Result:=FSSL.Read(@Buffer, Count);
+  FSSLLastError:=FSSL.GetError(Result);
+  if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout>0) then
+     FSSLLastError:=SSL_ERROR_ZERO_RETURN;
+  if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
+    Result:=0;
   HandleSSLIOError(FSSLLastError, false);
 end;
 

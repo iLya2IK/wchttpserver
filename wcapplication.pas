@@ -1053,7 +1053,7 @@ var r : integer;
 begin
   Result := true;
   try
-    SetupSocket;
+    //SetupSocket;
     r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
     If r<0 then
       Raise EHTTPServer.Create(WCSocketReadError);
@@ -1389,7 +1389,7 @@ begin
                                       aServerDoConsume,
                                       aSendData);
   Application.GarbageCollector.Add(Result);
-  FHTTP2Connections.Push_back(Result);
+  FHTTP2Connections.AddConnection(Result);
 end;
 
 procedure TWCHttpServer.AddToMainPool(AJob: TWCMainClientJob);

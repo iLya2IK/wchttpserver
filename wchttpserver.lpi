@@ -128,6 +128,7 @@
       <Unit13>
         <Filename Value="bufferedstream.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="BufferedStream"/>
       </Unit13>
       <Unit14>
         <Filename Value="gwidgetsethelper.pas"/>
