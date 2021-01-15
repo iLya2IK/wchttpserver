@@ -93,33 +93,33 @@ begin
   Application.LegacyRouting := true;
   Application.Threaded:=True;
   Conf := Application.Config;
-  Conf.SetDefaultValue(CFG_SERVER_NAME_HASH, 'WCTestServer');
+  Conf.SetDefaultValue(CFG_SERVER_NAME, 'WCTestServer');
   // WebFilesLoc - location of site files
   // for example if location of executable is /home/folder/
   // then site location will be home/folder/CFG_SITE_FOLDER/
-  Conf.SetDefaultValue(CFG_SITE_FOLDER_HASH, 'webclienttest');
+  Conf.SetDefaultValue(CFG_SITE_FOLDER, 'webclienttest');
   // MainURI - location of index file
   // then index location will be home/folder/CFG_SITE_FOLDER/CFG_MAIN_URI
-  Conf.SetDefaultValue(CFG_MAIN_URI_HASH, 'index.html');
+  Conf.SetDefaultValue(CFG_MAIN_URI, 'index.html');
   // SessionsLoc - location of sessions
   // then sessions location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC
-  Conf.SetDefaultValue(CFG_SESSIONS_LOC_HASH, 'sessions');
+  Conf.SetDefaultValue(CFG_SESSIONS_LOC, 'sessions');
   // SessionsDb - location of database with sessions and clients data
   // then sessions database location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC/CFG_CLIENTS_DB
-  Conf.SetDefaultValue(CFG_CLIENTS_DB_HASH, 'clients.db');
+  Conf.SetDefaultValue(CFG_CLIENTS_DB, 'clients.db');
   // LogDb - location of database with log and network dumps
   // then log database location will be home/folder/CFG_LOG_DB
-  Conf.SetDefaultValue(CFG_LOG_DB_HASH, 'logwebtest.db');
+  Conf.SetDefaultValue(CFG_LOG_DB, 'logwebtest.db');
   // MimeLoc - location of mime file
   // then mime file location will be home/folder/CFG_SITE_FOLDER/CFG_MIME_NAME
-  Conf.SetDefaultValue(CFG_MIME_NAME_HASH, 'mime.txt');
+  Conf.SetDefaultValue(CFG_MIME_NAME, 'mime.txt');
   //SSL/TLS configuration
-  Conf.SetDefaultValue(CFG_USE_SSL_HASH, true);
-  Conf.SetDefaultValue(CFG_HOST_NAME_HASH, 'localhost');
+  Conf.SetDefaultValue(CFG_USE_SSL, true);
+  Conf.SetDefaultValue(CFG_HOST_NAME, 'localhost');
   // SSLLoc - location of openssl keys, certificates and logs
   // then openssl location will be home/folder/CFG_SSL_LOC
-  Conf.SetDefaultValue(CFG_SSL_LOC_HASH, 'openssl');
-  Conf.SetDefaultValue(CFG_SSL_CIPHER_HASH,
+  Conf.SetDefaultValue(CFG_SSL_LOC, 'openssl');
+  Conf.SetDefaultValue(CFG_SSL_CIPHER,
                 'ECDHE-RSA-AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-CHACHA20-POLY1305:'+
@@ -130,15 +130,15 @@ begin
                 '');
   // PrivateKey - location of openssl keys
   // then keys location will be home/folder/CFG_SSL_LOC/CFG_PRIVATE_KEY
-  Conf.SetDefaultValue(CFG_PRIVATE_KEY_HASH, 'localhost.key');
+  Conf.SetDefaultValue(CFG_PRIVATE_KEY, 'localhost.key');
   // Certificate - location of openssl certificates
   // then certificates location will be home/folder/CFG_SSL_LOC/CFG_CERTIFICATE
-  Conf.SetDefaultValue(CFG_CERTIFICATE_HASH, 'localhost.crt');
+  Conf.SetDefaultValue(CFG_CERTIFICATE, 'localhost.crt');
   // SSLMasterKeyLog - location of openssl keys log
   // then tls keys log location will be home/folder/CFG_SSL_LOC/CFG_TLSKEY_LOG
-  Conf.SetDefaultValue(CFG_TLSKEY_LOG_HASH, ''); // tlskey.log
+  Conf.SetDefaultValue(CFG_TLSKEY_LOG, ''); // tlskey.log
   Application.ESServer.SSLType:= stTLSv1_2;
-  Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2_HASH, True);
+  Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2, True);
 
   HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
   HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);

@@ -89,6 +89,8 @@ type
     procedure SetConfigFileName(AValue: String);
     procedure SyncConfigRecord(aRecord: TWCConfigRecord; Parent: TJSONObject;
                                         Forced : Boolean);
+  protected
+    procedure DoInitialize; virtual; abstract;
   public
     constructor Create(const aFileName : String);
     destructor Destroy; override;
@@ -101,84 +103,25 @@ type
                                                       FOnChangeValue;
   end;
 
-const
-  MAX_OPTS = 14;
-
 type
-  TWCConfiguration = packed record
-    case byte of
-    0:(
-    CFG_SITE_FOLDER    : TWCConfigRec;
-    CFG_SERVER_NAME    : TWCConfigRec;
-    CFG_MAIN_URI       : TWCConfigRec;
-    CFG_SESSIONS_LOC   : TWCConfigRec;
-    CFG_CLIENTS_DB     : TWCConfigRec;
-    CFG_LOG_DB         : TWCConfigRec;
-    CFG_MIME_NAME      : TWCConfigRec;
-    CFG_USE_SSL        : TWCConfigRec;
-    CFG_HOST_NAME      : TWCConfigRec;
-    CFG_SSL_LOC        : TWCConfigRec;
-    CFG_SSL_CIPHER     : TWCConfigRec;
-    CFG_PRIVATE_KEY    : TWCConfigRec;
-    CFG_CERTIFICATE    : TWCConfigRec;
-    CFG_TLSKEY_LOG     : TWCConfigRec;
-    CFG_ALPN_USE_HTTP2 : TWCConfigRec;
-    );
-    1 : (CNFGS : Array [0..MAX_OPTS] of TWCConfigRec);
-  end;
-
-const
-  CFG_MAIN_SEC       = 'Main';
-  CFG_OPENSSL_SEC    = 'OpenSSL';
-
-  CFG_SITE_FOLDER_HASH    = $10;
-  CFG_SERVER_NAME_HASH    = $20;
-  CFG_MAIN_URI_HASH       = $30;
-  CFG_SESSIONS_LOC_HASH   = $40;
-  CFG_CLIENTS_DB_HASH     = $50;
-  CFG_LOG_DB_HASH         = $60;
-  CFG_MIME_NAME_HASH      = $70;
-  CFG_USE_SSL_HASH        = $11;
-  CFG_HOST_NAME_HASH      = $21;
-  CFG_SSL_LOC_HASH        = $31;
-  CFG_SSL_CIPHER_HASH     = $41;
-  CFG_PRIVATE_KEY_HASH    = $51;
-  CFG_CERTIFICATE_HASH    = $61;
-  CFG_TLSKEY_LOG_HASH     = $71;
-  CFG_ALPN_USE_HTTP2_HASH = $81;
-
-  CFG_CONFIGURATION : TWCConfiguration = (
-    CFG_SITE_FOLDER    : (Name:'SiteFolder';    Hash:CFG_SITE_FOLDER_HASH    );
-    CFG_SERVER_NAME    : (Name:'ServerName';    Hash:CFG_SERVER_NAME_HASH    );
-    CFG_MAIN_URI       : (Name:'MainURI';       Hash:CFG_MAIN_URI_HASH       );
-    CFG_SESSIONS_LOC   : (Name:'SessionsLoc';   Hash:CFG_SESSIONS_LOC_HASH   );
-    CFG_CLIENTS_DB     : (Name:'ClientsDb';     Hash:CFG_CLIENTS_DB_HASH     );
-    CFG_LOG_DB         : (Name:'LogDb';         Hash:CFG_LOG_DB_HASH         );
-    CFG_MIME_NAME      : (Name:'MimeName';      Hash:CFG_MIME_NAME_HASH      );
-    CFG_USE_SSL        : (Name:'UseSSL';        Hash:CFG_USE_SSL_HASH        );
-    CFG_HOST_NAME      : (Name:'HostName';      Hash:CFG_HOST_NAME_HASH      );
-    CFG_SSL_LOC        : (Name:'SSLLoc';        Hash:CFG_SSL_LOC_HASH        );
-    CFG_SSL_CIPHER     : (Name:'SSLCipherList'; Hash:CFG_SSL_CIPHER_HASH     );
-    CFG_PRIVATE_KEY    : (Name:'PrivateKeyLoc'; Hash:CFG_PRIVATE_KEY_HASH    );
-    CFG_CERTIFICATE    : (Name:'CertificateLoc';Hash:CFG_CERTIFICATE_HASH    );
-    CFG_TLSKEY_LOG     : (Name:'TLSKeyLog';     Hash:CFG_TLSKEY_LOG_HASH     );
-    CFG_ALPN_USE_HTTP2 : (Name:'UseHTTP2';      Hash:CFG_ALPN_USE_HTTP2_HASH )
-    );
+  TWCConfiguration = Array of TWCConfigRec;
 
 function  StrToConfig(const str : String) : PWCConfigRec;
 function  HashToConfig(hash : Cardinal) : PWCConfigRec;
 function  StrConfigToHash(const str : String) : Cardinal;
+
+var CFG_CONFIGURATION : TWCConfiguration;
 
 implementation
 
 function StrToConfig(const str: String): PWCConfigRec;
 var i : integer;
 begin
-  for i := 0 to High(CFG_CONFIGURATION.CNFGS) do
+  for i := 0 to High(CFG_CONFIGURATION) do
   begin
-    if SameStr(str, CFG_CONFIGURATION.CNFGS[i].NAME_STR) then
+    if SameStr(str, CFG_CONFIGURATION[i].NAME_STR) then
     begin
-      Result := @(CFG_CONFIGURATION.CNFGS[i]);
+      Result := @(CFG_CONFIGURATION[i]);
       Exit;
     end;
   end;
@@ -188,11 +131,11 @@ end;
 function HashToConfig(hash: Cardinal): PWCConfigRec;
 var i : integer;
 begin
-  for i := 0 to High(CFG_CONFIGURATION.CNFGS) do
+  for i := 0 to High(CFG_CONFIGURATION) do
   begin
-    if hash = CFG_CONFIGURATION.CNFGS[i].Hash then
+    if hash = CFG_CONFIGURATION[i].Hash then
     begin
-      Result := @(CFG_CONFIGURATION.CNFGS[i]);
+      Result := @(CFG_CONFIGURATION[i]);
       Exit;
     end;
   end;
@@ -202,11 +145,11 @@ end;
 function StrConfigToHash(const str: String): Cardinal;
 var i : integer;
 begin
-  for i := 0 to High(CFG_CONFIGURATION.CNFGS) do
+  for i := 0 to High(CFG_CONFIGURATION) do
   begin
-    if SameStr(str, CFG_CONFIGURATION.CNFGS[i].NAME_STR) then
+    if SameStr(str, CFG_CONFIGURATION[i].NAME_STR) then
     begin
-      Result := CFG_CONFIGURATION.CNFGS[i].Hash;
+      Result := CFG_CONFIGURATION[i].Hash;
       Exit;
     end;
   end;
@@ -463,10 +406,14 @@ end;
 constructor TWCConfig.Create(const aFileName: String);
 begin
   inherited Create;
+
   FJsonConfig := nil;
   FConfigFile := '';
   if assigned(FRootConfig) then FreeAndNil(FRootConfig);
   FRootConfig := TWCConfigRecord.Create('', wccrRoot);
+
+  DoInitialize;
+
   SetConfigFileName(aFileName);
 end;
 

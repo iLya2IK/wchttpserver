@@ -134,7 +134,7 @@ begin
     if FN[1] = cSysDelimiter then
       Delete(FN, 1, 1);
 
-    FN := UTF8Encode(vPath) + FN;
+    FN := Application.SitePath + FN;
 
     FE := ExtractFileExt(FN);
     if SameText(FE, '.svgz') then begin
