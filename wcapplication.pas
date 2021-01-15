@@ -194,8 +194,8 @@ type
     FServerAnalizeJobClass : TWCPreAnalizeClientJobClass;
 
     FConfig : TWCHTTPConfig;
-    FMaxMainThreads: Byte;
-    FMaxPrepareThreads: Byte;
+    FMaxMainThreads: TThreadInteger;
+    FMaxPrepareThreads: TThreadInteger;
     FCompressLimit: TThreadInteger;
     FVPath, FMainHTTP, FSessionsLoc,
     FSessionsDb, FLogDbLoc,
@@ -212,6 +212,8 @@ type
     function GetESServer: TWCHttpServer;
     function GetLogDbLoc: String;
     function GetMainHTTP: String;
+    function GetMaxMainThreads: Byte;
+    function GetMaxPrepareThreads: Byte;
     function GetMimeLoc: String;
     function GetSessionsDb: String;
     function GetSessionsLoc: String;
@@ -229,6 +231,8 @@ type
     procedure SetSessionsLoc(AValue: String);
     procedure SetSSLLoc(AValue: String);
     procedure SetWebFilesLoc(AValue: String);
+    function  Initialized : Boolean;
+    function ConfigChangeHalt : Boolean;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -258,8 +262,8 @@ type
     property SSLLoc : String read GetSSLLoc write SetSSLLoc;
     property WebFilesLoc : String read getWebFilesLoc write SetWebFilesLoc;
     property CompressLimit : Cardinal read GetCompressLimit write SetCompressLimit;
-    property MaxPrepareThreads : Byte read FMaxPrepareThreads write SetMaxPrepareThreads;
-    property MaxMainThreads : Byte read FMaxMainThreads write SetMaxMainThreads;
+    property MaxPrepareThreads : Byte read GetMaxPrepareThreads write SetMaxPrepareThreads;
+    property MaxMainThreads : Byte read GetMaxMainThreads write SetMaxMainThreads;
     property Config : TWCHTTPConfig read FConfig;
     property ConfigFileName : String read GetConfigFileName write SetConfigFileName;
   end;
@@ -733,6 +737,9 @@ begin
   MainSec.AddValue(CFG_CLIENTS_DB, wccrString);
   MainSec.AddValue(CFG_LOG_DB, wccrString);
   MainSec.AddValue(CFG_MIME_NAME, wccrString);
+  MainSec.AddValue(CFG_COMPRESS_LIMIT, wccrInteger);
+  MainSec.AddValue(CFG_MAIN_THREAD_CNT, wccrInteger);
+  MainSec.AddValue(CFG_PRE_THREAD_CNT, wccrInteger);
 
   SSLSec := Root.AddSection(CFG_OPENSSL_SEC);
   SSLSec.AddValue(CFG_USE_SSL, wccrBoolean);
@@ -1150,7 +1157,7 @@ begin
             ReadReqContent(FRequest);
           FRequest.InitRequestVars;
           //check here if http1.1 upgrade to http2
-          //here can be implmented simple mechanism for transitioning
+          //here can be implemented simple mechanism for transitioning
           //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
           //
           //this mechanism is not implemented due to its rare use
@@ -1862,37 +1869,30 @@ procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
 begin
   if not VarIsNull(Sender.Value) then
   case Sender.HashName of
-    CFG_SITE_FOLDER    : begin
+    CFG_SITE_FOLDER :
       WebFilesLoc := Sender.Value + cSysDelimiter;
-    end;
-    CFG_SERVER_NAME    : begin
+    CFG_SERVER_NAME :
       Title := Sender.Value;
-    end;
-    CFG_MAIN_URI       : begin
+    CFG_MAIN_URI :
       MainURI := Sender.Value;
-    end;
-    CFG_SESSIONS_LOC   : begin
+    CFG_SESSIONS_LOC :
       SessionsLoc := Sender.Value;
-    end;
-    CFG_CLIENTS_DB     : begin
+    CFG_CLIENTS_DB :
       SessionsDb := Sender.Value;
-    end;
-    CFG_LOG_DB         : begin
+    CFG_LOG_DB :
       LogDb := Sender.Value;
-    end;
-    CFG_MIME_NAME      : begin
+    CFG_MIME_NAME :
       MimeLoc := Sender.Value;
-    end;
-    CFG_USE_SSL        : begin
+    CFG_USE_SSL :
       UseSSL := Sender.Value;
-    end;
-    CFG_HOST_NAME      : begin
+    CFG_HOST_NAME :
       HostName := Sender.Value;
-    end;
-    CFG_SSL_LOC        : begin
+    CFG_SSL_LOC :
       SSLLoc := Sender.Value + cSysDelimiter;
-    end;
-    CFG_SSL_CIPHER     : begin
+    CFG_COMPRESS_LIMIT :
+      CompressLimit:= Sender.Value;
+    //openssl
+    CFG_SSL_CIPHER : begin
       ESServer.CertificateData.CipherList := Sender.Value;
     end;
     CFG_PRIVATE_KEY    : begin
@@ -1928,8 +1928,11 @@ var I : integer;
 begin
   inherited Create(AOwner);
 
+  FStartStamp := 0;
   FConfig := nil;
 
+  FMaxMainThreads:= TThreadInteger.Create(1);
+  FMaxPrepareThreads:= TThreadInteger.Create(1);
   FCompressLimit:= TThreadInteger.Create(500);
   FVPath := TThreadUtf8String.Create('');
   FMainHTTP := TThreadUtf8String.Create('');
@@ -1977,6 +1980,8 @@ begin
   OnException:=@DoOnException;
   FLogDB.Free;
   if assigned(FConfig) then FreeAndNil(FConfig);
+  FMaxMainThreads.Free;
+  FMaxPrepareThreads.Free;
   FCompressLimit.Free;
   FVPath.Free;
   FMainHTTP.Free;
@@ -2037,6 +2042,16 @@ begin
   Result := FMainHTTP.Value;
 end;
 
+function TWCHTTPApplication.GetMaxMainThreads: Byte;
+begin
+  Result := FMaxMainThreads.Value;
+end;
+
+function TWCHTTPApplication.GetMaxPrepareThreads: Byte;
+begin
+  Result := FMaxPrepareThreads.Value;
+end;
+
 function TWCHTTPApplication.GetMimeLoc: String;
 begin
   Result := FMimeLoc.Value;
@@ -2069,6 +2084,7 @@ end;
 
 procedure TWCHTTPApplication.SetCompressLimit(AValue: Cardinal);
 begin
+  if (AValue < 128) then Exit;
   FCompressLimit.Value := AValue;
 end;
 
@@ -2089,12 +2105,14 @@ var loc : String;
 begin
   if Length(AValue) = 0 then Exit;
   if SameText(AValue, FLogDbLoc.Value) then Exit;
-  FLogDbLoc.Value:= AValue;
-  loc := ExtractFilePath(ExeName) + LogDb;
-  if not Assigned(FLogDB) then begin
-    FLogDB := TSqliteLogger.Create(loc);
-    OnException:=@DoOnLoggerException;
-    DoInfo('Server started');
+  if ConfigChangeHalt then begin
+    FLogDbLoc.Value:= AValue;
+    loc := ExtractFilePath(ExeName) + LogDb;
+    if not Assigned(FLogDB) then begin
+      FLogDB := TSqliteLogger.Create(loc);
+      OnException:=@DoOnLoggerException;
+      DoInfo('Server started');
+    end;
   end;
 end;
 
@@ -2110,20 +2128,27 @@ procedure TWCHTTPApplication.SetMaxMainThreads(AValue: Byte);
 begin
   if AValue = 0 then AValue := 1;
   if AValue > WC_MAX_MAIN_THREADS then AValue := WC_MAX_MAIN_THREADS;
-  if FMaxMainThreads=AValue then Exit;
-  FMaxMainThreads:=AValue;
-  if assigned(GetESServer) then
-     GetESServer.MaxMainClientsThreads:=aValue;
+  if FMaxMainThreads.Value=AValue then Exit;
+
+
+  if ConfigChangeHalt then begin
+    FMaxMainThreads.Value:=AValue;
+    if assigned(GetESServer) then
+       GetESServer.MaxMainClientsThreads:=aValue;
+  end;
 end;
 
 procedure TWCHTTPApplication.SetMaxPrepareThreads(AValue: Byte);
 begin
   if AValue = 0 then AValue := 1;
   if AValue > WC_MAX_PREP_THREADS then AValue := WC_MAX_PREP_THREADS;
-  if FMaxPrepareThreads=AValue then Exit;
-  FMaxPrepareThreads:=AValue;       
-  if assigned(GetESServer) then
-     GetESServer.MaxPreClientsThreads:=aValue;
+  if FMaxPrepareThreads.Value=AValue then Exit;
+
+  if ConfigChangeHalt then begin
+    FMaxPrepareThreads.Value:=AValue;
+    if assigned(GetESServer) then
+       GetESServer.MaxPreClientsThreads:=aValue;
+  end;
 end;
 
 procedure TWCHTTPApplication.SetMimeLoc(AValue: String);
@@ -2143,7 +2168,8 @@ begin
   if Length(AValue) = 0 then Exit;
   if SameText(AValue, FSessionsDb.Value) then Exit;
 
-  FSessionsDb.Value := AValue;
+  if ConfigChangeHalt then
+    FSessionsDb.Value := AValue;
 end;
 
 procedure TWCHTTPApplication.SetSessionsLoc(AValue: String);
@@ -2151,16 +2177,20 @@ begin
   if Length(AValue) = 0 then Exit;
   if SameText(AValue, FSessionsLoc.Value) then Exit;
 
-  FSessionsLoc.Value := AValue;
+  if ConfigChangeHalt then
+    FSessionsLoc.Value := AValue;
 end;
 
 procedure TWCHTTPApplication.SetSSLLoc(AValue: String);
 begin
   if Length(AValue) = 0 then Exit;
   if SameText(AValue, FSSLLoc.Value) then Exit;
-  FSSLLoc.Value := AValue;
-  if assigned(ESServer) then
-    ESServer.SSLLoc := ExtractFilePath(ExeName) + AValue;
+
+  if ConfigChangeHalt then begin
+    FSSLLoc.Value := AValue;
+    if assigned(ESServer) then
+      ESServer.SSLLoc := ExtractFilePath(ExeName) + AValue;
+  end;
 end;
 
 procedure TWCHTTPApplication.SetWebFilesLoc(AValue: String);
@@ -2168,42 +2198,65 @@ var loc : String;
 begin
   if Length(AValue) = 0 then Exit;
   if SameText(AValue, FWebFilesLoc.Value) then Exit;
-  loc := ExtractFilePath(ExeName) + AValue;
-  if DirectoryExists(loc) then
-  begin
-    FWebFilesLoc.Value:= AValue;
-    FVPath.Value := loc;
-    if Length(MimeLoc) > 0 then begin
-      MimeTypesFile := loc + MimeLoc;
-      if FileExists(MimeTypesFile) then
-        MimeTypes.LoadFromFile(MimeTypesFile);
+
+  if ConfigChangeHalt then begin
+    loc := ExtractFilePath(ExeName) + AValue;
+    if DirectoryExists(loc) then
+    begin
+      FWebFilesLoc.Value:= AValue;
+      FVPath.Value := loc;
+      if Length(MimeLoc) > 0 then begin
+        MimeTypesFile := loc + MimeLoc;
+        if FileExists(MimeTypesFile) then
+          MimeTypes.LoadFromFile(MimeTypesFile);
+      end;
+      if Length(SSLLoc) > 0 then
+        if assigned(ESServer) then
+          ESServer.SSLLoc:= loc + FSSLLoc.Value;
     end;
-    if Length(SSLLoc) > 0 then
-      if assigned(ESServer) then
-        ESServer.SSLLoc:= loc + FSSLLoc.Value;
   end;
+end;
+
+function TWCHTTPApplication.Initialized: Boolean;
+begin
+  Result := FStartStamp > 0;
+end;
+
+function TWCHTTPApplication.ConfigChangeHalt: Boolean;
+begin
+  Result := not Initialized;
+  if not Result then
+    DoError('Config value changed in runtime. Denied.');
 end;
 
 procedure TWCHTTPApplication.DoInfo(const V: String);
 begin
-  FLogDB.LogAdd(LOG_INFO, V);
+  if Assigned(FLogDB) then
+    FLogDB.LogAdd(LOG_INFO, V) else
+    WriteLn('i: ', V);
 end;
 
 procedure TWCHTTPApplication.DoInfo(const V: String;
   const aParams: array of const);
 begin
-  FLogDB.LogAdd(LOG_INFO, V, aParams);
+  if Assigned(FLogDB) then
+    FLogDB.LogAdd(LOG_INFO, V, aParams) else
+    WriteLn('i: ', Format(V, aParams));
 end;
 
 procedure TWCHTTPApplication.DoError(const V: String);
 begin
-  FLogDB.LogAdd(LOG_ERROR, V);
+  if Assigned(FLogDB) then
+    FLogDB.LogAdd(LOG_ERROR, V) else
+    WriteLn('e: ', V);
 end;
 
 procedure TWCHTTPApplication.DoError(const V: String;
   const aParams: array of const);
 begin
-  FLogDB.LogAdd(LOG_ERROR, V, aParams);
+  if Assigned(FLogDB) then
+    FLogDB.LogAdd(LOG_ERROR, V, aParams) else
+    WriteLn('e: ', Format(V, aParams));
 end;
 
 procedure TWCHTTPApplication.SendError(AResponse: TResponse; errno: Integer);
@@ -2223,9 +2276,6 @@ begin
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;
   GetWebHandler.AcceptIdleTimeout:=1;
-
-  GetESServer.MaxMainClientsThreads := MaxMainThreads;
-  GetESServer.MaxPreClientsThreads  := MaxPrepareThreads;
 
   FStartStamp:= GetTickCount64;
   DoInfo('Server initialized');
@@ -2351,7 +2401,7 @@ begin
      (((Pos('text/html', FMimeType) = 1) or
        (Pos('text/css',  FMimeType) = 1) or
        (Pos('application/javascript',  FMimeType) = 1)) and
-                            Application.NetDebugMode) then begin
+                          (not Application.NetDebugMode)) then begin
     // for all pictures allow cache 1 hr
     FCacheControl := 'public, max-age=3600';
   end else

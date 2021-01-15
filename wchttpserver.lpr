@@ -104,10 +104,10 @@ begin
   // SessionsLoc - location of sessions
   // then sessions location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC
   Conf.SetDefaultValue(CFG_SESSIONS_LOC, 'sessions');
-  // SessionsDb - location of database with sessions and clients data
+  // SessionsDb - location of database with sessions, clients data and network dumps
   // then sessions database location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC/CFG_CLIENTS_DB
   Conf.SetDefaultValue(CFG_CLIENTS_DB, 'clients.db');
-  // LogDb - location of database with log and network dumps
+  // LogDb - location of database with log
   // then log database location will be home/folder/CFG_LOG_DB
   Conf.SetDefaultValue(CFG_LOG_DB, 'logwebtest.db');
   // MimeLoc - location of mime file
@@ -139,17 +139,21 @@ begin
   Conf.SetDefaultValue(CFG_TLSKEY_LOG, ''); // tlskey.log
   Application.ESServer.SSLType:= stTLSv1_2;
   Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2, True);
+  Conf.SetDefaultValue(CFG_COMPRESS_LIMIT, 500);
+  Conf.SetDefaultValue(CFG_MAIN_THREAD_CNT, 6);
+  Conf.SetDefaultValue(CFG_PRE_THREAD_CNT, 5);
 
-  HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
-  HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
-  PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
-  Application.MaxPrepareThreads := 5;
-  Application.MaxMainThreads := 6;
+  if HTTP2ServerSettingsSize = 0 then begin
+    HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
+    HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
+    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
+  end;
+
   Application.ServerAnalizeJobClass:= WCMainTest.TWCPreThread;
   Application.WebClientClass:= WCTestClient.TWCTestWebClient;
   //
