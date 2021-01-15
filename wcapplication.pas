@@ -29,6 +29,7 @@ uses
   sqlitewebsession,
   sqlitelogger,
   jsonscanner, jsonparser, fpjson,
+  wcconfig,
   ExtSqlite3DS,
   variants,
   sockets,
@@ -37,7 +38,8 @@ uses
   BufferedStream,
   kcThreadPool,
   SortedThreadPool,
-  AvgLvlTree
+  AvgLvlTree,
+  OGLFastList
   {$ifdef NOGUI}
   {$ifdef unix}
   , gwidgetsethelper
@@ -176,6 +178,7 @@ type
 
   TWCHTTPApplication = Class(TCustomAbsHTTPApplication)
   private
+    FConfig : TWCConfig;
     FCompressLimit: Cardinal;
     FMaxMainThreads: Byte;
     FMaxPrepareThreads: Byte;
@@ -189,12 +192,15 @@ type
     FServerAnalizeJobClass : TWCPreAnalizeClientJobClass;
     FMainHTTP, FSessionsLoc, FSessionsDb, FLogDbLoc,
     FWebFilesLoc, FSSLLoc : String;
+    procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
     procedure DoOnException(Sender : TObject; E : Exception);
     Procedure DoGetModule(Sender : TObject; ARequest : TRequest;
                                Var ModuleClass : TCustomHTTPModuleClass);
     procedure DoOnIdle(sender : TObject);
+    function GetConfigFileName: String;
     function GetESServer: TWCHttpServer;
+    procedure SetConfigFileName(AValue: String);
     procedure SetMaxMainThreads(AValue: Byte);
     procedure SetMaxPrepareThreads(AValue: Byte);
     procedure SetSSLLoc(AValue: String);
@@ -226,6 +232,8 @@ type
     property CompressLimit : Cardinal read FCompressLimit write FCompressLimit;
     property MaxPrepareThreads : Byte read FMaxPrepareThreads write SetMaxPrepareThreads;
     property MaxMainThreads : Byte read FMaxMainThreads write SetMaxMainThreads;
+    property Config : TWCConfig read FConfig;
+    property ConfigFileName : String read GetConfigFileName write SetConfigFileName;
   end;
 
   { TWebCachedItem }
@@ -1296,12 +1304,14 @@ procedure TWCHttpServer.SetMaxMainClientsThreads(AValue: Byte);
 begin
   if FMaxMainClientsThreads=AValue then Exit;
   FMaxMainClientsThreads:=AValue;
+  //todo: resize thread pool here
 end;
 
 procedure TWCHttpServer.SetMaxPreClientsThreads(AValue: Byte);
 begin
   if FMaxPreClientsThreads=AValue then Exit;
   FMaxPreClientsThreads:=AValue;
+  //todo: resize thread pool here
 end;
 
 function TWCHttpServer.CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer
@@ -1793,6 +1803,61 @@ begin
   WriteLn('An error handled: ' + E.Message);
 end;
 
+procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
+begin
+  if not VarIsNull(Sender.Value) then
+  case Sender.HashName of
+    CFG_SITE_FOLDER_HASH    : begin
+      WebFilesLoc := Sender.Value + cSysDelimiter;
+      vPath := UnicodeString(ExtractFilePath(ExeName) + WebFilesLoc);
+    end;
+    CFG_SERVER_NAME_HASH    : begin
+      Application.Title := Sender.Value;
+    end;
+    CFG_MAIN_URI_HASH       : begin
+      Application.MainURI := Sender.Value;
+    end;
+    CFG_SESSIONS_LOC_HASH   : begin
+      Application.SessionsLoc := Sender.Value;
+    end;
+    CFG_CLIENTS_DB_HASH     : begin
+      Application.SessionsDb := Sender.Value;
+    end;
+    CFG_LOG_DB_HASH         : begin
+      Application.LogDb := Sender.Value;
+    end;
+    CFG_MIME_NAME_HASH      : begin
+      Application.MimeLoc := Sender.Value;
+    end;
+    CFG_USE_SSL_HASH        : begin
+      Application.UseSSL := Sender.Value;
+    end;
+    CFG_HOST_NAME_HASH      : begin
+      Application.HostName := Sender.Value;
+    end;
+    CFG_SSL_LOC_HASH        : begin
+      Application.SSLLoc := Sender.Value + cSysDelimiter;
+    end;
+    CFG_SSL_CIPHER_HASH     : begin
+      Application.ESServer.CertificateData.CipherList := Sender.Value;
+    end;
+    CFG_PRIVATE_KEY_HASH    : begin
+      Application.ESServer.PrivateKey := Sender.Value;
+    end;
+    CFG_CERTIFICATE_HASH    : begin
+      Application.ESServer.Certificate := Sender.Value;
+    end;
+    CFG_TLSKEY_LOG_HASH     : begin
+      Application.ESServer.SSLMasterKeyLog := Sender.Value;
+    end;
+    CFG_ALPN_USE_HTTP2_HASH : begin
+      Application.ESServer.AlpnList.Clear;
+      if Sender.Value then Application.ESServer.AlpnList.Add('h2');
+      Application.ESServer.AlpnList.Add('http/1.1');
+    end;
+  end;
+end;
+
 procedure TWCHTTPApplication.DoOnLoggerException(Sender: TObject; E: Exception);
 begin
   DoError(E.Message);
@@ -1809,6 +1874,7 @@ var I : integer;
 begin
   inherited Create(AOwner);
 
+  FConfig := nil;
   OnException:=@DoOnException;
 
   FNetDebugMode:=False;
@@ -1846,6 +1912,7 @@ begin
   //
   OnException:=@DoOnException;
   FLogDB.Free;
+  if assigned(FConfig) then FreeAndNil(FConfig);
   inherited Destroy;
 end;
 
@@ -1859,6 +1926,7 @@ begin
   if (T - FMTime) >= 10000 then  //every 10 secs
   begin
     FMTime := T;
+    if assigned(FConfig) then FConfig.Sync(false);
     WebContainer.DoMaintainingStep;
     GarbageCollector.CleanDead;
   end;
@@ -1869,9 +1937,49 @@ begin
   Sleep(10);
 end;
 
+function TWCHTTPApplication.GetConfigFileName: String;
+begin
+  if assigned(FConfig) then
+    Result := FConfig.FileName else
+    Result := '';
+end;
+
 function TWCHTTPApplication.GetESServer: TWCHttpServer;
 begin
   Result := GetWebHandler.GetESServer;
+end;
+
+procedure TWCHTTPApplication.SetConfigFileName(AValue: String);
+var MainSec, SSLSec : TWCConfigRecord;
+begin
+  if Assigned(FConfig) then
+  begin
+    FConfig.FileName := AValue;
+  end else begin
+    FConfig := TWCConfig.Create(AValue);
+
+    MainSec := FConfig.Root.AddSection(CFG_MAIN_SEC);
+    MainSec.AddValue(CFG_SITE_FOLDER_HASH, wccrString);
+    MainSec.AddValue(CFG_SERVER_NAME_HASH, wccrString);
+    MainSec.AddValue(CFG_MAIN_URI_HASH, wccrString);
+    MainSec.AddValue(CFG_SESSIONS_LOC_HASH, wccrString);
+    MainSec.AddValue(CFG_CLIENTS_DB_HASH, wccrString);
+    MainSec.AddValue(CFG_LOG_DB_HASH, wccrString);
+    MainSec.AddValue(CFG_MIME_NAME_HASH, wccrString);
+
+    SSLSec := FConfig.Root.AddSection(CFG_OPENSSL_SEC);
+    SSLSec.AddValue(CFG_USE_SSL_HASH, wccrBoolean);
+    SSLSec.AddValue(CFG_HOST_NAME_HASH, wccrString);
+    SSLSec.AddValue(CFG_SSL_LOC_HASH, wccrString);
+    SSLSec.AddValue(CFG_SSL_CIPHER_HASH, wccrString);
+    SSLSec.AddValue(CFG_PRIVATE_KEY_HASH, wccrString);
+    SSLSec.AddValue(CFG_CERTIFICATE_HASH, wccrString);
+    SSLSec.AddValue(CFG_TLSKEY_LOG_HASH, wccrString);
+    SSLSec.AddValue(CFG_ALPN_USE_HTTP2_HASH, wccrBoolean);
+
+    FConfig.OnChangeValue := @DoOnConfigChanged;
+  end;
+  FConfig.Sync(true);
 end;
 
 procedure TWCHTTPApplication.SetMaxMainThreads(AValue: Byte);

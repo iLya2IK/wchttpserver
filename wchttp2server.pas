@@ -1316,7 +1316,6 @@ procedure TWCHTTP2Response.SerializeResponseHeaders(R: TResponse;
   closeStrm: Boolean);
 var sc : TWCHTTP2SerializeStream;
     pusher : TWCHTTP2StrmResponseHeaderPusher;
-
 begin
   if Assigned(FCurHeadersBlock) then FreeMemAndNil(FCurHeadersBlock);
   FHeadersBlockSize:=0;
@@ -1757,14 +1756,14 @@ begin
   FEpollReadFD := epoll_create(BASE_SIZE);
   FEpollMasterFD := epoll_create(2);
   if (FEPollFD < 0) or (FEpollReadFD < 0) or (FEpollMasterFD < 0) then
-    raise Exception.CreateFmt('Unable to create epoll: %d', [fpgeterrno]);
+    raise ESocketError.CreateFmt('Unable to create epoll: %d', [fpgeterrno]);
   lEvent.events := EPOLLIN or EPOLLOUT or EPOLLPRI or EPOLLERR or EPOLLHUP;// or EPOLLET;
   lEvent.data.fd := FEpollFD;
   if epoll_ctl(FEpollMasterFD, EPOLL_CTL_ADD, FEpollFD, @lEvent) < 0 then
-    raise Exception.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
+    raise ESocketError.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
   lEvent.data.fd := FEpollReadFD;
   if epoll_ctl(FEpollMasterFD, EPOLL_CTL_ADD, FEpollReadFD, @lEvent) < 0 then
-    raise Exception.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
+    raise ESocketError.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
   {$endif}
 end;
 
@@ -2669,9 +2668,9 @@ end;
 procedure TWCHTTP2Connection.TryToSendFrames(const TS: Qword);
 begin
   if (ConnectionState = wcCONNECTED) and
-     FSocketRef.CanSend and
-     (FFramesToSend.Count > 0) and
-     ReadyToWrite(TS) then
+       FSocketRef.CanSend and
+       (FFramesToSend.Count > 0) and
+       ReadyToWrite(TS) then
   begin
     FDataSending.Value := True;
     FWriteStamp.Value  := TS;

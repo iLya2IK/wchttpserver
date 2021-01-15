@@ -30,7 +30,7 @@
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
-            <OtherUnitFiles Value="openssl"/>
+            <OtherUnitFiles Value="openssl;testing"/>
             <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
@@ -70,7 +70,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="24">
+    <Units Count="25">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -141,10 +141,12 @@
       <Unit16>
         <Filename Value="extsqlite3ds.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="ExtSqlite3DS"/>
       </Unit16>
       <Unit17>
         <Filename Value="extsqlite3backup.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="ExtSqlite3Backup"/>
       </Unit17>
       <Unit18>
         <Filename Value="openssl/extopenssl.pp"/>
@@ -173,6 +175,10 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="SortedThreadPool"/>
       </Unit23>
+      <Unit24>
+        <Filename Value="wcconfig.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit24>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -182,7 +188,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="openssl"/>
+      <OtherUnitFiles Value="openssl;testing"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Parsing>

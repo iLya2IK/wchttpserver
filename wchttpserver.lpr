@@ -67,91 +67,87 @@ uses
   fphttp,
   http2consts,
   IniFiles,
-  WCTestClient, SortedThreadPool;
+  WCTestClient, SortedThreadPool, wcconfig;
 
-const
-  CFG_MAIN_SEC       = 'Main';
-  CFG_SERVER_NAME    = 'ServerName';
-  CFG_MAIN_URI       = 'MainURI';
-  CFG_SESSIONS_LOC   = 'SessionsLoc';
-  CFG_CLIENTS_DB     = 'ClientsDb';
-  CFG_LOG_DB         = 'LogDb';
-  CFG_MIME_NAME      = 'MimeName';
-
-
-  CFG_OPENSSL_SEC    = 'OpenSSL';
-  CFG_USE_SSL        = 'UseSSL';
-  CFG_HOST_NAME      = 'HostName';
-  CFG_SSL_LOC        = 'SSLLoc';
-  CFG_SSL_CIPHER     = 'SSLCipherList';
-  CFG_PRIVATE_KEY    = 'PrivateKeyLoc';
-  CFG_CERTIFICATE    = 'CertificateLoc';
-  CFG_TLSKEY_LOG     = 'TLSKeyLog';
-  CFG_ALPN_USE_HTTP2 = 'UseHTTP2';
-
-
-var CfgFile : TIniFile;
+var Conf : TWCConfig;
 {$IFDEF LOAD_DYNAMICALLY}
 vLibPath : String;
 {$ENDIF}
 begin
   Randomize;
-  CfgFile := TIniFile.Create(ExtractFilePath(Application.ExeName) + 'server.cfg');
-  try
-    {$IFDEF LOAD_DYNAMICALLY}
-    vLibPath := ExtractFilePath(Application.ExeName);
-    {$IFDEF Windows}
-    {$IF defined(Win32)}
-    vLibPath := vLibPath + 'libs\win32\';
-    {$ElseIf defined(Win64)}
-    vLibPath := vLibPath + 'libs\win64\';
-    {$ENDIF}
-    {$else}
-    {$ENDIF}
-    InitializeSQLite(UnicodeString(vLibPath + Sqlite3Lib));
-    {$ENDIF}
-    Application.Title:=CfgFile.ReadString(CFG_MAIN_SEC, CFG_SERVER_NAME, 'WCTestServer');
-    Application.LegacyRouting := true;
-    Application.Threaded:=True;
-    Application.MainURI:= CfgFile.ReadString(CFG_MAIN_SEC, CFG_MAIN_URI, 'index.html');
-    Application.SessionsLoc:= CfgFile.ReadString(CFG_MAIN_SEC, CFG_SESSIONS_LOC, 'sessions');
-    Application.SessionsDb := CfgFile.ReadString(CFG_MAIN_SEC, CFG_CLIENTS_DB, 'clients.db');
-    Application.LogDb := CfgFile.ReadString(CFG_MAIN_SEC, CFG_LOG_DB, 'logwebtest.db');
-    Application.MimeLoc := CfgFile.ReadString(CFG_MAIN_SEC, CFG_MIME_NAME, 'mime.txt');
-    //SSL/TLS configuration
-    Application.UseSSL:= CfgFile.ReadBool(CFG_OPENSSL_SEC, CFG_USE_SSL, true);
-    Application.HostName:=CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_HOST_NAME, 'localhost');
-    Application.SSLLoc := CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_SSL_LOC, 'openssl') + cSysDelimiter;
-    Application.ESServer.CertificateData.CipherList :=
-      CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_SSL_CIPHER,
-                  'ECDHE-RSA-AES128-GCM-SHA256:'+
-                  'ECDHE-ECDSA-AES128-GCM-SHA256:'+
-                  'ECDHE-ECDSA-CHACHA20-POLY1305:'+
-                  'ECDHE-RSA-AES128-SHA256:'+
-                  'AES128-GCM-SHA256:'+
-                  'ECDHE-ECDSA-AES256-GCM-SHA384:'+
-                  'ECDHE-ECDSA-AES256-SHA384'+
-                  '');
-    Application.ESServer.PrivateKey:=CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_PRIVATE_KEY, 'localhost.key');
-    Application.ESServer.Certificate:=CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_CERTIFICATE, 'localhost.crt');
-    Application.ESServer.SSLMasterKeyLog := CfgFile.ReadString(CFG_OPENSSL_SEC, CFG_TLSKEY_LOG, ''); // tlskey.log
-    Application.ESServer.SSLType:= stTLSv1_2;
-    if CfgFile.ReadBool(CFG_OPENSSL_SEC, CFG_ALPN_USE_HTTP2, True) then
-      Application.ESServer.AlpnList.Add('h2');  // comment this line to turn off http2
-    Application.ESServer.AlpnList.Add('http/1.1');
-    //
-    HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
-    HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
-    Application.WebFilesLoc := 'webclienttest' + cSysDelimiter;
-  finally
-    CfgFile.Free;
-  end;
+  Application.ConfigFileName := ExtractFilePath(Application.ExeName) + 'server.cfg';
+  if not assigned(Application.Config) then
+     raise Exception.Create('Unexpected config error');
+  {$IFDEF LOAD_DYNAMICALLY}
+  vLibPath := ExtractFilePath(Application.ExeName);
+  {$IFDEF Windows}
+  {$IF defined(Win32)}
+  vLibPath := vLibPath + 'libs\win32\';
+  {$ElseIf defined(Win64)}
+  vLibPath := vLibPath + 'libs\win64\';
+  {$ENDIF}
+  {$else}
+  {$ENDIF}
+  InitializeSQLite(UnicodeString(vLibPath + Sqlite3Lib));
+  {$ENDIF}
+  Application.LegacyRouting := true;
+  Application.Threaded:=True;
+  Conf := Application.Config;
+  Conf.SetDefaultValue(CFG_SERVER_NAME_HASH, 'WCTestServer');
+  // WebFilesLoc - location of site files
+  // for example if location of executable is /home/folder/
+  // then site location will be home/folder/CFG_SITE_FOLDER/
+  Conf.SetDefaultValue(CFG_SITE_FOLDER_HASH, 'webclienttest');
+  // MainURI - location of index file
+  // then index location will be home/folder/CFG_SITE_FOLDER/CFG_MAIN_URI
+  Conf.SetDefaultValue(CFG_MAIN_URI_HASH, 'index.html');
+  // SessionsLoc - location of sessions
+  // then sessions location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC
+  Conf.SetDefaultValue(CFG_SESSIONS_LOC_HASH, 'sessions');
+  // SessionsDb - location of database with sessions and clients data
+  // then sessions database location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC/CFG_CLIENTS_DB
+  Conf.SetDefaultValue(CFG_CLIENTS_DB_HASH, 'clients.db');
+  // LogDb - location of database with log and network dumps
+  // then log database location will be home/folder/CFG_LOG_DB
+  Conf.SetDefaultValue(CFG_LOG_DB_HASH, 'logwebtest.db');
+  // MimeLoc - location of mime file
+  // then mime file location will be home/folder/CFG_SITE_FOLDER/CFG_MIME_NAME
+  Conf.SetDefaultValue(CFG_MIME_NAME_HASH, 'mime.txt');
+  //SSL/TLS configuration
+  Conf.SetDefaultValue(CFG_USE_SSL_HASH, true);
+  Conf.SetDefaultValue(CFG_HOST_NAME_HASH, 'localhost');
+  // SSLLoc - location of openssl keys, certificates and logs
+  // then openssl location will be home/folder/CFG_SSL_LOC
+  Conf.SetDefaultValue(CFG_SSL_LOC_HASH, 'openssl');
+  Conf.SetDefaultValue(CFG_SSL_CIPHER_HASH,
+                'ECDHE-RSA-AES128-GCM-SHA256:'+
+                'ECDHE-ECDSA-AES128-GCM-SHA256:'+
+                'ECDHE-ECDSA-CHACHA20-POLY1305:'+
+                'ECDHE-RSA-AES128-SHA256:'+
+                'AES128-GCM-SHA256:'+
+                'ECDHE-ECDSA-AES256-GCM-SHA384:'+
+                'ECDHE-ECDSA-AES256-SHA384'+
+                '');
+  // PrivateKey - location of openssl keys
+  // then keys location will be home/folder/CFG_SSL_LOC/CFG_PRIVATE_KEY
+  Conf.SetDefaultValue(CFG_PRIVATE_KEY_HASH, 'localhost.key');
+  // Certificate - location of openssl certificates
+  // then certificates location will be home/folder/CFG_SSL_LOC/CFG_CERTIFICATE
+  Conf.SetDefaultValue(CFG_CERTIFICATE_HASH, 'localhost.crt');
+  // SSLMasterKeyLog - location of openssl keys log
+  // then tls keys log location will be home/folder/CFG_SSL_LOC/CFG_TLSKEY_LOG
+  Conf.SetDefaultValue(CFG_TLSKEY_LOG_HASH, ''); // tlskey.log
+  Application.ESServer.SSLType:= stTLSv1_2;
+  Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2_HASH, True);
+
+  HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
+  HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
+  PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
+  PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
+  PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
+  PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
+  PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
+  PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
   Application.MaxPrepareThreads := 5;
   Application.MaxMainThreads := 6;
   Application.ServerAnalizeJobClass:= WCMainTest.TWCPreThread;
