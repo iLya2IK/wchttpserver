@@ -142,16 +142,14 @@ begin
   Conf.SetDefaultValue(CFG_COMPRESS_LIMIT, 500);
   Conf.SetDefaultValue(CFG_MAIN_THREAD_CNT, 6);
   Conf.SetDefaultValue(CFG_PRE_THREAD_CNT, 5);
+  Conf.SetDefaultValue(CFG_CLIENT_COOKIE_MAX_AGE, 86400);
+  Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 10);
 
-  if HTTP2ServerSettingsSize = 0 then begin
-    HTTP2ServerSettingsSize := 3 * H2P_SETTINGS_BLOCK_SIZE;
-    HTTP2ServerSettings := GetMem(HTTP2ServerSettingsSize);
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Identifier := H2SET_MAX_CONCURRENT_STREAMS;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[0].Value := 100;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Identifier := H2SET_INITIAL_WINDOW_SIZE;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[1].Value := $ffff;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Identifier := H2SET_HEADER_TABLE_SIZE;
-    PHTTP2SettingsPayload(HTTP2ServerSettings)^[2].Value := HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE];
+  with Application.ESServer.HTTP2Connections.Settings do
+  if Count = 0 then begin
+    Add(H2SET_MAX_CONCURRENT_STREAMS, 100);
+    Add(H2SET_INITIAL_WINDOW_SIZE, $ffff);
+    Add(H2SET_HEADER_TABLE_SIZE, HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE]);
   end;
 
   Application.ServerAnalizeJobClass:= WCMainTest.TWCPreThread;

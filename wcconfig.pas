@@ -25,8 +25,9 @@ uses
 
 type
   TWCConfigRec = record
-    Name : PChar;
-    Hash : Cardinal;
+    ParentHash : Cardinal;
+    Hash       : Cardinal;
+    Name       : PChar;
   public
     function NAME_STR : String;
   end;
@@ -60,6 +61,7 @@ type
     FDefaultValue : Variant;
     FKind : TWCConfigRecordKind;
     FChildren : TWCConfigRecords;
+    FParent :  TWCConfigRecord;
     function GetByHash(hash : Cardinal): TWCConfigRecord;
     function GetByName(const aName : String): TWCConfigRecord;
     function GetCount: Integer;
@@ -67,9 +69,9 @@ type
   protected
     property Count : Integer read GetCount;
   public
-    constructor Create(Rec : PWCConfigRec; aKind : TWCConfigRecordKind);
-    constructor Create(const aName : String; aKind : TWCConfigRecordKind);
-    constructor Create(const aName : String; aHash : Cardinal; aKind : TWCConfigRecordKind);
+    constructor Create(aParent : TWCConfigRecord; Rec : PWCConfigRec; aKind : TWCConfigRecordKind);
+    constructor Create(aParent : TWCConfigRecord; const aName : String; aKind : TWCConfigRecordKind);
+    constructor Create(aParent : TWCConfigRecord; const aName : String; aHash : Cardinal; aKind : TWCConfigRecordKind);
     destructor Destroy; override;
     procedure AddChild(AChild : TWCConfigRecord);
     property Name : String read FName;
@@ -119,20 +121,23 @@ type
 type
   TWCConfiguration = Array of TWCConfigRec;
 
-function  StrToConfig(const str : String) : PWCConfigRec;
+const  CFG_ROOT_HASH = $00;
+
+function  StrToConfig(Parent : Cardinal; const str : String) : PWCConfigRec;
 function  HashToConfig(hash : Cardinal) : PWCConfigRec;
-function  StrConfigToHash(const str : String) : Cardinal;
+function  StrConfigToHash(Parent : Cardinal; const str : String) : Cardinal;
 
 var CFG_CONFIGURATION : TWCConfiguration;
 
 implementation
 
-function StrToConfig(const str: String): PWCConfigRec;
+function StrToConfig(Parent : Cardinal; const str: String): PWCConfigRec;
 var i : integer;
 begin
   for i := 0 to High(CFG_CONFIGURATION) do
   begin
-    if SameStr(str, CFG_CONFIGURATION[i].NAME_STR) then
+    if (CFG_CONFIGURATION[i].ParentHash = Parent) and
+        SameStr(str, CFG_CONFIGURATION[i].NAME_STR) then
     begin
       Result := @(CFG_CONFIGURATION[i]);
       Exit;
@@ -155,12 +160,13 @@ begin
   Result := nil;
 end;
 
-function StrConfigToHash(const str: String): Cardinal;
+function StrConfigToHash(Parent: Cardinal; const str: String): Cardinal;
 var i : integer;
 begin
   for i := 0 to High(CFG_CONFIGURATION) do
   begin
-    if SameStr(str, CFG_CONFIGURATION[i].NAME_STR) then
+    if (CFG_CONFIGURATION[i].ParentHash = Parent) and
+            SameStr(str, CFG_CONFIGURATION[i].NAME_STR) then
     begin
       Result := CFG_CONFIGURATION[i].Hash;
       Exit;
@@ -226,29 +232,32 @@ begin
   Result := FChildren.Records[index];
 end;
 
-constructor TWCConfigRecord.Create(Rec: PWCConfigRec; aKind: TWCConfigRecordKind
+constructor TWCConfigRecord.Create(aParent : TWCConfigRecord; Rec: PWCConfigRec;
+                                    aKind: TWCConfigRecordKind
   );
 begin
-  Create(Rec^.NAME_STR, Rec^.Hash, aKind);
+  Create(aParent, Rec^.NAME_STR, Rec^.Hash, aKind);
 end;
 
-constructor TWCConfigRecord.Create(const aName: String;
+constructor TWCConfigRecord.Create(aParent : TWCConfigRecord; const aName: String;
   aKind: TWCConfigRecordKind);
 var Rec : PWCConfigRec;
 begin
-  if aKind in [wccrRoot, wccrSection] then
+  if aKind in [wccrRoot] then
   begin
-    Create(aName, 0, aKind);
+    Create(aParent, aName, CFG_ROOT_HASH, aKind);
   end else begin
-    Rec := StrToConfig(aName);
-    Create(Rec, aKind);
+    Rec := StrToConfig(aParent.HashName, aName);
+    Create(aParent, Rec, aKind);
   end;
 end;
 
-constructor TWCConfigRecord.Create(const aName: String; aHash: Cardinal;
+constructor TWCConfigRecord.Create(aParent : TWCConfigRecord;
+  const aName: String; aHash: Cardinal;
   aKind: TWCConfigRecordKind);
 begin
   FChildren := TWCConfigRecords.Create;
+  FParent := aParent;
   FName:= aName;
   FHashName:= aHash;
   FKind:= aKind;
@@ -269,7 +278,7 @@ end;
 
 function TWCConfigRecord.AddSection(const aName: String): TWCConfigRecord;
 begin
-  Result := TWCConfigRecord.Create(aName, wccrSection);
+  Result := TWCConfigRecord.Create(Self, aName, wccrSection);
   AddChild(Result);
 end;
 
@@ -283,7 +292,7 @@ begin
   if VarIsOrdinal(aDefault) then aKind:= wccrInteger;
   if aKind > wccrUnknown then
   begin
-    Result := TWCConfigRecord.Create(aName, aKind);
+    Result := TWCConfigRecord.Create(Self, aName, aKind);
     Result.SetDefaultValue(aDefault);
     AddChild(Result);
   end else
@@ -295,7 +304,7 @@ function TWCConfigRecord.AddValue(const aName: String;
 begin
   if aKind > wccrUnknown then
   begin
-    Result := TWCConfigRecord.Create(aName, aKind);
+    Result := TWCConfigRecord.Create(Self, aName, aKind);
     AddChild(Result);
   end else
     Result := nil;
@@ -309,7 +318,7 @@ begin
   begin
     R := HashToConfig(Hash);
     if Assigned(R) then begin
-      Result := TWCConfigRecord.Create(R, aKind);
+      Result := TWCConfigRecord.Create(Self, R, aKind);
       AddChild(Result);
     end else Result := nil;
   end else
@@ -379,8 +388,7 @@ var i : integer;
 begin
   for i := 0 to aRecord.Count-1 do
   begin
-    if aRecord[i].FKind in [wccrString, wccrBoolean,
-                         wccrInteger] then
+    if aRecord[i].FKind in [wccrString, wccrBoolean, wccrInteger] then
     begin
       if VarIsNull(aRecord[i].DefaultValue) then
       begin
@@ -410,8 +418,9 @@ begin
       if assigned(Parent) then
         ParentData := Parent.Find(aRecord[i].Name) else
         ParentData := FJsonConfig.Find(aRecord[i].Name);
-      if ParentData.JSONType = jtObject then
-        SyncConfigRecord(aRecord[i], TJSONObject(ParentData), Forced);
+      if assigned(ParentData) then
+        if ParentData.JSONType = jtObject then
+          SyncConfigRecord(aRecord[i], TJSONObject(ParentData), Forced);
     end;
   end;
 end;
@@ -423,7 +432,7 @@ begin
   FJsonConfig := nil;
   FConfigFile := '';
   if assigned(FRootConfig) then FreeAndNil(FRootConfig);
-  FRootConfig := TWCConfigRecord.Create('', wccrRoot);
+  FRootConfig := TWCConfigRecord.Create(nil, '', wccrRoot);
 
   DoInitialize;
 

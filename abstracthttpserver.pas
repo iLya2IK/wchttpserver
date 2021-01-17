@@ -122,20 +122,20 @@ Type
     function GetSSLMasterKeyLog: String;
     procedure SetAcceptIdleTimeout(AValue: Cardinal);
     procedure SetActive(const AValue: Boolean);
-    procedure SetCertificate(AValue: String);
-    procedure SetCertificateData(AValue: TCertificateData);
-    procedure SetHostName(AValue: string);
     procedure SetIdle(AValue: TNotifyEvent);
     procedure SetOnAllowConnect(const AValue: TConnectQuery);
     procedure SetAddress(const AValue: string);
     procedure SetPort(const AValue: Word);
-    procedure SetPrivateKey(AValue: String);
     procedure SetQueueSize(const AValue: Word);
-    procedure SetSSLMasterKeyLog(AValue: String);
     procedure SetThreaded(const AValue: Boolean);
     procedure SetupSocket;
     procedure WaitForRequests;
   Protected
+    procedure SetSSLMasterKeyLog(AValue: String); virtual;
+    procedure SetCertificateData(AValue: TCertificateData); virtual;
+    procedure SetHostName(AValue: string); virtual;
+    procedure SetCertificate(AValue: String); virtual;
+    procedure SetPrivateKey(AValue: String); virtual;
     // Override this to create descendent
     function CreateSSLSocketHandler: TSocketHandler; virtual;
     // Override this to create descendent

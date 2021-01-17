@@ -55,6 +55,7 @@ type
 
   TWCHTTPStreams = class;
   TWCHTTP2Connection = class;
+  TWCHTTP2Connections = class;
   TWCHTTPStream = class;
 
   TWCConnectionState = (wcCONNECTED, wcDROPPED, wcDEAD);
@@ -407,7 +408,7 @@ type
   TWCHTTP2Connection = class(TNetReferencedObject)
   private
     FConnectionState : TThreadSafeConnectionState;
-    FGarbageCollector : TNetReferenceList;
+    FOwner : TWCHTTP2Connections;
     FReadBuffer, FWriteBuffer : TThreadPointer;
     FReadBufferSize, FWriteBufferSize : Cardinal;
     FReadTailSize, FWriteTailSize : Integer;
@@ -445,7 +446,7 @@ type
     property  CurHPackDecoder : TThreadSafeHPackDecoder read FHPackDecoder;
     property  CurHPackEncoder : TThreadSafeHPackEncoder read FHPackEncoder;
   public
-    constructor Create(aGarbageCollector: TNetReferenceList;
+    constructor Create(aOwner: TWCHTTP2Connections;
         aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
         aSocketConsume: THttp2SocketConsume; aSendData: THttp2SendData);
     procedure ConsumeNextFrame(Mem : TBufferedStream);
@@ -490,6 +491,24 @@ type
     procedure RemoveClosedStreams;
   end;
 
+  { TWCHTTP2ServerSettings }
+
+  TWCHTTP2ServerSettings = class(TNetCustomLockedObject)
+  private
+    HTTP2ServerSettings : PHTTP2SettingsPayload;
+    HTTP2ServerSettingsSize : Cardinal;
+    function GetCount: Integer;
+    function GetSetting(index : integer): THTTP2SettingsBlock;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Reset;
+    procedure Add(Id : Word; Value : Cardinal);
+    function CopySettingsToMem(var Mem : Pointer) : Integer;
+    property Count : Integer read GetCount;
+    property Setting[index : integer] : THTTP2SettingsBlock read GetSetting; default;
+  end;
+
   {$ifdef socket_epoll_mode}
   PEpollEvent = ^epoll_event;
   TEpollEvent = epoll_event;
@@ -503,6 +522,8 @@ type
   private
     FLastUsedConnection : TIteratorObject;
     FMaintainStamp : QWord;
+    FSettings : TWCHTTP2ServerSettings;
+    FGarbageCollector : TNetReferenceList;
     {$ifdef socket_epoll_mode}
     FTimeout: cInt;
     FEvents: array of TEpollEvent;
@@ -519,12 +540,15 @@ type
     function IsConnDead(aConn: TObject; data: pointer): Boolean;
     procedure AfterConnExtracted(aObj : TObject);
   public
-    constructor Create;
+    constructor Create(aGarbageCollector : TNetReferenceList);
     destructor Destroy; override;
     procedure  AddConnection(FConn : TWCHTTP2Connection);
     function   GetByHandle(aSocket : Cardinal) : TWCHTTP2Connection;
     procedure  RemoveDeadConnections(MaxLifeTime : Cardinal);
     procedure  Idle;
+    property Settings : TWCHTTP2ServerSettings read FSettings;
+    property GarbageCollector : TNetReferenceList read FGarbageCollector write
+                                         FGarbageCollector;
   end;
 
 implementation
@@ -536,6 +560,97 @@ const
 {$ifdef socket_epoll_mode}
   BASE_SIZE = 100;
 {$endif}
+
+{ TWCHTTP2ServerSettings }
+
+function TWCHTTP2ServerSettings.GetCount: Integer;
+begin
+  Lock;
+  try
+    Result := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTP2ServerSettings.GetSetting(index : integer
+  ): THTTP2SettingsBlock;
+begin
+  Lock;
+  try
+    Result := HTTP2ServerSettings^[index];
+  finally
+    UnLock;
+  end;
+end;
+
+constructor TWCHTTP2ServerSettings.Create;
+begin
+  inherited Create;
+  HTTP2ServerSettings := nil;
+  HTTP2ServerSettingsSize := 0;
+end;
+
+destructor TWCHTTP2ServerSettings.Destroy;
+begin
+  if assigned(HTTP2ServerSettings) then Freemem(HTTP2ServerSettings);
+  inherited Destroy;
+end;
+
+procedure TWCHTTP2ServerSettings.Reset;
+begin
+  Lock;
+  try
+    if assigned(HTTP2ServerSettings) then FreeMem(HTTP2ServerSettings);
+    HTTP2ServerSettings := GetMem(HTTP2_SETTINGS_MAX_SIZE);
+    HTTP2ServerSettingsSize := 0;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCHTTP2ServerSettings.Add(Id: Word; Value: Cardinal);
+var l, Sz : Integer;
+    S : PHTTP2SettingsPayload;
+begin
+  Lock;
+  try
+    if not Assigned(HTTP2ServerSettings) then
+      Reset;
+    S := HTTP2ServerSettings;
+    Sz := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
+    for l := 0 to Sz - 1 do
+    begin
+      if S^[l].Identifier = Id then begin
+        S^[l].Value := Value;
+        Exit;
+      end;
+    end;
+    if HTTP2ServerSettingsSize < HTTP2_SETTINGS_MAX_SIZE then
+    begin
+      S^[Sz].Identifier := Id;
+      S^[Sz].Value := Value;
+      Inc(HTTP2ServerSettingsSize, H2P_SETTINGS_BLOCK_SIZE);
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTP2ServerSettings.CopySettingsToMem(var Mem: Pointer): Integer;
+begin
+  Lock;
+  try
+    Result := HTTP2ServerSettingsSize;
+    if HTTP2ServerSettingsSize > 0 then
+    begin
+      Mem := GetMem(HTTP2ServerSettingsSize);
+      Move(HTTP2ServerSettings^, Mem^, HTTP2ServerSettingsSize);
+    end else Mem := nil;
+  finally
+    UnLock;
+  end;
+end;
 
 { TThreadSafeConnectionState }
 
@@ -1740,7 +1855,7 @@ begin
   TWCHTTP2Connection(aObj).DecReference;
 end;
 
-constructor TWCHTTP2Connections.Create;
+constructor TWCHTTP2Connections.Create(aGarbageCollector: TNetReferenceList);
 {$ifdef SOCKET_EPOLL_MODE}
 var lEvent : TEpollEvent;
 {$endif}
@@ -1748,6 +1863,8 @@ begin
   inherited Create;
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
+  FGarbageCollector := aGarbageCollector;
+  FSettings := TWCHTTP2ServerSettings.Create;
   {$ifdef SOCKET_EPOLL_MODE}
   FEpollLocker := TNetCustomLockedObject.Create;
   Inflate;
@@ -1786,6 +1903,7 @@ begin
   fpClose(FEpollFD);
   FEpollLocker.Free;
   {$endif}
+  FSettings.Free;
   inherited Destroy;
 end;
 
@@ -1928,15 +2046,14 @@ begin
   FTimeStamp.Value := GetTickCount64;
 end;
 
-constructor TWCHTTP2Connection.Create(aGarbageCollector: TNetReferenceList;
+constructor TWCHTTP2Connection.Create(aOwner: TWCHTTP2Connections;
   aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
-  aSocketConsume: THttp2SocketConsume;
-  aSendData : THttp2SendData);
-var i : integer;
+  aSocketConsume: THttp2SocketConsume; aSendData: THttp2SendData);
+var i, Sz : integer;
     CSet : PHTTP2SettingsPayload;
 begin
   inherited Create;
-  FGarbageCollector := aGarbageCollector;
+  FOwner := aOwner;
   FStreams := TWCHTTPStreams.Create;
   FSocketRef := aSocket;
   FSocketRef.IncReference;
@@ -1953,11 +2070,14 @@ begin
   FConSettings := TThreadSafeConnSettings.Create;
   for i := 1 to HTTP2_SETTINGS_MAX do
     FConSettings[i] := HTTP2_SET_INITIAL_VALUES[i];
-  if assigned(HTTP2ServerSettings) then
-  for i := 1 to HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE do
-  begin
-    FConSettings[PHTTP2SettingsPayload(HTTP2ServerSettings)^[i-1].Identifier] :=
-        PHTTP2SettingsPayload(HTTP2ServerSettings)^[i-1].Value
+  FOwner.Settings.Lock;
+  try
+    for i := 0 to FOwner.Settings.Count-1 do
+    begin
+      FConSettings[FOwner.Settings[i].Identifier] := FOwner.Settings[i].Value;
+    end;
+  finally
+    FOwner.Settings.UnLock;
   end;
   FReadBuffer := TThreadPointer.Create(FConSettings[H2SET_INITIAL_WINDOW_SIZE]);
   FWriteBuffer := TThreadPointer.Create(FConSettings[H2SET_INITIAL_WINDOW_SIZE]);
@@ -1968,15 +2088,8 @@ begin
   // send initial settings frame
   if aOpenningMode in [h2oUpgradeToH2C, h2oUpgradeToH2] then
     PushFrame(TWCHTTP2UpgradeResponseFrame.Create(aOpenningMode));
-  Cset := nil;
-  if HTTP2ServerSettingsSize > 0 then
-  begin
-    CSet := GetMem(HTTP2ServerSettingsSize);
-    Move(HTTP2ServerSettings^, CSet^, HTTP2ServerSettingsSize);
-  end;
-  PushFrame(TWCHTTP2Frame.Create(H2FT_SETTINGS, 0, 0,
-                                 CSet,
-                                 HTTP2ServerSettingsSize));
+  Sz := FOwner.Settings.CopySettingsToMem(Cset);
+  PushFrame(TWCHTTP2Frame.Create(H2FT_SETTINGS, 0, 0, CSet,  Sz));
 end;
 
 procedure TWCHTTP2Connection.ConsumeNextFrame(Mem: TBufferedStream);
@@ -2700,13 +2813,13 @@ procedure TWCHTTP2Connection.InitHPack;
 begin
   if not Assigned(FHPackEncoder) then begin
      FHPackEncoder := TThreadSafeHPackEncoder.Create(ConnSettings[H2SET_HEADER_TABLE_SIZE]);
-     FGarbageCollector.Add(FHPackEncoder);
+     FOwner.GarbageCollector.Add(FHPackEncoder);
   end;
   if not assigned(FHPackDecoder) then begin
      FHPackDecoder :=
        TThreadSafeHPackDecoder.Create(ConnSettings[H2SET_MAX_HEADER_LIST_SIZE],
                             ConnSettings[H2SET_HEADER_TABLE_SIZE]);
-     FGarbageCollector.Add(FHPackDecoder);
+     FOwner.GarbageCollector.Add(FHPackDecoder);
   end;
 end;
 

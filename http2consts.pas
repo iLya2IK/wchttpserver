@@ -125,6 +125,7 @@ const
   H2SET_MAX_FRAME_SIZE         = Byte($05);
   H2SET_MAX_HEADER_LIST_SIZE   = Byte($06);
   HTTP2_SETTINGS_MAX           = H2SET_MAX_HEADER_LIST_SIZE;
+  HTTP2_SETTINGS_MAX_SIZE      = HTTP2_SETTINGS_MAX * H2P_SETTINGS_BLOCK_SIZE;
 
   HTTP2_SET_INITIAL_VALUES : Array [1..HTTP2_SETTINGS_MAX] of Cardinal =
                              (4096, 1, $ffffffff, $ffff, 16384, HPACK_MAX_HEADER_SIZE);
@@ -152,11 +153,7 @@ const
   H2E_PARSE_ERROR         = Byte($ff);
   H2E_READ_BUFFER_OVERFLOW= Byte($fe);
 
-var
-  HTTP2ServerSettings : PHTTP2SettingsBlock = nil;
-  HTTP2ServerSettingsSize : Cardinal = 0;
-
-implementation
+Implementation
 
 end.
 

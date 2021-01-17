@@ -139,14 +139,20 @@ type
     FPreThreadPool : TThreadPool;
     FMainThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
+    FSSLLocker : TNetCustomLockedObject;
     FHTTP2Connections : TWCHTTP2Connections;
     procedure SetMaxMainClientsThreads(AValue: Byte);
     procedure SetMaxPreClientsThreads(AValue: Byte);
     function CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
+  protected
+    procedure SetSSLMasterKeyLog(AValue: String); override;
+    procedure SetHostName(AValue: string); override;
+    procedure SetCertificate(AValue: String); override;
+    procedure SetPrivateKey(AValue: String); override;
   public
     constructor Create(AOwner: TComponent); override;
-    function CreateSSLSocketHandler: TSocketHandler; override;
+    function  CreateSSLSocketHandler: TSocketHandler; override;
     Procedure CreateConnectionThread(Conn : TAbsHTTPConnection); override;
     function  CreateConnection(Data : TSocketStream) : TAbsHTTPConnection; override;
     Function  CreateRequest : TAbsHTTPConnectionRequest; override;
@@ -197,6 +203,8 @@ type
     FMaxMainThreads: TThreadInteger;
     FMaxPrepareThreads: TThreadInteger;
     FCompressLimit: TThreadInteger;
+    FClientCookieMaxAge : TThreadInteger;
+    FClientTimeOut : TThreadInteger;
     FVPath, FMainHTTP, FSessionsLoc,
     FSessionsDb, FLogDbLoc,
     FWebFilesLoc, FSSLLoc, FMimeLoc : TThreadUtf8String;
@@ -207,6 +215,8 @@ type
     Procedure DoGetModule(Sender : TObject; ARequest : TRequest;
                                Var ModuleClass : TCustomHTTPModuleClass);
     procedure DoOnIdle(sender : TObject);
+    function GetClientCookieMaxAge: Integer;
+    function GetClientTimeOut: Integer;
     function GetCompressLimit: Cardinal;
     function GetConfigFileName: String;
     function GetESServer: TWCHttpServer;
@@ -220,6 +230,8 @@ type
     function GetSitePath: String;
     function GetSSLLoc: String;
     function getWebFilesLoc: String;
+    procedure SetClientCookieMaxAge(AValue: Integer);
+    procedure SetClientTimeOut(AValue: Integer);
     procedure SetCompressLimit(AValue: Cardinal);
     procedure SetConfigFileName(AValue: String);
     procedure SetLogDbLoc(AValue: String);
@@ -259,11 +271,17 @@ type
     property SessionsDb : String read GetSessionsDb write SetSessionsDb;
     property LogDb : String read GetLogDbLoc write SetLogDbLoc;
     property MimeLoc : String read GetMimeLoc write SetMimeLoc;
-    property SSLLoc : String read GetSSLLoc write SetSSLLoc;
     property WebFilesLoc : String read getWebFilesLoc write SetWebFilesLoc;
     property CompressLimit : Cardinal read GetCompressLimit write SetCompressLimit;
+    //threads
     property MaxPrepareThreads : Byte read GetMaxPrepareThreads write SetMaxPrepareThreads;
     property MaxMainThreads : Byte read GetMaxMainThreads write SetMaxMainThreads;
+    //clients
+    property ClientTimeOut : Integer read GetClientTimeOut write SetClientTimeOut;
+    property ClientCookieMaxAge : Integer read GetClientCookieMaxAge write SetClientCookieMaxAge;
+    //openssl
+    property SSLLoc : String read GetSSLLoc write SetSSLLoc;
+    //main config
     property Config : TWCHTTPConfig read FConfig;
     property ConfigFileName : String read GetConfigFileName write SetConfigFileName;
   end;
@@ -727,9 +745,9 @@ end;
 { TWCHTTPConfig }
 
 procedure TWCHTTPConfig.DoInitialize();
-var MainSec, SSLSec : TWCConfigRecord;
+var MainSec, SSLSec, ClientsSec, Http2Sec : TWCConfigRecord;
 begin
-  MainSec := Root.AddSection(CFG_MAIN_SEC);
+  MainSec := Root.AddSection(HashToConfig(CFG_MAIN_SEC)^.NAME_STR);
   MainSec.AddValue(CFG_SITE_FOLDER, wccrString);
   MainSec.AddValue(CFG_SERVER_NAME, wccrString);
   MainSec.AddValue(CFG_MAIN_URI, wccrString);
@@ -741,7 +759,7 @@ begin
   MainSec.AddValue(CFG_MAIN_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_PRE_THREAD_CNT, wccrInteger);
 
-  SSLSec := Root.AddSection(CFG_OPENSSL_SEC);
+  SSLSec := Root.AddSection(HashToConfig(CFG_OPENSSL_SEC)^.NAME_STR);
   SSLSec.AddValue(CFG_USE_SSL, wccrBoolean);
   SSLSec.AddValue(CFG_HOST_NAME, wccrString);
   SSLSec.AddValue(CFG_SSL_LOC, wccrString);
@@ -750,6 +768,18 @@ begin
   SSLSec.AddValue(CFG_CERTIFICATE, wccrString);
   SSLSec.AddValue(CFG_TLSKEY_LOG, wccrString);
   SSLSec.AddValue(CFG_ALPN_USE_HTTP2, wccrBoolean);
+
+  ClientsSec := Root.AddSection(HashToConfig(CFG_CLIENTS_SEC)^.NAME_STR);
+  ClientsSec.AddValue(CFG_CLIENT_TIMEOUT, wccrInteger);
+  ClientsSec.AddValue(CFG_CLIENT_COOKIE_MAX_AGE, wccrInteger);
+
+  Http2Sec := Root.AddSection(HashToConfig(CFG_HTTP2_SEC)^.NAME_STR);
+  Http2Sec.AddValue(CFG_H2SET_HEADER_TABLE_SIZE     , wccrInteger);
+  Http2Sec.AddValue(CFG_H2SET_ENABLE_PUSH           , wccrInteger);
+  Http2Sec.AddValue(CFG_H2SET_MAX_CONCURRENT_STREAMS, wccrInteger);
+  Http2Sec.AddValue(CFG_H2SET_INITIAL_WINDOW_SIZE   , wccrInteger);
+  Http2Sec.AddValue(CFG_H2SET_MAX_FRAME_SIZE        , wccrInteger);
+  Http2Sec.AddValue(CFG_H2SET_MAX_HEADER_LIST_SIZE  , wccrInteger);
 end;
 
 { TWCHttp2SendDataJob }
@@ -1387,18 +1417,24 @@ constructor TWCHttpServer.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FPoolsLocker := TNetCustomLockedObject.Create;
-  FHTTP2Connections := TWCHTTP2Connections.Create;
+  FSSLLocker := TNetCustomLockedObject.Create;
+  FHTTP2Connections := TWCHTTP2Connections.Create(nil);
   FMaxMainClientsThreads := 1;
   FMaxPreClientsThreads  := 1;
 end;
 
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;
 begin
-  Result:=inherited CreateSSLSocketHandler;
-  if assigned(Result) then
-  begin
-    TExtOpenSSLSocketHandler(Result).AlpnList := AlpnList;
-    TExtOpenSSLSocketHandler(Result).SSLMasterKeyLog:= SSLMasterKeyLog;
+  FSSLLocker.Lock;
+  try
+    Result:=inherited CreateSSLSocketHandler;
+    if assigned(Result) then
+    begin
+      TExtOpenSSLSocketHandler(Result).AlpnList := AlpnList.Text;
+      TExtOpenSSLSocketHandler(Result).SSLMasterKeyLog:= SSLMasterKeyLog;
+    end;
+  finally
+    FSSLLocker.UnLock;
   end;
 end;
 
@@ -1455,7 +1491,7 @@ function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
   aOpenMode: THTTP2OpenMode; aServerDoConsume: THttp2SocketConsume;
   aSendData : THttp2SendData): TWCHTTP2Connection;
 begin
-  Result := TWCHTTP2Connection.Create(Application.GarbageCollector,
+  Result := TWCHTTP2Connection.Create(FHTTP2Connections,
                                       aSocket,
                                       aOpenMode,
                                       aServerDoConsume,
@@ -1479,6 +1515,46 @@ begin
   end;
 
   FMainThreadPool.Add(AJob);
+end;
+
+procedure TWCHttpServer.SetSSLMasterKeyLog(AValue: String);
+begin
+  FSSLLocker.Lock;
+  try
+    inherited SetSSLMasterKeyLog(AValue);
+  finally
+    FSSLLocker.UnLock;
+  end;
+end;
+
+procedure TWCHttpServer.SetHostName(AValue: string);
+begin
+  FSSLLocker.Lock;
+  try
+    inherited SetHostName(AValue);
+  finally
+    FSSLLocker.UnLock;
+  end;
+end;
+
+procedure TWCHttpServer.SetCertificate(AValue: String);
+begin
+  FSSLLocker.Lock;
+  try
+    inherited SetCertificate(AValue);
+  finally
+    FSSLLocker.UnLock;
+  end;
+end;
+
+procedure TWCHttpServer.SetPrivateKey(AValue: String);
+begin
+  FSSLLocker.Lock;
+  try
+    inherited SetPrivateKey(AValue);
+  finally
+    FSSLLocker.UnLock;
+  end;
 end;
 
 function TWCHttpServer.ServerActive: Boolean;
@@ -1510,6 +1586,7 @@ begin
   if Assigned(FMainThreadPool) then FMainThreadPool.Free;
   if Assigned(FPreThreadPool) then FPreThreadPool.Free;
   FPoolsLocker.Free;
+  FSSLLocker.Free;
   FHTTP2Connections.Free;
   inherited Destroy;
 end;
@@ -1893,21 +1970,42 @@ begin
       CompressLimit:= Sender.Value;
     //openssl
     CFG_SSL_CIPHER : begin
-      ESServer.CertificateData.CipherList := Sender.Value;
+      ESServer.FSSLLocker.Lock;
+      try
+        ESServer.CertificateData.CipherList := Sender.Value;
+      finally
+        ESServer.FSSLLocker.UnLock;
+      end;
     end;
-    CFG_PRIVATE_KEY    : begin
+    CFG_PRIVATE_KEY    :
       ESServer.PrivateKey := Sender.Value;
-    end;
-    CFG_CERTIFICATE    : begin
+    CFG_CERTIFICATE    :
       ESServer.Certificate := Sender.Value;
-    end;
-    CFG_TLSKEY_LOG     : begin
+    CFG_TLSKEY_LOG     :
       ESServer.SSLMasterKeyLog := Sender.Value;
-    end;
     CFG_ALPN_USE_HTTP2 : begin
-      ESServer.AlpnList.Clear;
-      if Sender.Value then ESServer.AlpnList.Add('h2');
-      ESServer.AlpnList.Add('http/1.1');
+      ESServer.FSSLLocker.Lock;
+      try
+        ESServer.AlpnList.Clear;
+        if Sender.Value then ESServer.AlpnList.Add('h2');
+        ESServer.AlpnList.Add('http/1.1');
+      finally
+        ESServer.FSSLLocker.UnLock;
+      end;
+    end;
+    //clients
+    CFG_CLIENT_COOKIE_MAX_AGE :
+       ClientCookieMaxAge := Sender.Value;
+    CFG_CLIENT_TIMEOUT :
+       ClientTimeOut := Sender.Value;
+    //http2
+    CFG_H2SET_HEADER_TABLE_SIZE,
+    CFG_H2SET_MAX_CONCURRENT_STREAMS,
+    CFG_H2SET_INITIAL_WINDOW_SIZE,
+    CFG_H2SET_MAX_FRAME_SIZE,
+    CFG_H2SET_MAX_HEADER_LIST_SIZE: begin
+      ESServer.HTTP2Connections.Settings.Add((Sender.HashName shr 4) and $0f,
+                                                              Sender.Value);
     end;
   end;
 end;
@@ -1934,6 +2032,8 @@ begin
   FMaxMainThreads:= TThreadInteger.Create(1);
   FMaxPrepareThreads:= TThreadInteger.Create(1);
   FCompressLimit:= TThreadInteger.Create(500);
+  FClientCookieMaxAge := TThreadInteger.Create(86400);
+  FClientTimeOut := TThreadInteger.Create(10);
   FVPath := TThreadUtf8String.Create('');
   FMainHTTP := TThreadUtf8String.Create('');
   FSessionsLoc := TThreadUtf8String.Create('');
@@ -1991,6 +2091,8 @@ begin
   FWebFilesLoc.Free;
   FSSLLoc.Free;
   FMimeLoc.Free;
+  FClientCookieMaxAge.Free;
+  FClientTimeOut.Free;
   inherited Destroy;
 end;
 
@@ -2013,6 +2115,16 @@ begin
   //
   FSocketsReferences.CleanDead;
   Sleep(10);
+end;
+
+function TWCHTTPApplication.GetClientCookieMaxAge: Integer;
+begin
+  Result := FClientCookieMaxAge.Value;
+end;
+
+function TWCHTTPApplication.GetClientTimeOut: Integer;
+begin
+  Result := FClientTimeOut.Value;
 end;
 
 function TWCHTTPApplication.GetCompressLimit: Cardinal;
@@ -2080,6 +2192,16 @@ end;
 function TWCHTTPApplication.getWebFilesLoc: String;
 begin
   Result := FWebFilesLoc.Value;
+end;
+
+procedure TWCHTTPApplication.SetClientCookieMaxAge(AValue: Integer);
+begin
+  FClientCookieMaxAge.Value:=AValue;
+end;
+
+procedure TWCHTTPApplication.SetClientTimeOut(AValue: Integer);
+begin
+  FClientTimeOut.Value:=AValue;
 end;
 
 procedure TWCHTTPApplication.SetCompressLimit(AValue: Cardinal);
@@ -2276,6 +2398,7 @@ begin
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;
   GetWebHandler.AcceptIdleTimeout:=1;
+  ESServer.HTTP2Connections.GarbageCollector := FReferences;
 
   FStartStamp:= GetTickCount64;
   DoInfo('Server initialized');
@@ -2530,9 +2653,10 @@ begin
   FCurCID := TThreadSafeAutoIncrementCardinal.Create;
 
   FSessions := TSqliteSessionFactory(SessionFactory);
-  FSessions.DefaultTimeOutMinutes:=10;
+  FSessions.DefaultTimeOutMinutes:=Application.ClientTimeOut;
   FSessions.InitializeDB(FClientsDB);
-  FSessions.SessionCookiePath:='/; SameSite=Strict; Max-Age=86400';
+  FSessions.SessionCookiePath:='/; SameSite=Strict; Max-Age=' +
+                                   IntToStr(Application.ClientCookieMaxAge);
   FSessions.CleanupInterval:=0; // manual cleanup
   FSessions.OnGenSessionID:= @OnGenSessionID;
 

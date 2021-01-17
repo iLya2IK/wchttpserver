@@ -36,6 +36,8 @@ Type
     FSSLLastError : Integer;
     FAlpnList : TStringList;
     FSSLMasterKEyLog: String;
+    function GetAlpnList: String;
+    procedure SetAlpnList(AValue: String);
     procedure SetSSLMasterKeyLog(AValue: String);
     procedure TryToSaveMasterKey;
   Protected
@@ -62,7 +64,7 @@ Type
     // Result of last CheckSSL call.
     Function SSLLastError: integer;
     property SSLLastErrorString: string read FSSLLastErrorString write SetSSLLastErrorString;
-    property AlpnList : TStringList read FAlpnList write FAlpnList;
+    property AlpnList : String read GetAlpnList write SetAlpnList;
     property SSLMasterKeyLog : String read FSSLMasterKEyLog write SetSSLMasterKeyLog;
   end;
 
@@ -152,6 +154,16 @@ begin
     Rewrite(FS);
     CloseFile(FS);
   end;
+end;
+
+function TExtOpenSSLSocketHandler.GetAlpnList: String;
+begin
+  Result := FAlpnList.Text;
+end;
+
+procedure TExtOpenSSLSocketHandler.SetAlpnList(AValue: String);
+begin
+  FAlpnList.Text:=AValue;
 end;
 
 procedure TExtOpenSSLSocketHandler.TryToSaveMasterKey;
@@ -341,7 +353,7 @@ end;
 constructor TExtOpenSSLSocketHandler.create;
 begin
   inherited create;
-  FAlpnList := nil;
+  FAlpnList := TStringList.Create;
   MaybeInitSSLInterface;
 end;
 
@@ -349,6 +361,7 @@ destructor TExtOpenSSLSocketHandler.destroy;
 begin
   FreeAndNil(FCTX);
   FreeAndNil(FSSL);
+  FAlpnList.Free;
   inherited destroy;
 end;
 
