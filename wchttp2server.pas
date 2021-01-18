@@ -54,12 +54,13 @@ const
 type
 
   TWCHTTPStreams = class;
+  TWCHTTPRefConnection = class;
   TWCHTTP2Connection = class;
-  TWCHTTP2Connections = class;
+  TWCHTTPRefConnections = class;
   TWCHTTPStream = class;
 
   TWCConnectionState = (wcCONNECTED, wcDROPPED, wcDEAD);
-  TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP2);
+  TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP1_1, wcHTTP2);
 
   { TWCHTTP2FrameHeader }
 
@@ -74,17 +75,52 @@ type
     procedure SaveToStream(Str : TStream);
   end;
 
-  { TWCHTTP2ProtoFrame }
+  { TWCHTTPRefProtoFrame }
 
-  TWCHTTP2ProtoFrame = class
+  TWCHTTPRefProtoFrame = class
   public
     procedure SaveToStream(Str : TStream); virtual; abstract;
     function Size : Int64; virtual; abstract;
   end;
+
+  { TWCHTTPStringFrame }
+
+  TWCHTTPStringFrame = class(TWCHTTPRefProtoFrame)
+  private
+    FStr : String;
+  public
+    constructor Create(const S : String);
+    procedure SaveToStream(Str : TStream); override;
+    function Size : Int64; override;
+  end;
+
+  { TWCHTTPStringsFrame }
+
+  TWCHTTPStringsFrame = class(TWCHTTPRefProtoFrame)
+  private
+    Strm : TMemoryStream;
+  public
+    constructor Create(Strs : TStrings);
+    destructor Destroy; override;
+    procedure SaveToStream(Str : TStream); override;
+    function Size : Int64; override;
+  end;
+
+  { TWCHTTPStreamFrame }
+
+  TWCHTTPStreamFrame = class(TWCHTTPRefProtoFrame)
+  private
+    FStrm : TStream;
+  public
+    constructor Create(Strm: TStream; Sz: Cardinal; Owned: Boolean);
+    destructor Destroy; override;
+    procedure SaveToStream(Str : TStream); override;
+    function Size : Int64; override;
+  end;
   
   { TWCHTTP2Frame }
   
-  TWCHTTP2Frame = class(TWCHTTP2ProtoFrame)
+  TWCHTTP2Frame = class(TWCHTTPRefProtoFrame)
   public
     Header  : TWCHTTP2FrameHeader;
     Payload : Pointer;  
@@ -100,7 +136,7 @@ type
 
   { TWCHTTP2AdvFrame }
 
-  TWCHTTP2AdvFrame = class(TWCHTTP2ProtoFrame)
+  TWCHTTP2AdvFrame = class(TWCHTTPRefProtoFrame)
   public
     procedure SaveToStream(Str : TStream); override;
     function Size : Int64; override;
@@ -108,7 +144,7 @@ type
 
   { TWCHTTP2UpgradeResponseFrame }
 
-  TWCHTTP2UpgradeResponseFrame = class(TWCHTTP2ProtoFrame)
+  TWCHTTP2UpgradeResponseFrame = class(TWCHTTPRefProtoFrame)
   private
     FMode : THTTP2OpenMode;
   public
@@ -354,17 +390,17 @@ type
     property States : TSocketStates read FSocketStates;
   end;
 
-  THttp2SocketConsume = procedure (SockRef : TWCHTTPSocketReference) of object;
-  THttp2SendData = procedure (aConnection : TWCHTTP2Connection) of object;
+  THttpRefSocketConsume = procedure (SockRef : TWCHTTPSocketReference) of object;
+  THttpRefSendData = procedure (aConnection : TWCHTTPRefConnection) of object;
 
   { TWCHTTPConnection }
 
   TWCHTTPConnection = class(TAbsHTTPConnection)
   private
-    FHTTP2Con  : TWCHTTP2Connection;
+    FHTTPRefCon  : TWCHTTPRefConnection;
     FHTTP2Str  : TWCHTTPStream;
     FSocketRef : TWCHTTPSocketReference;
-    procedure SetHTTP2Con(AValue: TWCHTTP2Connection);
+    procedure SetHTTPRefCon(AValue: TWCHTTPRefConnection);
     procedure SetHTTP2Stream(AValue: TWCHTTPStream);
   protected
     procedure DoSocketAttach(ASocket : TSocketStream); override;
@@ -376,7 +412,7 @@ type
     procedure IncSocketReference;
     procedure DecSocketReference;
     property SocketReference : TWCHTTPSocketReference read FSocketRef;
-    property HTTP2Con: TWCHTTP2Connection read FHTTP2Con write SetHTTP2Con;
+    property HTTPRefCon: TWCHTTPRefConnection read FHTTPRefCon write SetHTTPRefCon;
     property HTTP2Str: TWCHTTPStream read FHTTP2Str write SetHTTP2Stream;
   end;
 
@@ -403,76 +439,120 @@ type
     property Value : TWCConnectionState read GetConnState write SetConnState;
   end;
 
-  { TWCHTTP2Connection }
+  { TWCHTTPRefConnection }
 
-  TWCHTTP2Connection = class(TNetReferencedObject)
+  TWCHTTPRefConnection = class(TNetReferencedObject)
   private
+    FOwner : TWCHTTPRefConnections;
     FConnectionState : TThreadSafeConnectionState;
-    FOwner : TWCHTTP2Connections;
     FReadBuffer, FWriteBuffer : TThreadPointer;
     FReadBufferSize, FWriteBufferSize : Cardinal;
     FReadTailSize, FWriteTailSize : Integer;
     FSocket : Cardinal;
     FTimeStamp, FReadStamp, FWriteStamp : TThreadQWord;
-    FLastStreamID : Cardinal;
-    FStreams : TWCHTTPStreams;
-    FConSettings : TThreadSafeConnSettings;
     FFramesToSend : TThreadSafeFastSeq;
     FErrorData : Pointer;
     FErrorDataSize : Cardinal;
     FLastError : Cardinal;
-    FErrorStream : Cardinal;
     FSocketRef : TWCHTTPSocketReference;
-    FSocketConsume : THttp2SocketConsume;
-    FSendData      : THttp2SendData;
+    FSocketConsume : THttpRefSocketConsume;
+    FSendData      : THttpRefSendData;
     FDataSending  : TThreadBoolean;
-    FHPackDecoder : TThreadSafeHPackDecoder;
-    FHPackEncoder : TThreadSafeHPackEncoder;
 
     function GetConnectionState: TWCConnectionState;
     procedure SetConnectionState(CSt: TWCConnectionState);
     function ReadyToReadWrite(const TS : QWord) : Boolean;
     function ReadyToRead(const TS : QWord) : Boolean;
     function ReadyToWrite(const TS : QWord) : Boolean;
-    function AddNewStream(aStreamID: Cardinal): TWCHTTPStream;
-    function GetConnSetting(id : Word): Cardinal;
     function GetLifeTime: Cardinal;
-    procedure Refresh;
+    procedure Refresh; virtual;
     procedure TryToConsumeFrames(const TS: Qword);
     procedure TryToSendFrames(const TS: Qword);
+    procedure InitializeBuffers;
+  protected
+    function GetInitialReadBufferSize : Cardinal; virtual; abstract;
+    function GetInitialWriteBufferSize : Cardinal; virtual; abstract;
+    function ResponsesReady : Boolean; virtual; abstract;
+  public
+    constructor Create(aOwner: TWCHTTPRefConnections;
+        aSocket: TWCHTTPSocketReference;
+        aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData); virtual;
+    procedure ConsumeNextFrame(Mem : TBufferedStream); virtual; abstract;
+    procedure SendFrames; virtual;
+    destructor Destroy; override;
+    class function CheckProtocolVersion(Data : Pointer; sz : integer) :
+                                             TWCProtocolVersion;
+    class function Protocol : TWCProtocolVersion; virtual; abstract;
+    procedure PushFrame(fr : TWCHTTPRefProtoFrame); overload;
+    procedure PushFrame(const S : String); overload;
+    procedure PushFrame(Strm : TStream; Sz : Cardinal; Owned : Boolean); overload;
+    procedure PushFrame(Strs : TStrings); overload;
+    function TryToIdleStep(const TS: Qword): Boolean;
+    property Socket : Cardinal read FSocket;
+    // lifetime in seconds
+    property LifeTime : Cardinal read GetLifeTime;
+    // error
+    property LastError : Cardinal read FLastError;
+    property ErrorDataSize : Cardinal read FErrorDataSize;
+    property ErrorData : Pointer read FErrorData;
+    //
+    property ConnectionState : TWCConnectionState read GetConnectionState write SetConnectionState;
+  end;
+
+  { TWCHTTP11Connection }
+
+  TWCHTTP11Connection = class(TWCHTTPRefConnection)
+  protected
+    function GetInitialReadBufferSize : Cardinal; override;
+    function GetInitialWriteBufferSize : Cardinal; override;
+    function ResponsesReady: Boolean; override;
+  private
+    procedure ConsumeNextFrame(Mem : TBufferedStream); override;
+  public
+    constructor Create(aOwner: TWCHTTPRefConnections;
+        aSocket: TWCHTTPSocketReference;
+        aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData); override;
+    class function Protocol : TWCProtocolVersion; override;
+  end;
+
+  { TWCHTTP2Connection }
+
+  TWCHTTP2Connection = class(TWCHTTPRefConnection)
+  private
+    FLastStreamID : Cardinal;
+    FStreams : TWCHTTPStreams;
+    FConSettings : TThreadSafeConnSettings;
+    FErrorStream : Cardinal;
+    FHPackDecoder : TThreadSafeHPackDecoder;
+    FHPackEncoder : TThreadSafeHPackEncoder;
+
+    function AddNewStream(aStreamID: Cardinal): TWCHTTPStream;
+    function GetConnSetting(id : Word): Cardinal;
   protected
     procedure ResetHPack;
     procedure InitHPack;
     property  CurHPackDecoder : TThreadSafeHPackDecoder read FHPackDecoder;
     property  CurHPackEncoder : TThreadSafeHPackEncoder read FHPackEncoder;
+    function GetInitialReadBufferSize : Cardinal; override;
+    function GetInitialWriteBufferSize : Cardinal; override;
+    function ResponsesReady: Boolean; override;
   public
-    constructor Create(aOwner: TWCHTTP2Connections;
+    constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
-        aSocketConsume: THttp2SocketConsume; aSendData: THttp2SendData);
-    procedure ConsumeNextFrame(Mem : TBufferedStream);
-    procedure SendFrames;
+        aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData);
+    class function Protocol : TWCProtocolVersion; override;
+    procedure ConsumeNextFrame(Mem : TBufferedStream); override;
     destructor Destroy; override;
-    class function CheckProtocolVersion(Data : Pointer; sz : integer) :
-                                             TWCProtocolVersion;
     procedure PushFrame(aFrameType : Byte;
                         StrID : Cardinal;
                         aFrameFlags : Byte;
                         aData : Pointer;
                         aDataSize : Cardinal); overload;
-    procedure PushFrame(fr : TWCHTTP2ProtoFrame); overload;
     function PopRequestedStream : TWCHTTPStream;
-    function TryToIdleStep(const TS: Qword): Boolean;
-    property Socket : Cardinal read FSocket;
-    // lifetime in seconds
-    property LifeTime : Cardinal read GetLifeTime;
     property Streams : TWCHTTPStreams read FStreams;
     // error
-    property LastError : Cardinal read FLastError;
     property ErrorStream : Cardinal read FErrorStream;
-    property ErrorDataSize : Cardinal read FErrorDataSize;
-    property ErrorData : Pointer read FErrorData;
     //
-    property ConnectionState : TWCConnectionState read GetConnectionState write SetConnectionState;
     property ConnSettings[id : Word] : Cardinal read GetConnSetting;
   end;
 
@@ -516,14 +596,15 @@ type
   TEpollData = epoll_data;
   {$endif}
 
-  { TWCHTTP2Connections }
+  { TWCHTTPREfConnections }
 
-  TWCHTTP2Connections = class(TThreadSafeFastSeq)
+  TWCHTTPRefConnections = class(TThreadSafeFastSeq)
   private
     FLastUsedConnection : TIteratorObject;
     FMaintainStamp : QWord;
     FSettings : TWCHTTP2ServerSettings;
     FGarbageCollector : TNetReferenceList;
+    FNeedToRemoveDeadConnections : TThreadBoolean;
     {$ifdef socket_epoll_mode}
     FTimeout: cInt;
     FEvents: array of TEpollEvent;
@@ -542,11 +623,12 @@ type
   public
     constructor Create(aGarbageCollector : TNetReferenceList);
     destructor Destroy; override;
-    procedure  AddConnection(FConn : TWCHTTP2Connection);
-    function   GetByHandle(aSocket : Cardinal) : TWCHTTP2Connection;
+    procedure  AddConnection(FConn : TWCHTTPRefConnection);
+    function   GetByHandle(aSocket : Cardinal) : TWCHTTPRefConnection;
     procedure  RemoveDeadConnections(MaxLifeTime : Cardinal);
     procedure  Idle;
-    property Settings : TWCHTTP2ServerSettings read FSettings;
+    procedure  PushSocketError;
+    property HTTP2Settings : TWCHTTP2ServerSettings read FSettings;
     property GarbageCollector : TNetReferenceList read FGarbageCollector write
                                          FGarbageCollector;
   end;
@@ -560,6 +642,111 @@ const
 {$ifdef socket_epoll_mode}
   BASE_SIZE = 100;
 {$endif}
+
+{ TWCHTTPStringFrame }
+
+constructor TWCHTTPStringFrame.Create(const S: String);
+begin
+  FStr := S;
+end;
+
+procedure TWCHTTPStringFrame.SaveToStream(Str: TStream);
+begin
+  Str.WriteBuffer(FStr[1], Size);
+end;
+
+function TWCHTTPStringFrame.Size: Int64;
+begin
+  Result := Length(FStr);
+end;
+
+{ TWCHTTPStringsFrame }
+
+constructor TWCHTTPStringsFrame.Create(Strs: TStrings);
+begin
+  Strm := TMemoryStream.Create;
+  Strs.SaveToStream(Strm);
+end;
+
+destructor TWCHTTPStringsFrame.Destroy;
+begin
+  Strm.Free;
+  inherited Destroy;
+end;
+
+procedure TWCHTTPStringsFrame.SaveToStream(Str: TStream);
+begin
+  Str.WriteBuffer(Strm.Memory^, Strm.Size);
+end;
+
+function TWCHTTPStringsFrame.Size: Int64;
+begin
+  Result := Strm.Size;
+end;
+
+{ TWCHTTPStreamFrame }
+
+constructor TWCHTTPStreamFrame.Create(Strm: TStream; Sz: Cardinal;
+  Owned: Boolean);
+begin
+  if Owned then FStrm := Strm else
+  begin
+     FStrm := TMemoryStream.Create;
+     FStrm.CopyFrom(Strm, Sz);
+     FStrm.Position:=0;
+  end;
+end;
+
+destructor TWCHTTPStreamFrame.Destroy;
+begin
+  FStrm.Free;
+  inherited Destroy;
+end;
+
+procedure TWCHTTPStreamFrame.SaveToStream(Str: TStream);
+begin
+  Str.CopyFrom(FStrm, 0);
+end;
+
+function TWCHTTPStreamFrame.Size: Int64;
+begin
+  Result := FStrm.Size;
+end;
+
+{ TWCHTTP11Connection }
+
+function TWCHTTP11Connection.GetInitialReadBufferSize: Cardinal;
+begin
+  Result := 1;
+end;
+
+function TWCHTTP11Connection.GetInitialWriteBufferSize: Cardinal;
+begin
+  Result := 65535;
+end;
+
+function TWCHTTP11Connection.ResponsesReady: Boolean;
+begin
+  Result := False;
+end;
+
+procedure TWCHTTP11Connection.ConsumeNextFrame(Mem: TBufferedStream);
+begin
+  // do nothing for now
+end;
+
+constructor TWCHTTP11Connection.Create(aOwner: TWCHTTPRefConnections;
+  aSocket: TWCHTTPSocketReference; aSocketConsume: THttpRefSocketConsume;
+  aSendData: THttpRefSendData);
+begin
+  inherited Create(aOwner, aSocket, aSocketConsume, aSendData);
+  InitializeBuffers;
+end;
+
+class function TWCHTTP11Connection.Protocol: TWCProtocolVersion;
+begin
+  Result := wcHTTP1_1;
+end;
 
 { TWCHTTP2ServerSettings }
 
@@ -1006,13 +1193,13 @@ function TWCHTTPSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
   try
-    Result := FSocket.Write(Buffer, Size);
     Lock;
     try
       FSocketStates := FSocketStates - [ssCanSend];
     finally
       UnLock;
     end;
+    Result := FSocket.Write(Buffer, Size);
   finally
     StopSending;
   end else Result := 0;
@@ -1022,13 +1209,13 @@ function TWCHTTPSocketReference.Read(var Buffer; Size: Integer): Integer;
 begin
   if StartReading then
   try
-    Result := FSocket.Read(Buffer, Size);
     Lock;
     try
       FSocketStates := FSocketStates - [ssCanRead];
     finally
       UnLock;
     end;
+    Result := FSocket.Read(Buffer, Size);
   finally
     StopReading;
   end else Result := 0;
@@ -1036,15 +1223,15 @@ end;
 
 { TWCHTTPConnection }
 
-procedure TWCHTTPConnection.SetHTTP2Con(AValue: TWCHTTP2Connection);
+procedure TWCHTTPConnection.SetHTTPREfCon(AValue: TWCHTTPRefConnection);
 begin
-  if FHTTP2Con=AValue then Exit;
-  if assigned(FHTTP2Con) then
+  if FHTTPRefCon=AValue then Exit;
+  if assigned(FHTTPRefCon) then
   begin
-    FHTTP2Con.DecReference;
+    FHTTPRefCon.DecReference;
   end;
   SetHTTP2Stream(nil);
-  FHTTP2Con:=AValue;
+  FHTTPRefCon:=AValue;
 end;
 
 procedure TWCHTTPConnection.SetHTTP2Stream(AValue: TWCHTTPStream);
@@ -1069,7 +1256,7 @@ constructor TWCHTTPConnection.Create(AServer: TAbsCustomHTTPServer;
 begin
   FSocketRef:= nil;
   inherited Create(AServer, ASocket);
-  FHTTP2Con:=nil;
+  FHTTPRefCon:=nil;
   FHTTP2Str:=nil;
 end;
 
@@ -1079,13 +1266,13 @@ begin
   inherited Create(AServer, nil);
   FSocketRef := ASocketRef;
   ASocketRef.IncReference;
-  FHTTP2Con:=nil;
+  FHTTPRefCon:=nil;
   FHTTP2Str:=nil;
 end;
 
 destructor TWCHTTPConnection.Destroy;
 begin
-  SetHTTP2Con(nil);
+  SetHTTPRefCon(nil);
   if assigned(FSocketRef) then FSocketRef.DecReference;
   FSocketRef := nil;
   inherited Destroy;
@@ -1720,11 +1907,11 @@ begin
   inherited Destroy;
 end;
 
-{ TWCHTTP2Connections }
+{ TWCHTTPRefConnections }
 
 {$ifdef SOCKET_EPOLL_MODE}
 
-procedure TWCHTTP2Connections.Inflate;
+procedure TWCHTTPRefConnections.Inflate;
 var
   OldLength: Integer;
 begin
@@ -1741,7 +1928,7 @@ begin
   end;
 end;
 
-procedure TWCHTTP2Connections.CallActionEpoll(aCount: Integer);
+procedure TWCHTTPRefConnections.CallActionEpoll(aCount: Integer);
 var
   i, MasterChanges, Changes, ReadChanges, m, err: Integer;
   Temp, TempRead: TWCHTTPSocketReference;
@@ -1812,7 +1999,7 @@ begin
   end;
 end;
 
-procedure TWCHTTP2Connections.AddSocketEpoll(ASocket: TWCHTTPSocketReference);
+procedure TWCHTTPRefConnections.AddSocketEpoll(ASocket: TWCHTTPSocketReference);
 var
   lEvent: TEpollEvent;
 begin
@@ -1828,7 +2015,7 @@ begin
     Inflate;
 end;
 
-procedure TWCHTTP2Connections.RemoveSocketEpoll(ASocket: TWCHTTPSocketReference);
+procedure TWCHTTPRefConnections.RemoveSocketEpoll(ASocket: TWCHTTPSocketReference);
 begin
   try
     epoll_ctl(FEpollFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
@@ -1840,27 +2027,28 @@ end;
 
 {$endif}
 
-function TWCHTTP2Connections.IsConnDead(aConn: TObject; data: pointer
+function TWCHTTPRefConnections.IsConnDead(aConn: TObject; data: pointer
   ): Boolean;
 begin
-  Result := (TWCHTTP2Connection(aConn).LifeTime > PInteger(data)^) or
-            (TWCHTTP2Connection(aConn).ConnectionState <> wcCONNECTED);
+  Result := (TWCHTTPRefConnection(aConn).LifeTime > PInteger(data)^) or
+            (TWCHTTPRefConnection(aConn).ConnectionState <> wcCONNECTED);
 end;
 
-procedure TWCHTTP2Connections.AfterConnExtracted(aObj: TObject);
+procedure TWCHTTPRefConnections.AfterConnExtracted(aObj: TObject);
 begin
   {$ifdef SOCKET_EPOLL_MODE}
-  RemoveSocketEpoll(TWCHTTP2Connection(aObj).FSocketRef);
+  RemoveSocketEpoll(TWCHTTPRefConnection(aObj).FSocketRef);
   {$endif}
-  TWCHTTP2Connection(aObj).DecReference;
+  TWCHTTPRefConnection(aObj).DecReference;
 end;
 
-constructor TWCHTTP2Connections.Create(aGarbageCollector: TNetReferenceList);
+constructor TWCHTTPRefConnections.Create(aGarbageCollector: TNetReferenceList);
 {$ifdef SOCKET_EPOLL_MODE}
 var lEvent : TEpollEvent;
 {$endif}
 begin
   inherited Create;
+  FNeedToRemoveDeadConnections := TThreadBoolean.Create(false);
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
   FGarbageCollector := aGarbageCollector;
@@ -1884,7 +2072,7 @@ begin
   {$endif}
 end;
 
-destructor TWCHTTP2Connections.Destroy;
+destructor TWCHTTPRefConnections.Destroy;
 var P :TIteratorObject;
 begin
   Lock;
@@ -1892,7 +2080,7 @@ begin
     P := ListBegin;
     while assigned(P) do
     begin
-      TWCHTTP2Connection(P.Value).DecReference;
+      TWCHTTPRefConnection(P.Value).DecReference;
       P := P.Next;
     end;
     ExtractAll;
@@ -1904,10 +2092,11 @@ begin
   FEpollLocker.Free;
   {$endif}
   FSettings.Free;
+  FNeedToRemoveDeadConnections.Free;
   inherited Destroy;
 end;
 
-procedure TWCHTTP2Connections.AddConnection(FConn: TWCHTTP2Connection);
+procedure TWCHTTPRefConnections.AddConnection(FConn: TWCHTTPRefConnection);
 begin
   Push_back(FConn);
   {$ifdef socket_epoll_mode}
@@ -1915,7 +2104,7 @@ begin
   {$endif}
 end;
 
-function TWCHTTP2Connections.GetByHandle(aSocket: Cardinal): TWCHTTP2Connection;
+function TWCHTTPRefConnections.GetByHandle(aSocket: Cardinal): TWCHTTPRefConnection;
 var P :TIteratorObject;
 begin
   Result := nil;
@@ -1924,10 +2113,10 @@ begin
     P := ListBegin;
     while assigned(P) do
     begin
-      if (TWCHTTP2Connection(P.Value).Socket = aSocket) and
-         (TWCHTTP2Connection(P.Value).ConnectionState = wcCONNECTED) then
+      if (TWCHTTPRefConnection(P.Value).Socket = aSocket) and
+         (TWCHTTPRefConnection(P.Value).ConnectionState = wcCONNECTED) then
       begin
-        Result := TWCHTTP2Connection(P.Value);
+        Result := TWCHTTPRefConnection(P.Value);
         Result.IncReference;
         Break;
       end;
@@ -1938,18 +2127,19 @@ begin
   end;
 end;
 
-procedure TWCHTTP2Connections.RemoveDeadConnections(MaxLifeTime: Cardinal);
+procedure TWCHTTPRefConnections.RemoveDeadConnections(MaxLifeTime: Cardinal);
 begin
   ExtractObjectsByCriteria(@IsConnDead, @AfterConnExtracted, @MaxLifeTime);
 end;
 
-procedure TWCHTTP2Connections.Idle;
+procedure TWCHTTPRefConnections.Idle;
 var TS : QWord;
     P :TIteratorObject;
     i : integer;
 begin
   TS := GetTickCount64;
-  if (TS - FMaintainStamp) div 1000 > 60 then
+  if ((TS - FMaintainStamp) div 1000 > 60) or
+     (FNeedToRemoveDeadConnections.Value) then
   begin
     RemoveDeadConnections(120);
     FMaintainStamp := TS;
@@ -1976,9 +2166,11 @@ begin
     i := 0;
     while assigned(P) do
     begin
-      if (TWCHTTP2Connection(P.Value).ConnectionState = wcCONNECTED) then
+      if (TWCHTTPRefConnection(P.Value).ConnectionState = wcCONNECTED) then
       begin
-        if TWCHTTP2Connection(P.Value).TryToIdleStep(TS) then
+        if ssError in TWCHTTPRefConnection(P.Value).FSocketRef.States then
+          TWCHTTPRefConnection(P.Value).ConnectionState:= wcDROPPED else
+        if TWCHTTPRefConnection(P.Value).TryToIdleStep(TS) then
         begin
           FLastUsedConnection := P.Next;
           inc(i);
@@ -1992,37 +2184,257 @@ begin
   end;
 end;
 
-{ TWCHTTP2Connection }
+procedure TWCHTTPRefConnections.PushSocketError;
+begin
+  FNeedToRemoveDeadConnections.Value := True;
+end;
 
-procedure TWCHTTP2Connection.SetConnectionState(CSt: TWCConnectionState);
+{ TWCHTTPRefConnection }
+
+procedure TWCHTTPRefConnection.SetConnectionState(CSt: TWCConnectionState);
 begin
   if ConnectionState <> CSt then
   begin
     FConnectionState.Value := Cst;
-    if Cst = wcDROPPED then
+    if Cst = wcDROPPED then begin
+      FOwner.PushSocketError;
       FSocketRef.PushError;
+    end;
   end;
 end;
 
-function TWCHTTP2Connection.GetConnectionState: TWCConnectionState;
+function TWCHTTPRefConnection.GetConnectionState: TWCConnectionState;
 begin
   Result := FConnectionState.Value;
 end;
 
-function TWCHTTP2Connection.ReadyToReadWrite(const TS: QWord): Boolean;
+function TWCHTTPRefConnection.ReadyToReadWrite(const TS: QWord): Boolean;
 begin
   Result := ReadyToRead(TS) or ReadyToWrite(TS);
 end;
 
-function TWCHTTP2Connection.ReadyToRead(const TS: QWord): Boolean;
+function TWCHTTPRefConnection.ReadyToRead(const TS: QWord): Boolean;
 begin
   Result := (TS - FReadStamp.Value) > 10;
 end;
 
-function TWCHTTP2Connection.ReadyToWrite(const TS: QWord): Boolean;
+function TWCHTTPRefConnection.ReadyToWrite(const TS: QWord): Boolean;
 begin
   Result := ((TS - FWriteStamp.Value) > 10) and (not FDataSending.Value);
 end;
+
+function TWCHTTPRefConnection.GetLifeTime: Cardinal;
+begin
+  Result := (GetTickCount64 - FTimeStamp.Value) div 1000;
+end;
+
+procedure TWCHTTPRefConnection.Refresh;
+begin
+  FTimeStamp.Value := GetTickCount64;
+end;
+
+constructor TWCHTTPRefConnection.Create(aOwner: TWCHTTPRefConnections;
+  aSocket: TWCHTTPSocketReference;
+  aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData);
+begin
+  inherited Create;
+  FOwner := aOwner;
+  FSocketRef := aSocket;
+  FSocketRef.IncReference;
+  FSocket:= FSocketRef.Socket.Handle;
+  FTimeStamp := TThreadQWord.Create(GetTickCount64);
+  FReadTailSize := 0;
+  FWriteTailSize:= 0;
+  FSocketConsume:= aSocketConsume;
+  FSendData := aSendData;
+  FDataSending := TThreadBoolean.Create(false);
+  FReadStamp := TThreadQWord.Create(GetTickCount64);
+  FWriteStamp:= TThreadQWord.Create(GetTickCount64);
+  FFramesToSend := TThreadSafeFastSeq.Create;
+  FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
+end;
+
+destructor TWCHTTPRefConnection.Destroy;
+begin
+  FConnectionState.Value:= wcDEAD;
+  if assigned(FSocketRef) then FSocketRef.DecReference;
+  FFramesToSend.Free;
+  if assigned(FReadBuffer) then FReadBuffer.Free;
+  if assigned(FWriteBuffer) then FWriteBuffer.Free;
+  FReadStamp.Free;
+  FWriteStamp.Free;
+  FTimeStamp.Free;
+  FConnectionState.Free;
+  FDataSending.Free;
+  inherited Destroy;
+end;
+
+class function TWCHTTPRefConnection.CheckProtocolVersion(Data: Pointer; sz: integer
+  ): TWCProtocolVersion;
+begin
+  if sz >= H2P_PREFACE_SIZE then
+  begin
+    if CompareByte(Data^, HTTP2Preface[0], H2P_PREFACE_SIZE) = 0 then
+    begin
+      Result:=wcHTTP2;
+    end else
+    begin
+      if (PByteArray(Data)^[0] in HTTP1HeadersAllowed) then
+        Result:=wcHTTP1 else
+        Result:=wcUNK; // other protocol
+    end;
+  end else Result:= wcUNK;
+end;
+
+procedure TWCHTTPRefConnection.PushFrame(fr: TWCHTTPRefProtoFrame);
+begin
+  FFramesToSend.Push_back(fr);
+  Refresh;
+end;
+
+procedure TWCHTTPRefConnection.PushFrame(const S: String);
+begin
+  PushFrame(TWCHTTPStringFrame.Create(S));
+end;
+
+procedure TWCHTTPRefConnection.PushFrame(Strm: TStream; Sz: Cardinal;
+  Owned: Boolean);
+begin
+  PushFrame(TWCHTTPStreamFrame.Create(Strm, Sz, Owned));
+end;
+
+procedure TWCHTTPRefConnection.PushFrame(Strs: TStrings);
+begin
+  PushFrame(TWCHTTPStringsFrame.Create(Strs));
+end;
+
+procedure TWCHTTPRefConnection.SendFrames;
+var fr : TWCHTTPRefProtoFrame;
+    it : TIteratorObject;
+    WrBuf : TBufferedStream;
+    Sz : Integer;
+    CurBuffer : Pointer;
+begin
+  WrBuf := TBufferedStream.Create;
+  try
+    FWriteBuffer.Lock;
+    try
+      CurBuffer := FWriteBuffer.Value;
+      WrBuf.SetPointer(Pointer(CurBuffer + FWriteTailSize),
+                                             FWriteBufferSize - FWriteTailSize);
+      FFramesToSend.Lock;
+      try
+        repeat
+           fr := nil;
+           it := FFramesToSend.ListBegin;
+           if Assigned(it) then begin
+             if TWCHTTPRefProtoFrame(it.Value).Size <=
+                                       (WrBuf.Size - WrBuf.Position) then
+             begin
+               fr := TWCHTTPRefProtoFrame(FFramesToSend.PopValue);
+               if Assigned(fr) then begin
+                 fr.SaveToStream(WrBuf);
+               end;
+             end;
+           end;
+        until not assigned(fr);
+      finally
+        FFramesToSend.UnLock;
+      end;
+      if (WrBuf.Position > 0) or (FWriteTailSize > 0) then
+      begin
+        try
+          Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
+          if Sz < WrBuf.Position then
+          begin
+            if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
+            FWriteTailSize := WrBuf.Position - Sz;
+            Move(Pointer(CurBuffer + Sz)^, CurBuffer^, FWriteTailSize);
+          end else FWriteTailSize:= 0;
+        except
+          ConnectionState:= wcDROPPED;
+        end;
+      end;
+    finally
+      FWriteBuffer.UnLock;
+    end;
+  finally
+    WrBuf.Free;
+    FDataSending.Value := false;
+    Refresh;
+  end;
+end;
+
+function TWCHTTPRefConnection.TryToIdleStep(const TS : Qword): Boolean;
+begin
+  Result := false;
+  if assigned(FSocketRef) and ReadyToReadWrite(TS) then
+  begin
+    {$ifdef socket_select_mode}
+    FSocketRef.GetSocketStates;
+    if ssError in FSocketRef.States then
+    begin
+      ConnectionState:= wcDROPPED;
+      Exit;
+    end;
+    {$endif}
+    TryToConsumeFrames(TS);
+    TryToSendFrames(TS);
+    Result := true;
+  end;
+end;
+
+procedure TWCHTTPRefConnection.TryToConsumeFrames(const TS: Qword);
+begin
+  if (ConnectionState = wcCONNECTED) and
+     (FSocketRef.CanRead or ResponsesReady) and
+      ReadyToRead(TS) and
+      assigned(FSocketConsume) then
+  begin
+    FReadStamp.Value := TS;
+    try
+      FSocketConsume(FSocketRef);
+    except
+      ConnectionState := wcDROPPED;
+    end;
+  end;
+end;
+
+procedure TWCHTTPRefConnection.TryToSendFrames(const TS: Qword);
+begin
+  if (ConnectionState = wcCONNECTED) and
+       FSocketRef.CanSend and
+       (FFramesToSend.Count > 0) and
+       ReadyToWrite(TS) then
+  begin
+    FDataSending.Value := True;
+    FWriteStamp.Value  := TS;
+    try
+      if assigned(FSendData) then
+        FSendData(Self) else
+        SendFrames;
+    except
+      ConnectionState := wcDROPPED;
+    end;
+  end;
+end;
+
+procedure TWCHTTPRefConnection.InitializeBuffers;
+var SZ : Cardinal;
+begin
+  SZ := GetInitialReadBufferSize;
+  if SZ > 0 then
+    FReadBuffer := TThreadPointer.Create(SZ) else
+    FReadBuffer := nil;
+  FReadBufferSize:= SZ;
+  SZ := GetInitialWriteBufferSize;
+  if SZ > 0 then
+    FWriteBuffer := TThreadPointer.Create(SZ) else
+    FWriteBuffer := nil;
+  FWriteBufferSize:= SZ;
+end;
+
+{ TWCHTTP2Connection }
 
 function TWCHTTP2Connection.AddNewStream(aStreamID : Cardinal): TWCHTTPStream;
 begin
@@ -2036,60 +2448,39 @@ begin
   Result := FConSettings[id];
 end;
 
-function TWCHTTP2Connection.GetLifeTime: Cardinal;
-begin
-  Result := (GetTickCount64 - FTimeStamp.Value) div 1000;
-end;
-
-procedure TWCHTTP2Connection.Refresh;
-begin
-  FTimeStamp.Value := GetTickCount64;
-end;
-
-constructor TWCHTTP2Connection.Create(aOwner: TWCHTTP2Connections;
+constructor TWCHTTP2Connection.Create(aOwner: TWCHTTPRefConnections;
   aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
-  aSocketConsume: THttp2SocketConsume; aSendData: THttp2SendData);
+  aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData);
 var i, Sz : integer;
     CSet : PHTTP2SettingsPayload;
 begin
-  inherited Create;
-  FOwner := aOwner;
+  inherited Create(aOwner, aSocket, aSocketConsume, aSendData);
   FStreams := TWCHTTPStreams.Create;
-  FSocketRef := aSocket;
-  FSocketRef.IncReference;
-  FSocket:= FSocketRef.Socket.Handle;
-  FTimeStamp := TThreadQWord.Create(GetTickCount64);
-  FReadTailSize := 0;
-  FWriteTailSize:= 0;
   FLastStreamID := 0;
-  FSocketConsume:= aSocketConsume;
-  FSendData := aSendData;
-  FDataSending := TThreadBoolean.Create(false);
-  FReadStamp := TThreadQWord.Create(GetTickCount64);
-  FWriteStamp:= TThreadQWord.Create(GetTickCount64);
   FConSettings := TThreadSafeConnSettings.Create;
   for i := 1 to HTTP2_SETTINGS_MAX do
     FConSettings[i] := HTTP2_SET_INITIAL_VALUES[i];
-  FOwner.Settings.Lock;
+  FOwner.HTTP2Settings.Lock;
   try
-    for i := 0 to FOwner.Settings.Count-1 do
+    for i := 0 to FOwner.HTTP2Settings.Count-1 do
     begin
-      FConSettings[BEtoN(FOwner.Settings[i].Identifier)] := BEtoN(FOwner.Settings[i].Value);
+      FConSettings[BEtoN(FOwner.HTTP2Settings[i].Identifier)] := BEtoN(FOwner.HTTP2Settings[i].Value);
     end;
   finally
-    FOwner.Settings.UnLock;
+    FOwner.HTTP2Settings.UnLock;
   end;
-  FReadBuffer := TThreadPointer.Create(FConSettings[H2SET_INITIAL_WINDOW_SIZE]);
-  FWriteBuffer := TThreadPointer.Create(FConSettings[H2SET_INITIAL_WINDOW_SIZE]);
-  FWriteBufferSize:= FConSettings[H2SET_INITIAL_WINDOW_SIZE];
-  FReadBufferSize:= FConSettings[H2SET_INITIAL_WINDOW_SIZE];
-  FFramesToSend := TThreadSafeFastSeq.Create;
-  FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
+  InitializeBuffers;
+
   // send initial settings frame
   if aOpenningMode in [h2oUpgradeToH2C, h2oUpgradeToH2] then
     PushFrame(TWCHTTP2UpgradeResponseFrame.Create(aOpenningMode));
-  Sz := FOwner.Settings.CopySettingsToMem(Cset);
+  Sz := FOwner.HTTP2Settings.CopySettingsToMem(Cset);
   PushFrame(TWCHTTP2Frame.Create(H2FT_SETTINGS, 0, 0, CSet,  Sz));
+end;
+
+class function TWCHTTP2Connection.Protocol: TWCProtocolVersion;
+begin
+  Result := wcHTTP2;
 end;
 
 procedure TWCHTTP2Connection.ConsumeNextFrame(Mem: TBufferedStream);
@@ -2626,106 +3017,16 @@ end;
 
 destructor TWCHTTP2Connection.Destroy;
 begin
-  FConnectionState.Value:= wcDEAD;
-  if assigned(FSocketRef) then FSocketRef.DecReference;
   FStreams.Free;
-  FFramesToSend.Free;
   ResetHPack;
-  FReadBuffer.Free;
-  FWriteBuffer.Free;
   FConSettings.Free;
-  FReadStamp.Free;
-  FWriteStamp.Free;
-  FTimeStamp.Free;
-  FConnectionState.Free;
-  FDataSending.Free;
   inherited Destroy;
-end;
-
-class function TWCHTTP2Connection.CheckProtocolVersion(Data: Pointer; sz: integer
-  ): TWCProtocolVersion;
-begin
-  if sz >= H2P_PREFACE_SIZE then
-  begin
-    if CompareByte(Data^, HTTP2Preface[0], H2P_PREFACE_SIZE) = 0 then
-    begin
-      Result:=wcHTTP2;
-    end else
-    begin
-      if (PByteArray(Data)^[0] in HTTP1HeadersAllowed) then
-        Result:=wcHTTP1 else
-        Result:=wcUNK; // other protocol
-    end;
-  end else Result:= wcUNK;
 end;
 
 procedure TWCHTTP2Connection.PushFrame(aFrameType: Byte; StrID: Cardinal;
   aFrameFlags: Byte; aData: Pointer; aDataSize: Cardinal);
 begin
   PushFrame(TWCHTTP2Frame.Create(aFrameType, StrID, aFrameFlags, aData, aDataSize));
-end;
-
-procedure TWCHTTP2Connection.PushFrame(fr: TWCHTTP2ProtoFrame);
-begin
-  FFramesToSend.Push_back(fr);
-  Refresh;
-end;
-
-procedure TWCHTTP2Connection.SendFrames;
-var fr : TWCHTTP2ProtoFrame;
-    it : TIteratorObject;
-    WrBuf : TBufferedStream;
-    Sz : Integer;
-    CurBuffer : Pointer;
-begin
-  WrBuf := TBufferedStream.Create;
-  try
-    FWriteBuffer.Lock;
-    try
-      CurBuffer := FWriteBuffer.Value;
-      WrBuf.SetPointer(Pointer(CurBuffer + FWriteTailSize),
-                                             FWriteBufferSize - FWriteTailSize);
-      FFramesToSend.Lock;
-      try
-        repeat
-           fr := nil;
-           it := FFramesToSend.ListBegin;
-           if Assigned(it) then begin
-             if TWCHTTP2ProtoFrame(it.Value).Size <=
-                                       (WrBuf.Size - WrBuf.Position) then
-             begin
-               fr := TWCHTTP2ProtoFrame(FFramesToSend.PopValue);
-               if Assigned(fr) then begin
-                 fr.SaveToStream(WrBuf);
-               end;
-             end;
-           end;
-        until not assigned(fr);
-      finally
-        FFramesToSend.UnLock;
-      end;
-      if (WrBuf.Position > 0) or (FWriteTailSize > 0) then
-      begin
-        try
-          Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
-          if Sz < WrBuf.Position then
-          begin
-            if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
-            FWriteTailSize := WrBuf.Position - Sz;
-            Move(Pointer(CurBuffer + Sz)^, CurBuffer^, FWriteTailSize);
-          end else FWriteTailSize:= 0;
-        except
-          ConnectionState:= wcDROPPED;
-        end;
-      end;
-    finally
-      FWriteBuffer.UnLock;
-    end;
-  finally
-    WrBuf.Free;
-    FDataSending.Value := false;
-    Refresh;
-  end;
 end;
 
 function TWCHTTP2Connection.PopRequestedStream: TWCHTTPStream;
@@ -2740,60 +3041,6 @@ begin
     end else Result := nil;
   finally
     UnLock;
-  end;
-end;
-
-function TWCHTTP2Connection.TryToIdleStep(const TS : Qword): Boolean;
-begin
-  Result := false;
-  if assigned(FSocketRef) and ReadyToReadWrite(TS) then
-  begin
-    {$ifdef socket_select_mode}
-    FSocketRef.GetSocketStates;
-    {$endif}
-    if ssError in FSocketRef.States then
-    begin
-      ConnectionState:= wcDROPPED;
-      Exit;
-    end;
-    TryToConsumeFrames(TS);
-    TryToSendFrames(TS);
-    Result := true;
-  end;
-end;
-
-procedure TWCHTTP2Connection.TryToConsumeFrames(const TS: Qword);
-begin
-  if (ConnectionState = wcCONNECTED) and
-     (FSocketRef.CanRead or FStreams.HasStreamWithRequest) and
-      ReadyToRead(TS) and
-      assigned(FSocketConsume) then
-  begin
-    FReadStamp.Value := TS;
-    try
-      FSocketConsume(FSocketRef);
-    except
-      ConnectionState := wcDROPPED;
-    end;
-  end;
-end;
-
-procedure TWCHTTP2Connection.TryToSendFrames(const TS: Qword);
-begin
-  if (ConnectionState = wcCONNECTED) and
-       FSocketRef.CanSend and
-       (FFramesToSend.Count > 0) and
-       ReadyToWrite(TS) then
-  begin
-    FDataSending.Value := True;
-    FWriteStamp.Value  := TS;
-    try
-      if assigned(FSendData) then
-        FSendData(Self) else
-        SendFrames;
-    except
-      ConnectionState := wcDROPPED;
-    end;
   end;
 end;
 
@@ -2821,6 +3068,21 @@ begin
                             ConnSettings[H2SET_HEADER_TABLE_SIZE]);
      FOwner.GarbageCollector.Add(FHPackDecoder);
   end;
+end;
+
+function TWCHTTP2Connection.GetInitialReadBufferSize: Cardinal;
+begin
+  Result := FConSettings[H2SET_INITIAL_WINDOW_SIZE];
+end;
+
+function TWCHTTP2Connection.GetInitialWriteBufferSize: Cardinal;
+begin
+  Result := FConSettings[H2SET_INITIAL_WINDOW_SIZE];
+end;
+
+function TWCHTTP2Connection.ResponsesReady: Boolean;
+begin
+  Result :=  FStreams.HasStreamWithRequest;
 end;
 
 { TWCHTTPStreams }

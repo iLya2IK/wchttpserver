@@ -145,7 +145,7 @@ begin
   Conf.SetDefaultValue(CFG_CLIENT_COOKIE_MAX_AGE, 86400);
   Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 10);
 
-  with Application.ESServer.HTTP2Connections.Settings do
+  with Application.ESServer.HTTPRefConnections.HTTP2Settings do
   if Count = 0 then begin
     Add(H2SET_MAX_CONCURRENT_STREAMS, 100);
     Add(H2SET_INITIAL_WINDOW_SIZE, $ffff);

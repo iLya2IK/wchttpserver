@@ -140,7 +140,7 @@ type
     FMainThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
-    FHTTP2Connections : TWCHTTP2Connections;
+    FHTTPRefConnections : TWCHTTPRefConnections;
     procedure SetMaxMainClientsThreads(AValue: Byte);
     procedure SetMaxPreClientsThreads(AValue: Byte);
     function CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
@@ -160,16 +160,19 @@ type
     Procedure InitRequest(ARequest : TAbsHTTPConnectionRequest); override;
     Procedure InitResponse(AResponse : TAbsHTTPConnectionResponse); override;
     function AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
-      aOpenMode: THTTP2OpenMode; aServerDoConsume: THttp2SocketConsume;
-  aSendData: THttp2SendData): TWCHTTP2Connection;
+      aOpenMode: THTTP2OpenMode; aServerDoConsume: THttpRefSocketConsume;
+      aSendData: THttpRefSendData): TWCHTTP2Connection;
+    function AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
+      aServerDoConsume: THttpRefSocketConsume;
+      aSendData: THttpRefSendData): TWCHTTP11Connection;
     property  MaxPreClientsThreads : Byte read FMaxPreClientsThreads write SetMaxPreClientsThreads;
     property  MaxMainClientsThreads : Byte read FMaxMainClientsThreads write SetMaxMainClientsThreads;
     function  ServerActive : Boolean;
     procedure DoConnectToSocketRef(SockRef : TWCHTTPSocketReference);
-    procedure DoSendData(aConnection : TWCHTTP2Connection);
+    procedure DoSendData(aConnection : TWCHTTPRefConnection);
     destructor Destroy; override;
 
-    property  HTTP2Connections : TWCHTTP2Connections read FHTTP2Connections;
+    property  HTTPRefConnections : TWCHTTPRefConnections read FHTTPRefConnections;
   end;
 
   { TWCHttpServerHandler }
@@ -510,13 +513,13 @@ type
     property  Socket : TSocketStream read GetSocket;
   end;
 
-  { TWCHttp2SendDataJob }
+  { TWCHttpRefSendDataJob }
 
-  TWCHttp2SendDataJob = class(TJob)
+  TWCHttpRefSendDataJob = class(TJob)
   private
-    FConnection : TWCHTTP2Connection;
+    FConnection : TWCHTTPRefConnection;
   public
-    constructor Create(aConnection : TWCHTTP2Connection);
+    constructor Create(aConnection : TWCHTTPRefConnection);
     destructor Destroy; override;
     procedure Execute; override;
   end;
@@ -782,22 +785,22 @@ begin
   Http2Sec.AddValue(CFG_H2SET_MAX_HEADER_LIST_SIZE  , wccrInteger);
 end;
 
-{ TWCHttp2SendDataJob }
+{ TWCHttpRefSendDataJob }
 
-constructor TWCHttp2SendDataJob.Create(aConnection: TWCHTTP2Connection);
+constructor TWCHttpRefSendDataJob.Create(aConnection: TWCHTTPRefConnection);
 begin
   inherited Create;
   FConnection := aConnection;
   FConnection.IncReference;
 end;
 
-destructor TWCHttp2SendDataJob.Destroy;
+destructor TWCHttpRefSendDataJob.Destroy;
 begin
   FConnection.DecReference;
   inherited Destroy;
 end;
 
-procedure TWCHttp2SendDataJob.Execute;
+procedure TWCHttpRefSendDataJob.Execute;
 begin
   try
     FConnection.SendFrames;
@@ -896,11 +899,17 @@ begin
       WCConn.HTTP2Str.Request.Response.SerializeData(not KeepStreamAlive);
     end else
     begin
-      C := WCConn.Socket.Write(S[1], L);
-      if C < 0 then
+      if Assigned(WCConn.HTTPRefCon) then
       begin
-        // do nothing
-        raise Exception.CreateFmt('Socket write error %d', [GetConnection.Socket.LastError]);
+        WCConn.HTTPRefCon.PushFrame(S);
+      end else
+      begin
+        C := WCConn.Socket.Write(S[1], L);
+        if C < 0 then
+        begin
+          // do nothing
+          raise Exception.CreateFmt('Socket write error %d', [GetConnection.Socket.LastError]);
+        end;
       end;
     end;
   end;
@@ -934,7 +943,12 @@ begin
     For I:=0 to Headers.Count-1 do
       S:=S+Headers[i]+#13#10;
     // Last line in headers is empty.
-    WCConn.Socket.WriteBuffer(S[1],Length(S));
+    if Assigned(WCConn.HTTPRefCon) then
+    begin
+      WCConn.HTTPRefCon.PushFrame(S);
+    end else begin
+      WCConn.Socket.WriteBuffer(S[1],Length(S));
+    end;
   end;
 end;
 
@@ -945,10 +959,20 @@ begin
     WCConn.HTTP2Str.Request.Response.SerializeResponseData(Self, true); //close stream
   end else
   begin
-    If Assigned(ContentStream) then
-      WCConn.Socket.CopyFrom(ContentStream,0)
-    else
-      Contents.SaveToStream(WCConn.Socket);
+    if Assigned(WCConn.HTTPRefCon) then
+    begin
+      If Assigned(ContentStream) then begin
+        WCConn.HTTPRefCon.PushFrame(ContentStream, 0, FreeContentStream);
+        FreeContentStream := false;
+      end
+      else
+        WCConn.HTTPRefCon.PushFrame(Contents);
+    end else begin
+      If Assigned(ContentStream) then
+        WCConn.Socket.CopyFrom(ContentStream,0)
+      else
+        Contents.SaveToStream(WCConn.Socket);
+    end;
   end;
 end;
 
@@ -1148,11 +1172,19 @@ end;
 
 function TWCConnection.ConsumeSocketData: Boolean;
 var r : integer;
-    aHTTP2Con : TWCHTTP2Connection;
+    aHTTPRefCon : TWCHTTPRefConnection;
     h2openmode : THTTP2OpenMode;
 begin
   Result := true;
   try
+    aHTTPRefCon := TWCHttpServer(Server).HTTPRefConnections.GetByHandle(Socket.Handle);
+    // if HTTPRefCon not nil, then reference to httprefcon automatically incremented
+    // NOT need To increment here
+    if Assigned(aHTTPRefCon) then
+    begin
+      HTTPRefCon := aHTTPRefCon;
+      FProtocolVersion := aHTTPRefCon.Protocol;
+    end;
     //SetupSocket;
     r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
     If r<0 then
@@ -1160,26 +1192,21 @@ begin
     FInput.SetPointer(FInputBuf, r);  //resize buffered stream
 
     try
-      aHTTP2Con := TWCHttpServer(Server).HTTP2Connections.GetByHandle(Socket.Handle);
-      // if HTTP2Con not nil, then reference to http2con automatically incremented
-      // NOT need To increment here
-      if Assigned(aHTTP2Con) then
-      begin
-        HTTP2Con := aHTTP2Con;
-        FProtocolVersion := wcHTTP2;
-        FInput.Position :=0;
-      end else
       if FInput.Size > 0 then
       begin
-        FProtocolVersion := TWCHTTP2Connection.CheckProtocolVersion(FInput.Memory, FInput.Size);
-        if FProtocolVersion = wcHTTP2 then begin
-           h2openmode := h2oPrefaceMode;
-           FInput.Position:= H2P_PREFACE_SIZE;
-        end else begin
-           FInput.Position:= 0;
-        end;
-        if FProtocolVersion = wcHTTP1 then
+        if not Assigned(HTTPRefCon) then
         begin
+          FProtocolVersion := TWCHTTP2Connection.CheckProtocolVersion(FInput.Memory, FInput.Size);
+          if FProtocolVersion = wcHTTP2 then begin
+             h2openmode := h2oPrefaceMode;
+             FInput.Position:= H2P_PREFACE_SIZE;
+          end else begin
+             FInput.Position:= 0;
+          end;
+        end;
+        if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
+        begin
+          // Request headers and content reading on one round
           // Read headers.
           FRequest:= ReadReqHeaders;
           // Read content, if any
@@ -1191,14 +1218,25 @@ begin
           //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
           //
           //this mechanism is not implemented due to its rare use
-          if FProtocolVersion = wcHTTP1 then
+          if not Assigned(HTTPRefCon) then
+          begin
+            if SameText(FRequest.ProtocolVersion, '1.1') and
+               SameText(FRequest.GetHeader(hhConnection), 'keep-alive') then
+            begin
+              HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
+                                                                     @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                     @(TWCHttpServer(Server).DoSendData));
+              HTTPRefCon.IncReference; // reference not incremented here, need to increment
+            end;
+          end;
+          if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
           begin
             // Create Response
             FResponse:= TWCResponse(TWCHttpServer(Server).CreateResponse(FRequest));
             TWCHttpServer(Server).InitResponse(FResponse);
             FResponse.SetConnection(Self);
           end;
-        end;
+        end else Result := false;
       end else Result := false;
       if FProtocolVersion = wcHTTP2 then
       begin
@@ -1206,17 +1244,17 @@ begin
         // RFC 7540
         // consume socket data, pop new request
         Result := True;
-        if not Assigned(HTTP2Con) then
+        if not Assigned(HTTPRefCon) then
         begin
-          HTTP2Con := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
-                                                              h2openmode,
-                                                              @(TWCHttpServer(Server).DoConnectToSocketRef),
-                                                              @(TWCHttpServer(Server).DoSendData));
-          HTTP2Con.IncReference; // reference not incremented here, need to increment
+          HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
+                                                                h2openmode,
+                                                                @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                @(TWCHttpServer(Server).DoSendData));
+          HTTPRefCon.IncReference; // reference not incremented here, need to increment
         end;
         if FInput.Size > 0 then
-           HTTP2Con.ConsumeNextFrame(FInput);
-        HTTP2Str := HTTP2Con.PopRequestedStream;
+           HTTPRefCon.ConsumeNextFrame(FInput);
+        HTTP2Str := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
         if Assigned(HTTP2Str) then
         begin
           FRequest := ConvertFromHTTP2Req(HTTP2Str.Request);
@@ -1231,6 +1269,7 @@ begin
   Except
     On E : Exception do begin
       Result := false;
+      if Assigned(HTTPRefCon) then HTTPRefCon.ConnectionState:=wcDROPPED;
       if Assigned(FRequest) then FreeAndNil(FRequest);
       if Assigned(FResponse) then FreeAndNil(FResponse);
       HandleRequestError(E);
@@ -1291,7 +1330,7 @@ begin
   if Assigned(FConn) and FConn.ConsumeSocketData and
      TWCHttpServer(FConn.Server).ServerActive then begin
 
-    WebContainer.Clients.Lock;
+    //WebContainer.Clients.Lock;
     try
       aSession := WebContainer.CreateSession(Request);
       if Assigned(aSession) then
@@ -1320,7 +1359,7 @@ begin
         FConn.SetSessionParams(aClient, aSession);
       end else aClient := nil;
     finally
-      WebContainer.Clients.UnLock;
+      //WebContainer.Clients.UnLock;
     end;
     //
     if assigned(aClient) then
@@ -1418,7 +1457,7 @@ begin
   inherited Create(AOwner);
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
-  FHTTP2Connections := TWCHTTP2Connections.Create(nil);
+  FHTTPRefConnections := TWCHTTPRefConnections.Create(nil);
   FMaxMainClientsThreads := 1;
   FMaxPreClientsThreads  := 1;
 end;
@@ -1463,6 +1502,7 @@ end;
 function TWCHttpServer.CreateConnection(Data: TSocketStream): TAbsHTTPConnection;
 begin
   Result:= TWCConnection.Create(Self, Data);
+  Data.IOTimeout := 10000;
 end;
 
 function TWCHttpServer.CreateRequest: TAbsHTTPConnectionRequest;
@@ -1488,16 +1528,28 @@ begin
 end;
 
 function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
-  aOpenMode: THTTP2OpenMode; aServerDoConsume: THttp2SocketConsume;
-  aSendData : THttp2SendData): TWCHTTP2Connection;
+  aOpenMode: THTTP2OpenMode; aServerDoConsume: THttpRefSocketConsume;
+  aSendData: THttpRefSendData): TWCHTTP2Connection;
 begin
-  Result := TWCHTTP2Connection.Create(FHTTP2Connections,
+  Result := TWCHTTP2Connection.Create(FHTTPRefConnections,
                                       aSocket,
                                       aOpenMode,
                                       aServerDoConsume,
                                       aSendData);
   Application.GarbageCollector.Add(Result);
-  FHTTP2Connections.AddConnection(Result);
+  FHTTPRefConnections.AddConnection(Result);
+end;
+
+function TWCHttpServer.AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
+  aServerDoConsume: THttpRefSocketConsume; aSendData: THttpRefSendData
+  ): TWCHTTP11Connection;
+begin
+ Result := TWCHTTP11Connection.Create(FHTTPRefConnections,
+                                     aSocket,
+                                     aServerDoConsume,
+                                     aSendData);
+ Application.GarbageCollector.Add(Result);
+ FHTTPRefConnections.AddConnection(Result);
 end;
 
 procedure TWCHttpServer.AddToMainPool(AJob: TWCMainClientJob);
@@ -1576,9 +1628,9 @@ begin
   CreateConnectionThread(Con);
 end;
 
-procedure TWCHttpServer.DoSendData(aConnection: TWCHTTP2Connection);
+procedure TWCHttpServer.DoSendData(aConnection: TWCHTTPRefConnection);
 begin
-  FPreThreadPool.Add(TWCHttp2SendDataJob.Create(aConnection));
+  FPreThreadPool.Add(TWCHttpRefSendDataJob.Create(aConnection));
 end;
 
 destructor TWCHttpServer.Destroy;
@@ -1587,7 +1639,7 @@ begin
   if Assigned(FPreThreadPool) then FPreThreadPool.Free;
   FPoolsLocker.Free;
   FSSLLocker.Free;
-  FHTTP2Connections.Free;
+  FHTTPRefConnections.Free;
   inherited Destroy;
 end;
 
@@ -2008,7 +2060,7 @@ begin
     CFG_H2SET_INITIAL_WINDOW_SIZE,
     CFG_H2SET_MAX_FRAME_SIZE,
     CFG_H2SET_MAX_HEADER_LIST_SIZE: begin
-      ESServer.HTTP2Connections.Settings.Add((Sender.HashName shr 4) and $0f,
+      ESServer.HTTPRefConnections.HTTP2Settings.Add((Sender.HashName shr 4) and $0f,
                                                               Sender.Value);
     end;
   end;
@@ -2115,7 +2167,7 @@ begin
     GarbageCollector.CleanDead;
   end;
   //
-  ESServer.HTTP2Connections.Idle;
+  ESServer.HTTPRefConnections.Idle;
   //
   FSocketsReferences.CleanDead;
   Sleep(10);
@@ -2402,7 +2454,7 @@ begin
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;
   GetWebHandler.AcceptIdleTimeout:=1;
-  ESServer.HTTP2Connections.GarbageCollector := FReferences;
+  ESServer.HTTPRefConnections.GarbageCollector := FReferences;
 
   FStartStamp:= GetTickCount64;
   DoInfo('Server initialized');
