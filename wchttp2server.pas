@@ -621,15 +621,15 @@ begin
     Sz := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
     for l := 0 to Sz - 1 do
     begin
-      if S^[l].Identifier = Id then begin
-        S^[l].Value := Value;
+      if S^[l].Identifier = BEtoN(Id) then begin
+        S^[l].Value := NtoBE(Value);
         Exit;
       end;
     end;
     if HTTP2ServerSettingsSize < HTTP2_SETTINGS_MAX_SIZE then
     begin
-      S^[Sz].Identifier := Id;
-      S^[Sz].Value := Value;
+      S^[Sz].Identifier := NtoBE(Id);
+      S^[Sz].Value := NtoBE(Value);
       Inc(HTTP2ServerSettingsSize, H2P_SETTINGS_BLOCK_SIZE);
     end;
   finally
@@ -2074,7 +2074,7 @@ begin
   try
     for i := 0 to FOwner.Settings.Count-1 do
     begin
-      FConSettings[FOwner.Settings[i].Identifier] := FOwner.Settings[i].Value;
+      FConSettings[BEtoN(FOwner.Settings[i].Identifier)] := BEtoN(FOwner.Settings[i].Value);
     end;
   finally
     FOwner.Settings.UnLock;

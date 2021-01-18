@@ -1968,6 +1968,10 @@ begin
       SSLLoc := Sender.Value + cSysDelimiter;
     CFG_COMPRESS_LIMIT :
       CompressLimit:= Sender.Value;
+    CFG_MAIN_THREAD_CNT :
+       MaxMainThreads:= Sender.Value;
+    CFG_PRE_THREAD_CNT :
+       MaxPrepareThreads:= Sender.Value;
     //openssl
     CFG_SSL_CIPHER : begin
       ESServer.FSSLLocker.Lock;
