@@ -300,7 +300,52 @@ type
     property Count : integer read GetCount;
   end;
 
+  { TReferencedStream }
+
+  TReferencedStream = class(TNetReferencedObject)
+  private
+    FStream : TStream;
+  public
+    constructor Create(aStrm : TStream);
+    destructor Destroy; override;
+    property Stream : TStream read FStream;
+  end;
+
+  { TRefMemoryStream }
+
+  TRefMemoryStream = class(TReferencedStream)
+  public
+    constructor Create;
+    procedure WriteTo(Strm : TStream; from, Sz : Int64);
+  end;
+
 implementation
+
+{ TRefMemoryStream }
+
+constructor TRefMemoryStream.Create;
+begin
+  inherited Create(TMemoryStream.Create);
+end;
+
+procedure TRefMemoryStream.WriteTo(Strm: TStream; from, Sz: Int64);
+begin
+  Strm.Write(PByte(TMemoryStream(Stream).Memory)[from], Sz);
+end;
+
+{ TReferencedStream }
+
+constructor TReferencedStream.Create(aStrm: TStream);
+begin
+  inherited Create;
+  FStream := aStrm;
+end;
+
+destructor TReferencedStream.Destroy;
+begin
+  FStream.Free;
+  inherited Destroy;
+end;
 
 { TThreadPointer }
 

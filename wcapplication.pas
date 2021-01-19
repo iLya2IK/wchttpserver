@@ -294,23 +294,23 @@ type
   TWebCachedItem = class(TNetCustomLockedObject)
   private
     FDataTime : TDateTime;
-    FCache, FDeflateCache : TMemoryStream;
+    FCache, FDeflateCache : TRefMemoryStream;
     FNeedToCompress : Boolean;
     FDeflateSize: QWord;
     {$IFDEF ALLOW_STREAM_GZIP}
     FGzipSize: QWord;
-    FGzipCache : TMemoryStream;
+    FGzipCache : TRefMemoryStream;
     {$ENDIF}
     FSize : QWord;
     FLoc : String;
     FMimeType : String;
     FCacheControl : String;
-    function GetCache: TMemoryStream;
-    function GetDeflateCache: TMemoryStream;
+    function GetCache: TRefMemoryStream;
+    function GetDeflateCache: TRefMemoryStream;
     function GetDeflateReady: Boolean;
     function GetDeflateSize: QWord;
     {$IFDEF ALLOW_STREAM_GZIP}
-    function GetGzipCache: TMemoryStream;
+    function GetGzipCache: TRefMemoryStream;
     function GetGzipReady: Boolean;
     function GetGzipSize: QWord;
     {$ENDIF}
@@ -321,13 +321,13 @@ type
     destructor Destroy; override;
     procedure Clear;
     procedure Refresh;
-    property Cache : TMemoryStream read GetCache;
+    property Cache : TRefMemoryStream read GetCache;
     property Size : QWord read GetSize;
-    property DeflateCache : TMemoryStream read GetDeflateCache;
+    property DeflateCache : TRefMemoryStream read GetDeflateCache;
     property DeflateSize : QWord read GetDeflateSize;
     property DeflateReady : Boolean read GetDeflateReady;
     {$IFDEF ALLOW_STREAM_GZIP}
-    property GzipCache : TMemoryStream read GetGzipCache;
+    property GzipCache : TRefMemoryStream read GetGzipCache;
     property GzipSize : QWord read GetGzipSize;
     property GzipReady : Boolean read GetGzipReady;
     {$ENDIF}
@@ -491,13 +491,19 @@ type
   TWCResponse = class (TAbsHTTPConnectionResponse)
   private
     FKeepAlive : boolean;
+    FRefStream : TReferencedStream;
     function  GetConnection : TWCConnection;
+    procedure SetRefStream(AValue: TReferencedStream);
   public
+    constructor Create(ARequest : TWCRequest); overload;
+    destructor Destroy; override;
     procedure SendUTf8String(const S: String);
     procedure CloseStream;
+    procedure ReleaseRefStream;
     Procedure DoSendHeaders(Headers : TStrings); override;
     Procedure DoSendContent; override;
     property  WCConn : TWCConnection read GetConnection;
+    property  RefStream : TReferencedStream read FRefStream write SetRefStream;
     property  KeepStreamAlive : Boolean read FKeepAlive write FKeepAlive;
   end;
 
@@ -887,6 +893,27 @@ begin
   Result := TWCConnection(Connection);
 end;
 
+procedure TWCResponse.SetRefStream(AValue: TReferencedStream);
+begin
+  if FRefStream=AValue then Exit;
+  ReleaseRefStream;
+  FRefStream:=AValue;
+  FRefStream.IncReference;
+end;
+
+constructor TWCResponse.Create(ARequest: TWCRequest);
+begin
+  inherited Create(ARequest);
+  FKeepAlive:= false;
+  FRefStream := nil;
+end;
+
+destructor TWCResponse.Destroy;
+begin
+  ReleaseRefStream;
+  inherited Destroy;
+end;
+
 procedure TWCResponse.SendUTf8String(const S: String);
 var L, C : integer;
 begin
@@ -926,6 +953,14 @@ begin
   end;
 end;
 
+procedure TWCResponse.ReleaseRefStream;
+begin
+  if assigned(FRefStream) then begin
+    FRefStream.DecReference;
+    FRefStream := nil;
+  end;
+end;
+
 procedure TWCResponse.DoSendHeaders(Headers: TStrings);
 Var
   S : String;
@@ -956,17 +991,29 @@ procedure TWCResponse.DoSendContent;
 begin
   if Assigned(WCConn.HTTP2Str) then
   begin
-    WCConn.HTTP2Str.Request.Response.SerializeResponseData(Self, true); //close stream
+    if Assigned(FRefStream) then begin
+      WCConn.HTTP2Str.Request.Response.SerializeRefStream(FRefStream, true); //close stream
+      ReleaseRefStream;
+    end
+    else
+      WCConn.HTTP2Str.Request.Response.SerializeResponseData(Self, true); //close stream
   end else
   begin
     if Assigned(WCConn.HTTPRefCon) then
     begin
-      If Assigned(ContentStream) then begin
-        WCConn.HTTPRefCon.PushFrame(ContentStream, 0, FreeContentStream);
-        FreeContentStream := false;
-      end
-      else
-        WCConn.HTTPRefCon.PushFrame(Contents);
+      if Assigned(FRefStream) then
+      begin
+        WCConn.HTTPRefCon.PushFrame(FRefStream);
+        ReleaseRefStream;
+      end else
+      begin
+        If Assigned(ContentStream) then begin
+          WCConn.HTTPRefCon.PushFrame(ContentStream, 0, FreeContentStream);
+          FreeContentStream := false;
+        end
+        else
+          WCConn.HTTPRefCon.PushFrame(Contents);
+      end;
     end else begin
       If Assigned(ContentStream) then
         WCConn.Socket.CopyFrom(ContentStream,0)
@@ -1329,38 +1376,32 @@ begin
  try
   if Assigned(FConn) and FConn.ConsumeSocketData and
      TWCHttpServer(FConn.Server).ServerActive then begin
-
-    //WebContainer.Clients.Lock;
-    try
-      aSession := WebContainer.CreateSession(Request);
-      if Assigned(aSession) then
+    aSession := WebContainer.CreateSession(Request);
+    if Assigned(aSession) then
+    begin
+      aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
+      if ssNew in aSession.SessionState then
+        aSession.InitResponse(Response); // fill cookies
+      if ssExpired in aSession.SessionState then
       begin
-        aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
-        if ssNew in aSession.SessionState then
-          aSession.InitResponse(Response); // fill cookies
-        if ssExpired in aSession.SessionState then
-        begin
-          Application.SendError(Response, 205);
+        Application.SendError(Response, 205);
+        Exit;
+      end else
+      begin
+        //try to find client
+        //or
+        //if new session then try to create client in clients pool
+        //using ARequest to deteminate some additional data
+        aClient := WebContainer.AddClient(Request, aSession.SessionID);
+        if not assigned(aClient) then begin
+          Application.SendError(Response, 405);
           Exit;
-        end else
-        begin
-          //try to find client
-          //or
-          //if new session then try to create client in clients pool
-          //using ARequest to deteminate some additional data
-          aClient := WebContainer.AddClient(Request, aSession.SessionID);
-          if not assigned(aClient) then begin
-            Application.SendError(Response, 405);
-            Exit;
-          end else begin
-            aClient.Initialize;
-          end;
+        end else begin
+          aClient.Initialize;
         end;
-        FConn.SetSessionParams(aClient, aSession);
-      end else aClient := nil;
-    finally
-      //WebContainer.Clients.UnLock;
-    end;
+      end;
+      FConn.SetSessionParams(aClient, aSession);
+    end else aClient := nil;
     //
     if assigned(aClient) then
     begin
@@ -1371,7 +1412,6 @@ begin
         Application.ESServer.AddToMainPool(ASynThread);
       end;
     end;
-    //
   end;
  except
    //
@@ -2477,15 +2517,13 @@ end;
 
 { TWebCachedItem }
 
-function TWebCachedItem.GetCache: TMemoryStream;
+function TWebCachedItem.GetCache: TRefMemoryStream;
 begin
-  FCache.Position:=0;
   Result := FCache;
 end;
 
-function TWebCachedItem.GetDeflateCache: TMemoryStream;
+function TWebCachedItem.GetDeflateCache: TRefMemoryStream;
 begin
-  FDeflateCache.Position:=0;
   Result := FDeflateCache;
 end;
 
@@ -2510,9 +2548,8 @@ begin
 end;
 
 {$IFDEF ALLOW_STREAM_GZIP}
-function TWebCachedItem.GetGzipCache: TMemoryStream;
+function TWebCachedItem.GetGzipCache: TRefMemoryStream;
 begin
-  FGzipCache.Position:=0;
   Result := FGzipCache;
 end;
 
@@ -2560,14 +2597,13 @@ end;
 constructor TWebCachedItem.Create(const aLoc: String);
 begin
   inherited Create;
-  FCache := TMemoryStream.Create;
-  FLoc := aLoc;
-  FSize := 0;
+  FCache := nil;
+  FDeflateCache := nil;
   {$IFDEF ALLOW_STREAM_GZIP}
   FGzipCache := nil;
-  FGzipSize:= 0;
   {$ENDIF}
-  FDeflateSize:= 0;
+  Clear;
+  FLoc := aLoc;
   FDataTime := EncodeDate(1990, 1, 1);
   FMimeType := MimeTypes.GetMimeType(ExtractFileExt(aLoc));
   If Length(FMimeType) = 0 then
@@ -2592,19 +2628,28 @@ end;
 
 destructor TWebCachedItem.Destroy;
 begin
-  FCache.Free;
-  if assigned(FDeflateCache) then FDeflateCache.Free;
+  if assigned(FCache) then FCache.DecReference;
+  if assigned(FDeflateCache) then FDeflateCache.DecReference;
   {$IFDEF ALLOW_STREAM_GZIP}
-  if assigned(FGzipCache) then FGzipCache.Free;
+  if assigned(FGzipCache) then FGzipCache.DecReference;
   {$ENDIF}
   inherited Destroy;
 end;
 
 procedure TWebCachedItem.Clear;
 begin
-  FCache.Clear;
-  FCache.Position:= 0;
+  if Assigned(FCache) then FCache.DecReference;
+  {$IFDEF ALLOW_STREAM_GZIP}
+  if Assigned(FGzipCache) then FGzipCache.DecReference;
+  FGzipCache := nil;
+  FGzipSize:= 0;
+  {$ENDIF}
+  if Assigned(FDeflateCache) then FDeflateCache.DecReference;
+  FDeflateCache := nil;
+  FDeflateSize:= 0;
+  FCache := TRefMemoryStream.Create;
   FSize := 0;
+  Application.GarbageCollector.Add(FCache);
 end;
 
 procedure TWebCachedItem.Refresh;
@@ -2622,47 +2667,54 @@ begin
       FileAge(FLoc, cDT);
       if SecondsBetween(cDT, FDataTime) > 0 then
       begin
+        Clear;
         FDataTime := cDT;
         F:=TFileStream.Create(FLoc, fmOpenRead or fmShareDenyWrite);
         try
           FSize:=F.Size;
-          FCache.SetSize(FSize);
-          FCache.Position := 0;
-          FCache.CopyFrom(F, FSize);
+          TMemoryStream(FCache.Stream).SetSize(FSize);
+          FCache.Stream.Position := 0;
+          FCache.Stream.CopyFrom(F, FSize);
         finally
           F.Free;
         end;
-        if Assigned(FDeflateCache) then FreeAndNil(FDeflateCache);
-        {$IFDEF ALLOW_STREAM_GZIP}
-        if assigned(FGzipCache) then FreeAndNil(FGzipCache);
-        {$ENDIF}
         if FNeedToCompress then
         begin
-          FDeflateCache := TMemoryStream.Create;
-          deflateStream := TDefcompressionstream.create(cldefault, FDeflateCache);
+          FCache.Lock;
           try
-            FCache.Position:=0;
-            deflateStream.CopyFrom(FCache, FSize);
+            FDeflateCache := TRefMemoryStream.Create;
+            Application.GarbageCollector.Add(FDeflateCache);
+            deflateStream := TDefcompressionstream.create(cldefault, FDeflateCache.Stream);
+            try
+              FCache.Stream.Position:=0;
+              deflateStream.CopyFrom(FCache.Stream, FSize);
+            finally
+              deflateStream.Free;
+            end;
+            FDeflateSize := FDeflateCache.Stream.Size;
+            if FDeflateSize = 0 then begin
+               FDeflateCache.DecReference;
+               FDeflateCache := nil;
+            end;
+            {$IFDEF ALLOW_STREAM_GZIP}
+            FGzipCache := TRefMemoryStream.Create;
+            Application.GarbageCollector.Add(FGzipCache);
+            gzStream := Tgzcompressionstream.create(cldefault, FGzipCache.Stream);
+            try
+              FCache.Stream.Position:=0;
+              gzStream.CopyFrom(FCache.Stream, FSize);
+            finally
+              gzStream.Free;
+            end;
+            FGzipSize := FGzipCache.Stream.Size;
+            if FGzipSize = 0 then begin
+               FGzipCache.DecReference;
+               FGzipCache := nil;
+            end;
+            {$ENDIF}
           finally
-            deflateStream.Free;
+            FCache.UnLock;
           end;
-          FDeflateSize := FDeflateCache.Size;
-          if FDeflateSize = 0 then
-              FreeAndNil(FDeflateCache);
-
-          {$IFDEF ALLOW_STREAM_GZIP}
-          FGzipCache := TMemoryStream.Create;
-          gzStream := Tgzcompressionstream.create(cldefault, FGzipCache);
-          try
-            FCache.Position:=0;
-            gzStream.CopyFrom(FCache, FSize);
-          finally
-            gzStream.Free;
-          end;
-          FGzipSize := FGzipCache.Size;
-          if FGzipSize = 0 then
-             FreeAndNil(FGzipCache);
-          {$ENDIF}
         end;
       end;
     end else Clear;

@@ -156,19 +156,19 @@ begin
         if Client.AcceptGzip and aCachedFile.GzipReady then
         begin
           Response.ContentLength:=aCachedFile.GzipSize;
-          Response.ContentStream:=aCachedFile.GzipCache;
+          Response.RefStream:=aCachedFile.GzipCache;
           Response.SetHeader(hhContentEncoding, cSgzip)
         end else
         {$ENDIF}
         if Client.AcceptDeflate and aCachedFile.DeflateReady then
         begin
           Response.ContentLength:=aCachedFile.DeflateSize;
-          Response.ContentStream:=aCachedFile.DeflateCache;
+          Response.RefStream:=aCachedFile.DeflateCache;
           Response.SetHeader(hhContentEncoding, cSdeflate)
         end else
         begin
           Response.ContentLength:=aCachedFile.Size;
-          Response.ContentStream:=aCachedFile.Cache;
+          Response.RefStream:=aCachedFile.Cache;
         end;
 
         Response.SendContent;
