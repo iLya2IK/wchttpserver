@@ -36,6 +36,7 @@ Benchmark program - [h2load](https://nghttp2.org/documentation/h2load.1.html)
 Testing includes 3 repetitive circular GET requests (index.html, main.css, connect.svgz).
 
 > h2load -n120 -c1 -m1 -t1 --h1 --input-file=ngtesting.txt --header=connection:keep-alive --header=cookie:11
+
 starting benchmark...
 spawning thread #0: 1 total client(s). 120 total requests
 TLS Protocol: TLSv1.2
@@ -54,6 +55,7 @@ time to 1st byte:   125.24ms    125.24ms    125.24ms         0us   100.00%
 req/s           :      11.19       11.19       11.19        0.00   100.00%
 
 > h2load -n120 -c1 -m10 -t1 --input-file=ngtesting.txt --header=cookie:11
+
 starting benchmark...
 spawning thread #0: 1 total client(s). 120 total requests
 TLS Protocol: TLSv1.2
