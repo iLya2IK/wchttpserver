@@ -32,9 +32,18 @@ The project builds on fpWeb modules and extends them to increase functionality:
 * Add your own site files - scripts, pages, CSS, images, and so on in your site folder.
 
 # Testing results
-Benchmark program - [h2load](https://nghttp2.org/documentation/h2load.1.html)
-Testing includes 3 repetitive circular GET requests (index.html, main.css, connect.svgz).
-Testing was done with both cookie unset and set. When cookie unset - every request followed with allocation client instancing.
+Benchmark program - [h2load](https://nghttp2.org/documentation/h2load.1.html). Testing includes 3 repetitive circular GET requests (index.html, main.css, connect.svgz). Testing was done with both cookie unset and set. When cookie unset - every request followed with allocation client instancing. Benchmark shows that the average request processing time decreases when using http/2, but the processing time for one request increases. This is due to the parallelization of the execution of requests, which, in the case of http/2, enter the pipeline simultaneously, in contrast to http/1.1, in which requests are executed sequentially. In this regard, we also tested a parallel request for six http/1.1 connections using the same settings. The result of such testing is shown last. Summary:
+```
+********************************************************
+| protocol |  cookie  | num connections | speed, req/s |
+***********+**********+*****************+***************
+| http/1.1 | unset    |     one         |    11.19     |
+| http/2   | unset    |     one         |    21.47     |
+| http/1.1 | set      |     one         |    31.43     |
+| http/2   | set      |     one         |    81.27     |
+| http/1.1 | set      |     six         |    83.71     |
+********************************************************
+```
 
 > h2load -n120 -c1 -m1 -t1 --h1 --input-file=ngtesting.txt --header=connection:keep-alive
 
@@ -109,6 +118,17 @@ time for connect:    52.57ms     52.57ms     52.57ms         0us   100.00%
 time to 1st byte:   115.10ms    115.10ms    115.10ms         0us   100.00%
 req/s           :      81.27       81.27       81.27        0.00   100.00%
 ```
+
+> h2load -n120 -c6 -m1 -t6 --h1 --input-file=ngtesting.txt --header=connection:keep-alive --header=cookie:cid=11
+
+```
+Application protocol: http/1.1
+finished in 1.43s, 83.71 req/s, 160.34KB/s
+requests: 120 total, 120 started, 120 done, 120 succeeded, 0 failed, 0 errored, 0 timeout
+status codes: 120 2xx, 0 3xx, 0 4xx, 0 5xx
+traffic: 229.86KB (235374) total, 9.90KB (10140) headers (space savings 0.00%), 215.85KB (221034) data
+```
+
 
 # Development environment
 Free Pascal (v3.2.0) + Lazarus (v2.0.10)
