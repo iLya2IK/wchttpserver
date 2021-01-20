@@ -34,8 +34,9 @@ The project builds on fpWeb modules and extends them to increase functionality:
 # Testing results
 Benchmark program - [h2load](https://nghttp2.org/documentation/h2load.1.html)
 Testing includes 3 repetitive circular GET requests (index.html, main.css, connect.svgz).
+Testing was done with both cookie unset and set. When cookie unset - every request followed with allocation client instancing.
 
-> h2load -n120 -c1 -m1 -t1 --h1 --input-file=ngtesting.txt --header=connection:keep-alive --header=cookie:11
+> h2load -n120 -c1 -m1 -t1 --h1 --input-file=ngtesting.txt --header=connection:keep-alive
 
 ```
 starting benchmark...
@@ -56,7 +57,7 @@ time to 1st byte:   125.24ms    125.24ms    125.24ms         0us   100.00%
 req/s           :      11.19       11.19       11.19        0.00   100.00%
 ```
 
-> h2load -n120 -c1 -m10 -t1 --input-file=ngtesting.txt --header=cookie:11
+> h2load -n120 -c1 -m10 -t1 --input-file=ngtesting.txt
 
 ```
 starting benchmark...
@@ -75,6 +76,38 @@ time for request:   143.07ms    829.57ms    456.86ms    114.58ms    77.50%
 time for connect:    24.35ms     24.35ms     24.35ms         0us   100.00%
 time to 1st byte:   471.93ms    471.93ms    471.93ms         0us   100.00%
 req/s           :      21.47       21.47       21.47        0.00   100.00%
+```
+
+> h2load -n120 -c1 -m1 -t1 --h1 --input-file=ngtesting.txt --header=connection:keep-alive --header=cookie:cid=11
+
+```
+Application protocol: http/1.1
+
+finished in 3.82s, 31.42 req/s, 59.31KB/s
+requests: 120 total, 120 started, 120 done, 120 succeeded, 0 failed, 0 errored, 0 timeout
+status codes: 120 2xx, 0 3xx, 0 4xx, 0 5xx
+traffic: 226.48KB (231920) total, 9.92KB (10160) headers (space savings 0.00%), 212.46KB (217560) data
+                     min         max         mean         sd        +/- sd
+time for request:    17.83ms     48.84ms     31.64ms      4.83ms    89.17%
+time for connect:    19.88ms     19.88ms     19.88ms         0us   100.00%
+time to 1st byte:    53.22ms     53.22ms     53.22ms         0us   100.00%
+req/s           :      31.43       31.43       31.43        0.00   100.00%
+```
+
+> h2load -n120 -c1 -m10 -t1 --input-file=ngtesting.txt --header=cookie:cid=11
+
+```
+Application protocol: h2
+
+finished in 1.48s, 81.25 req/s, 145.66KB/s
+requests: 120 total, 120 started, 120 done, 120 succeeded, 0 failed, 0 errored, 0 timeout
+status codes: 120 2xx, 0 3xx, 0 4xx, 0 5xx
+traffic: 215.14KB (220307) total, 551B (551) headers (space savings 94.45%), 212.46KB (217560) data
+                     min         max         mean         sd        +/- sd
+time for request:    60.80ms    154.30ms    113.75ms     20.78ms    58.33%
+time for connect:    52.57ms     52.57ms     52.57ms         0us   100.00%
+time to 1st byte:   115.10ms    115.10ms    115.10ms         0us   100.00%
+req/s           :      81.27       81.27       81.27        0.00   100.00%
 ```
 
 # Development environment
