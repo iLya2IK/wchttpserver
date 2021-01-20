@@ -308,6 +308,7 @@ type
   public
     constructor Create(aStrm : TStream);
     destructor Destroy; override;
+    procedure WriteTo(Strm : TStream; from, Sz : Int64); virtual;
     property Stream : TStream read FStream;
   end;
 
@@ -316,7 +317,7 @@ type
   TRefMemoryStream = class(TReferencedStream)
   public
     constructor Create;
-    procedure WriteTo(Strm : TStream; from, Sz : Int64);
+    procedure WriteTo(Strm : TStream; from, Sz : Int64); override;
   end;
 
 implementation
@@ -345,6 +346,17 @@ destructor TReferencedStream.Destroy;
 begin
   FStream.Free;
   inherited Destroy;
+end;
+
+procedure TReferencedStream.WriteTo(Strm: TStream; from, Sz: Int64);
+begin
+  Lock;
+  try
+    FStream.Position := from;
+    Strm.CopyFrom(FStream, Sz);
+  finally
+    UnLock;
+  end;
 end;
 
 { TThreadPointer }

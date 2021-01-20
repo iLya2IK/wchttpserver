@@ -260,6 +260,7 @@ type
     function GetWebHandler: TWCHttpServerHandler;
     function InitializeAbstractWebHandler : TWebHandler; override;
     function GetTimeSecFromStart : Cardinal;
+    function CreateReferedMemoryStream : TRefMemoryStream;
     property ESServer : TWCHttpServer read GetESServer;
     property GarbageCollector : TNetReferenceList read FReferences;
     property SocketsCollector : TNetReferenceList read FSocketsReferences;
@@ -2515,6 +2516,12 @@ begin
   Result := (GetTickCount64 - FStartStamp) div 1000;
 end;
 
+function TWCHTTPApplication.CreateReferedMemoryStream: TRefMemoryStream;
+begin
+  Result := TRefMemoryStream.Create;
+  Application.GarbageCollector.Add(Result);
+end;
+
 { TWebCachedItem }
 
 function TWebCachedItem.GetCache: TRefMemoryStream;
@@ -2642,14 +2649,13 @@ begin
   {$IFDEF ALLOW_STREAM_GZIP}
   if Assigned(FGzipCache) then FGzipCache.DecReference;
   FGzipCache := nil;
-  FGzipSize:= 0;
+  FGzipSize := 0;
   {$ENDIF}
   if Assigned(FDeflateCache) then FDeflateCache.DecReference;
   FDeflateCache := nil;
-  FDeflateSize:= 0;
-  FCache := TRefMemoryStream.Create;
+  FDeflateSize := 0;
+  FCache := Application.CreateReferedMemoryStream;
   FSize := 0;
-  Application.GarbageCollector.Add(FCache);
 end;
 
 procedure TWebCachedItem.Refresh;
@@ -2682,8 +2688,7 @@ begin
         begin
           FCache.Lock;
           try
-            FDeflateCache := TRefMemoryStream.Create;
-            Application.GarbageCollector.Add(FDeflateCache);
+            FDeflateCache := Application.CreateReferedMemoryStream;
             deflateStream := TDefcompressionstream.create(cldefault, FDeflateCache.Stream);
             try
               FCache.Stream.Position:=0;
@@ -2697,8 +2702,7 @@ begin
                FDeflateCache := nil;
             end;
             {$IFDEF ALLOW_STREAM_GZIP}
-            FGzipCache := TRefMemoryStream.Create;
-            Application.GarbageCollector.Add(FGzipCache);
+            FGzipCache := Application.CreateReferedMemoryStream;
             gzStream := Tgzcompressionstream.create(cldefault, FGzipCache.Stream);
             try
               FCache.Stream.Position:=0;

@@ -721,17 +721,7 @@ end;
 
 procedure TWCHTTPRefStreamFrame.SaveToStream(Str: TStream);
 begin
-  if FStrm is TRefMemoryStream then
-    TRefMemoryStream(FStrm).WriteTo(Str, Fpos, FSz)
-  else begin
-    FStrm.Lock;
-    try
-      FStrm.Stream.Position := Fpos;
-      Str.CopyFrom(FStrm.Stream, FSz);
-    finally
-      FStrm.UnLock;
-    end;
-  end;
+  FStrm.WriteTo(Str, Fpos, FSz);
 end;
 
 function TWCHTTPRefStreamFrame.Size: Int64;
@@ -1289,13 +1279,13 @@ function TWCHTTPSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
   try
+    Result := FSocket.Write(Buffer, Size);
     Lock;
     try
       FSocketStates := FSocketStates - [ssCanSend];
     finally
       UnLock;
     end;
-    Result := FSocket.Write(Buffer, Size);
   finally
     StopSending;
   end else Result := 0;
@@ -1305,13 +1295,13 @@ function TWCHTTPSocketReference.Read(var Buffer; Size: Integer): Integer;
 begin
   if StartReading then
   try
+    Result := FSocket.Read(Buffer, Size);
     Lock;
     try
       FSocketStates := FSocketStates - [ssCanRead];
     finally
       UnLock;
     end;
-    Result := FSocket.Read(Buffer, Size);
   finally
     StopReading;
   end else Result := 0;
@@ -1404,8 +1394,12 @@ begin
       Buffer := @(HTTP2UpgradeBlockH2[1]);
       BufferSize:= HTTP2UpgradeBlockH2Size;
     end;
+  else
+    Buffer := nil;
+    BufferSize := 0;
   end;
-  Str.WriteBuffer(Buffer^, BufferSize);
+  if assigned(Buffer) then
+    Str.WriteBuffer(Buffer^, BufferSize);
 end;
 
 function TWCHTTP2UpgradeResponseFrame.Size: Int64;
@@ -1984,15 +1978,8 @@ end;
 procedure TWCHTTP2RefFrame.SaveToStream(Str: TStream);
 begin
   inherited SaveToStream(Str);
-  if Header.PayloadLength > 0 then begin
-    FStrm.Lock;
-    try
-      FStrm.Stream.Position := Fpos;
-      Str.CopyFrom(FStrm.Stream, Header.PayloadLength);
-    finally
-      Fstrm.UnLock;
-    end;
-  end;
+  if Header.PayloadLength > 0 then
+    FStrm.WriteTo(Str, Fpos, Header.PayloadLength)
 end;
 
 { TWCHTTP2FrameHeader }
