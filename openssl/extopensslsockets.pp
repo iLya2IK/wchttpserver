@@ -242,7 +242,7 @@ end;
 procedure TExtOpenSSLSocketHandler.HandleSSLIOError(aResult: Integer; isSend : Boolean);
 begin
   FLastError := aResult;
-  if aResult <> 0 then begin
+  if (aResult <> 0) and (FLastError <> Low(SocketError)) then begin
     if not IsSSLBlockError(FSSLLastError) then
     begin
       if not IsSSLNonFatalError(FSSLLastError, aResult) then

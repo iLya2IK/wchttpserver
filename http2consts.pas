@@ -14,6 +14,7 @@
 unit http2consts;
 
 {$mode objfpc}{$H+}
+{$modeswitch advancedrecords}
 
 interface
 
@@ -29,29 +30,64 @@ THTTP2StreamState = (h2ssIDLE, h2ssOPEN,
 THTTP2OpenMode = (h2oUpgradeToH2C, h2oUpgradeToH2,
                   h2oPrefaceMode);
 					   
+{ THTTP2GoawayPayload }
+
 THTTP2GoawayPayload = packed record
-   LastStreamID : Cardinal;
-   ErrorCode 	: Cardinal;
+private
+  field1 : Cardinal; //LastStreamID
+  field2 : Cardinal; //ErrorCode
+  function GetStrID: Cardinal;
+  function GetErrorCode: Cardinal;
+  procedure SetStrID(AValue: Cardinal);
+  procedure SetErrorCode(AValue: Cardinal);
+public
+  property LastStreamID : Cardinal read GetStrID write SetStrID;
+  property ErrorCode : Cardinal read GetErrorCode write SetErrorCode;
 end;
 PHTTP2GoawayPayload = ^THTTP2GoawayPayload;
 
+{ THTTP2SettingsBlock }
+
 THTTP2SettingsBlock = packed record
-   Identifier : Word;
-   Value      : Cardinal;
+private
+  field1 : Word;     // Identifier
+  field2 : Cardinal; // Value
+  function GetId: Word;
+  function GetValue: Cardinal;
+  procedure SetId(AValue: Word);
+  procedure SetValue(AValue: Cardinal);
+public
+  property Identifier : Word read GetId write SetId;
+  property Value : Cardinal read GetValue write SetValue;
 end;
+
 PHTTP2SettingsBlock = ^THTTP2SettingsBlock;
 
 THTTP2SettingsPayload = Array [0..$ff] of THTTP2SettingsBlock;
 PHTTP2SettingsPayload = ^THTTP2SettingsPayload;
 
+{ THTTP2RstStreamPayload }
+
 THTTP2RstStreamPayload = packed record
-   ErrorCode  : Cardinal;
+private
+  field1  : Cardinal; // ErrorCode
+  function GetErrorCode: Cardinal;
+  procedure SetErrorCode(AValue: Cardinal);
+public
+  property ErrorCode : Cardinal read GetErrorCode write SetErrorCode;
 end;
 PHTTP2RstStreamPayload = ^THTTP2RstStreamPayload;
 
+{ THTTP2PriorityPayload }
+
 THTTP2PriorityPayload = packed record
-   StreamDepend : Cardinal;
-   Weight		: Byte;
+private
+   field1 : Cardinal; // StreamDepend
+   function GetStreamDepend : Cardinal;
+   procedure SetStreamDepend(AValue : Cardinal);
+public
+   Weight : Byte;
+   property StreamDepend : Cardinal read GetStreamDepend write SetStreamDepend;
 end;
 PHTTP2PriorityPayload = ^THTTP2PriorityPayload;
 
@@ -154,6 +190,74 @@ const
   H2E_READ_BUFFER_OVERFLOW= Byte($fe);
 
 Implementation
+
+{ THTTP2RstStreamPayload }
+
+function THTTP2RstStreamPayload.GetErrorCode: Cardinal;
+begin
+  Result := BEtoN(field1);
+end;
+
+procedure THTTP2RstStreamPayload.SetErrorCode(AValue: Cardinal);
+begin
+  field1 := NtoBE(AValue);
+end;
+
+{ THTTP2PriorityPayload }
+
+function THTTP2PriorityPayload.GetStreamDepend: Cardinal;
+begin
+  Result := BEtoN(field1);
+end;
+
+procedure THTTP2PriorityPayload.SetStreamDepend(AValue: Cardinal);
+begin
+  field1 := NtoBE(AValue);
+end;
+
+{ THTTP2SettingsBlock }
+
+function THTTP2SettingsBlock.GetId: Word;
+begin
+  Result := BEtoN(field1);
+end;
+
+function THTTP2SettingsBlock.GetValue: Cardinal;
+begin
+  Result := BEtoN(field2);
+end;
+
+procedure THTTP2SettingsBlock.SetId(AValue: Word);
+begin
+  field1 := NtoBE(AValue);
+end;
+
+procedure THTTP2SettingsBlock.SetValue(AValue: Cardinal);
+begin
+  field2 := NtoBE(AValue);
+end;
+
+{ THTTP2GoawayPayload }
+
+function THTTP2GoawayPayload.GetStrID: Cardinal;
+begin
+  Result := BEtoN(field1);
+end;
+
+function THTTP2GoawayPayload.GetErrorCode: Cardinal;
+begin
+  Result := BEtoN(field2);
+end;
+
+procedure THTTP2GoawayPayload.SetStrID(AValue: Cardinal);
+begin
+  field1 := NtoBE(AValue);
+end;
+
+procedure THTTP2GoawayPayload.SetErrorCode(AValue: Cardinal);
+begin
+  field2 := NtoBE(AValue);
+end;
 
 end.
 

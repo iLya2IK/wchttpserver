@@ -17,6 +17,7 @@
 unit wchttp2server;
 
 {$mode objfpc}{$H+}
+{$modeswitch advancedrecords}
 {$ifdef linux}
 {epoll mode appeared thanks to the lNet project
  CopyRight (C) 2004-2008 Ales Katona}
@@ -582,7 +583,7 @@ type
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
-        aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData);
+        aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData); overload;
     class function Protocol : TWCProtocolVersion; override;
     procedure ConsumeNextFrame(Mem : TBufferedStream); override;
     destructor Destroy; override;
@@ -691,7 +692,6 @@ const
   HTTP1HeadersAllowed = [$0A,$0D,$20,$21,$24,$25,$27..$39,$40..$5A,$61..$7A];
 {$ifdef socket_epoll_mode}
   BASE_SIZE = 100;
-
 {$endif}
 
 { TWCHTTPRefStreamFrame }
@@ -894,15 +894,15 @@ begin
     Sz := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
     for l := 0 to Sz - 1 do
     begin
-      if S^[l].Identifier = BEtoN(Id) then begin
-        S^[l].Value := NtoBE(Value);
+      if S^[l].Identifier = Id then begin
+        S^[l].Value := Value;
         Exit;
       end;
     end;
     if HTTP2ServerSettingsSize < HTTP2_SETTINGS_MAX_SIZE then
     begin
-      S^[Sz].Identifier := NtoBE(Id);
-      S^[Sz].Value := NtoBE(Value);
+      S^[Sz].Identifier := Id;
+      S^[Sz].Value := Value;
       Inc(HTTP2ServerSettingsSize, H2P_SETTINGS_BLOCK_SIZE);
     end;
   finally
@@ -1279,6 +1279,7 @@ function TWCHTTPSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
   try
+    FpSetErrNo(Low(SocketError)); // sentinel so we can tell if failure happened without any error code (otherwise we might see ESysENoTTY)
     Result := FSocket.Write(Buffer, Size);
     Lock;
     try
@@ -1639,11 +1640,11 @@ begin
 end;
 
 procedure TWCHTTP2Response.Close;
-//var er : PCardinal;
+//var er : PHTTP2RstStreamPayload;
 begin
   FConnection.PushFrame(H2FT_DATA, FStream.ID, H2FL_END_STREAM, nil, 0);
-{  er := GetMem(H2P_RST_STREAM_FRAME_SIZE);
-  er^ := NTOBE(H2E_NO_ERROR);
+  {er := GetMem(H2P_RST_STREAM_FRAME_SIZE);
+  er^.ErrorCode := H2E_NO_ERROR;
   FConnection.PushFrame(H2FT_RST_STREAM, FStream.ID, 0, er, H2P_RST_STREAM_FRAME_SIZE); }
 end;
 
@@ -2103,12 +2104,14 @@ var
   Temp, TempRead: TWCHTTPSocketReference;
   MasterEvents: array[0..1] of TEpollEvent;
 begin
+  if aCount <= 0 then exit;
+
   Changes := 0;
   ReadChanges := 0;
 
   repeat
     MasterChanges := epoll_wait(FEpollMasterFD, @MasterEvents[0], 2, FTimeout);
-    err := SocketError;
+    err := fpgeterrno;
   until (MasterChanges >= 0) or (err <> ESysEINTR);
 
   if MasterChanges <= 0 then
@@ -2125,13 +2128,13 @@ begin
         begin
           repeat
             Changes := epoll_wait(FEpollFD, @FEvents[0], aCount, 0);
-            err := SocketError;
+            err := fpgeterrno;
           until (Changes >= 0) or (err <> ESysEINTR);
         end
         else
           repeat
             ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
-            err := SocketError;
+            err := fpgeterrno;
           until (ReadChanges >= 0) or (err <> ESysEINTR);
       end;
       if (Changes < 0) or (ReadChanges < 0) then
@@ -2637,9 +2640,10 @@ begin
     FConSettings[i] := HTTP2_SET_INITIAL_VALUES[i];
   FOwner.HTTP2Settings.Lock;
   try
-    for i := 0 to FOwner.HTTP2Settings.Count-1 do
+    with FOwner.HTTP2Settings do
+    for i := 0 to Count-1 do
     begin
-      FConSettings[BEtoN(FOwner.HTTP2Settings[i].Identifier)] := BEtoN(FOwner.HTTP2Settings[i].Value);
+      FConSettings[Setting[i].Identifier] := Setting[i].Value;
     end;
   finally
     FOwner.HTTP2Settings.UnLock;
@@ -2752,8 +2756,8 @@ end;
 var B : Byte;
     DataSize : Integer;
     RemoteID : Cardinal;
-    SetID : Word;
-    SetValue : Cardinal;
+    WV: Word;
+    SettFrame : THTTP2SettingsBlock;
 begin
   Str := nil; RemoteStr := nil;
   if assigned(Mem) then begin
@@ -3073,18 +3077,15 @@ begin
 
                 while DataSize > 0 do
                 begin
-                  SetId := 0;
-                  SetValue:= 0;
-                  S.Read(SetId, H2P_SETTINGS_ID_SIZE);
-                  SetId := BETON(SetId);
-                  S.Read(SetValue, H2P_SETTINGS_VALUE_SIZE);
-                  SetValue := BETON(SetValue);
-                  if (SetId >= 1) and (SetId <= HTTP2_SETTINGS_MAX) then
+                  S.Read(SettFrame, H2P_SETTINGS_BLOCK_SIZE);
+                  WV := SettFrame.Identifier;
+                  if (WV >= 1) and
+                     (WV <= HTTP2_SETTINGS_MAX) then
                   begin
-                    if FConSettings[SetID] <> SetValue then
+                    if FConSettings[WV] <> SettFrame.Value then
                     begin
-                      FConSettings[SetID] := SetValue;
-                      case SetID of
+                      FConSettings[WV] := SettFrame.Value;
+                      case WV of
                         H2SET_HEADER_TABLE_SIZE,
                         H2SET_MAX_HEADER_LIST_SIZE: ResetHPack;
                       end;
@@ -3180,8 +3181,8 @@ begin
         //send error
         Buffer := GetMem(H2P_GOAWAY_MIN_SIZE);
         //fill goaway buffer
-        PHTTP2GoawayPayload(Buffer)^.LastStreamID := NTOBE(FLastStreamID);
-        PHTTP2GoawayPayload(Buffer)^.ErrorCode    := NTOBE(err);
+        PHTTP2GoawayPayload(Buffer)^.LastStreamID := FLastStreamID;
+        PHTTP2GoawayPayload(Buffer)^.ErrorCode    := err;
         PushFrame(H2FT_GOAWAY, 0, 0, Buffer, H2P_GOAWAY_MIN_SIZE);
       end;
     end;
@@ -3487,11 +3488,11 @@ begin
 end;
 
 procedure TWCHTTPStream.Release;
-var er : PCardinal;
+var er : PHTTP2RstStreamPayload;
 begin
   if FStreamState <> h2ssCLOSED then begin
     er := GetMem(H2P_RST_STREAM_FRAME_SIZE);
-    er^ := NTOBE(H2E_NO_ERROR);
+    er^.ErrorCode := H2E_NO_ERROR;
     FConnection.PushFrame(H2FT_RST_STREAM, FID, 0, er, H2P_RST_STREAM_FRAME_SIZE);
     FStreamState := h2ssCLOSED;
   end;
