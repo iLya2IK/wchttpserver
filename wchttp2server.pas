@@ -1279,7 +1279,6 @@ function TWCHTTPSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
   try
-    FpSetErrNo(Low(SocketError)); // sentinel so we can tell if failure happened without any error code (otherwise we might see ESysENoTTY)
     Result := FSocket.Write(Buffer, Size);
     Lock;
     try

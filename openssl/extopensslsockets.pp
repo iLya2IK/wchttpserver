@@ -457,6 +457,9 @@ end;
 
 function TExtOpenSSLSocketHandler.Send(const Buffer; Count: Integer): Integer;
 begin
+  // sentinel so we can tell if failure happened without any error code
+  // (otherwise we might see ESysENoTTY)
+  FpSetErrNo(Low(SocketError));
   Result:=FSsl.Write(@Buffer, Count);
   FSSLLastError:=FSsl.GetError(Result);
   if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
