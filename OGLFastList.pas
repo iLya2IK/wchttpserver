@@ -478,7 +478,7 @@ end;
 
 procedure TFastList.Grow;
 begin
-  ReallocMem(FList, FCapacity * SizeOf(TObject));
+  FList := ReallocMem(FList, FCapacity * SizeOf(TObject));
 end;
 
 function TFastList.IndexOf(const Obj: TObject): Integer;

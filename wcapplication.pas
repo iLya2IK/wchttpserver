@@ -1233,13 +1233,14 @@ begin
       HTTPRefCon := aHTTPRefCon;
       FProtocolVersion := aHTTPRefCon.Protocol;
     end;
-    //SetupSocket;
-    r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
-    If r<0 then
-      Raise EHTTPServer.Create(WCSocketReadError);
-    FInput.SetPointer(FInputBuf, r);  //resize buffered stream
 
     try
+      //SetupSocket;
+      r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
+      If r<0 then
+        Raise EHTTPServer.Create(WCSocketReadError);
+      FInput.SetPointer(FInputBuf, r);  //resize buffered stream
+
       if FInput.Size > 0 then
       begin
         if not Assigned(HTTPRefCon) then
@@ -1312,7 +1313,8 @@ begin
         end else Result := false;
       end;
     finally
-      //
+      if Assigned(HTTPRefCon) then
+         HTTPRefCon.ReleaseRead;
     end;
   Except
     On E : Exception do begin
@@ -1404,8 +1406,7 @@ begin
       FConn.SetSessionParams(aClient, aSession);
     end else aClient := nil;
     //
-    if assigned(aClient) then
-    begin
+    if assigned(aClient) then begin
       ASynThread := GenerateClientJob;
       if Assigned(ASynThread) then
       begin
@@ -1607,7 +1608,10 @@ begin
     FPoolsLocker.UnLock;
   end;
 
-  FMainThreadPool.Add(AJob);
+  if (FMainThreadPool.JobsCount > (FMainThreadPool.ThreadsCount shl 2)) and
+     (FPreThreadPool.JobsCount  < (FPreThreadPool.ThreadsCount shl 2)) then
+     FPreThreadPool.Add(AJob) else
+     FMainThreadPool.Add(AJob);
 end;
 
 procedure TWCHttpServer.SetSSLMasterKeyLog(AValue: String);
@@ -2211,7 +2215,7 @@ begin
   ESServer.HTTPRefConnections.Idle;
   //
   FSocketsReferences.CleanDead;
-  Sleep(10);
+  Sleep(5);
 end;
 
 function TWCHTTPApplication.GetClientCookieMaxAge: Integer;

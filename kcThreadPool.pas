@@ -132,6 +132,7 @@ type
     FList: TFastList;
     FJobMap : TIDJobMap;
     FCS: TCriticalSection;
+    FThreadsCount : Integer;
     FRunning: Boolean;
     function GetJobAt(index : integer): TJob;
     function GetJobsCount: Integer;
@@ -154,6 +155,7 @@ type
     property Running: Boolean read FRunning write FRunning;
     property CriticalSection: TCriticalSection read FCS;
     property JobsCount: Integer read GetJobsCount;
+    property ThreadsCount: Integer read FThreadsCount;
     property Job[index : integer] : TJob read GetJobAt;
   end;
 
@@ -510,11 +512,14 @@ begin
   FCS   := TCriticalSection.Create;
   FList := TFastList.Create;
   FJobMap := nil;
+  FThreadsCount := FThreads;
 
   FCS.Enter;
   try
-    for i := 1 to FThreads do
+    for i := 1 to FThreads do begin
       FPool.Add(TCustomThread.Create(Self));
+      Sleep(SLEEP_TIME div FThreads);
+    end;
   finally
     FCS.Leave;
   end;

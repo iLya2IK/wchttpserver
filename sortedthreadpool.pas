@@ -20,19 +20,18 @@ unit SortedThreadPool;
 interface
 
 uses
-  AvgLvlTree, OGLFastList, Classes, SysUtils, syncobjs;
+  AvgLvlTree, OGLFastList, Classes, SysUtils, syncobjs, kcThreadPool;
 
 type
   TSortedThreadPool = class;
 
   { TSortedJob }
 
-  TSortedJob = class
+  TSortedJob = class(TJob)
   private
     FScore : Cardinal;
   public
     constructor Create(aScore : Cardinal); virtual;
-    procedure Execute; virtual; abstract;
     property Score : Cardinal read FScore;
   end;
 
@@ -58,6 +57,7 @@ type
     FPool: TFastList;
     FList: TAvgLvlTree;
     FCS: TCriticalSection;
+    FThreadsCount : Integer;
     FRunning: Boolean;
     function GetJobsCount: Integer;
     function GetRunningThreads: Integer;
@@ -72,6 +72,7 @@ type
     property Running: Boolean read FRunning write FRunning;
     property CriticalSection: TCriticalSection read FCS;
     property JobsCount: Integer read GetJobsCount;
+    property ThreadsCount : integer read FThreadsCount;
   end;
 
 implementation
@@ -152,11 +153,14 @@ begin
   FCS   := TCriticalSection.Create;
   FList := TAvgLvlTree.CreateObjectCompare(OnCompareMethod);
   FList.OwnsObjects:=false;
+  FThreadsCount := FThreads;
 
   FCS.Enter;
   try
-    for i := 1 to FThreads do
+    for i := 1 to FThreads do begin
       FPool.Add(TSortedCustomThread.Create(Self));
+      Sleep(SORTED_SLEEP_TIME div FThreads);
+    end;
   finally
     FCS.Leave;
   end;

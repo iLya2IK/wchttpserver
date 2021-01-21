@@ -247,10 +247,10 @@ begin
     begin
       if not IsSSLNonFatalError(FSSLLastError, aResult) then
       begin
-        if IsSend and (IsPipeError(LastError)) then
-          raise ESSLIOError.CreateFmt('pipe error %d', [LastError])
+        if IsSend and (IsPipeError(FLastError)) then
+          raise ESSLIOError.CreateFmt('pipe error %d', [FLastError])
         else
-          raise ESSLIOError.CreateFmt('io error %d', [LastError]);
+          raise ESSLIOError.CreateFmt('io error %d', [FLastError]);
       end;
     end;
   end;
@@ -463,8 +463,8 @@ begin
   Result:=FSsl.Write(@Buffer, Count);
   FSSLLastError:=FSsl.GetError(Result);
   if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
-    Result:=0;
-  HandleSSLIOError(FSSLLastError, true);
+    Result:=0 else
+    HandleSSLIOError(FSSLLastError, true);
 end;
 
 function TExtOpenSSLSocketHandler.Recv(const Buffer; Count: Integer): Integer;
@@ -474,8 +474,8 @@ begin
   if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout>0) then
      FSSLLastError:=SSL_ERROR_ZERO_RETURN;
   if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
-    Result:=0;
-  HandleSSLIOError(FSSLLastError, false);
+    Result:=0 else
+    HandleSSLIOError(FSSLLastError, false);
 end;
 
 function TExtOpenSSLSocketHandler.BytesAvailable: Integer;
