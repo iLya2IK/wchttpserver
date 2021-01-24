@@ -2070,16 +2070,12 @@ begin
   FCurDataBlock := nil;
   FDataBlockSize := 0;
   FConnection := aConnection;
-  if Assigned(FConnection) then FConnection.IncReference;
   FStream := aStream;
-  if Assigned(FStream) then FStream.IncReference;
 end;
 
 destructor TWCHTTP2Block.Destroy;
 begin
   if Assigned(FCurDataBlock) then FreeMem(FCurDataBlock);
-  if Assigned(FStream) then  FStream.DecReference;
-  if Assigned(FConnection) then  FConnection.DecReference;
   inherited Destroy;
 end;
 
@@ -2474,6 +2470,7 @@ end;
 procedure TWCHTTPRefConnection.PushFrame(fr: TWCHTTPRefProtoFrame);
 begin
   FFramesToSend.Push_back(fr);
+  Refresh;
 end;
 
 procedure TWCHTTPRefConnection.PushFrame(const S: String);
@@ -2590,7 +2587,6 @@ begin
     {$endif}
     TryToSendFrames(TS);
     TryToConsumeFrames(TS);
-    Refresh;
     Result := true;
   end;
 end;
@@ -2602,6 +2598,7 @@ begin
       ReadyToRead(TS) and
       assigned(FSocketConsume) then
   begin
+    Refresh;
     FDataReading.Value := True;
     FReadStamp.Value := TS;
     try
@@ -2619,6 +2616,7 @@ begin
        ((FFramesToSend.Count > 0) or (FWriteTailSize > 0)) and
        ReadyToWrite(TS) then
   begin
+    Refresh;
     FDataSending.Value := True;
     FWriteStamp.Value  := TS;
     try

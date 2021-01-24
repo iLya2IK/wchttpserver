@@ -246,7 +246,7 @@ type
 
     function GetCount: integer;
     function GetObject(index : integer): TObject;
-    procedure SetObejct(index : integer; AValue: TObject);
+    procedure SetObject(index : integer; AValue: TObject);
   protected
     procedure SetCount(AValue: integer); virtual;
   public
@@ -262,7 +262,34 @@ type
     procedure SortList(func : TObjectSortFunction);
 
     property Count : integer read GetCount write SetCount;
-    property Item[index : integer] : TObject read GetObject write SetObejct; default;
+    property Item[index : integer] : TObject read GetObject write SetObject; default;
+  end;
+
+  { TThreadSafeFastList }
+
+  TThreadSafeFastList = class(TThreadSafeObject)
+  private
+    FList :  TFastList;
+
+    function GetCount: integer;
+    function GetObject(index : integer): TObject;
+    procedure SetObject(index : integer; AValue: TObject);
+  protected
+    procedure SetCount(AValue: integer); virtual;
+  public
+    constructor Create;
+    function Add(const Obj : TObject) : Integer; virtual;
+    function IndexOf(const Obj : TObject) : Integer;
+    function Remove(const obj: TObject) : integer; virtual;
+    procedure Delete(Ind : integer); virtual;
+    procedure Clear; virtual;
+    procedure Extract(Ind : integer); virtual;
+    procedure Pack; virtual;
+    destructor Destroy; override;
+    procedure SortList(func : TObjectSortFunction);
+
+    property Count : integer read GetCount write SetCount;
+    property Item[index : integer] : TObject read GetObject write SetObject; default;
   end;
 
   TThreadSafeCriteria = function (obj : TObject; data : pointer) : Boolean of object;
@@ -321,6 +348,140 @@ type
   end;
 
 implementation
+
+{ TThreadSafeFastList }
+
+function TThreadSafeFastList.GetCount: integer;
+begin
+  Lock;
+  try
+    Result := FList.Count;
+  finally
+    UnLock;
+  end;
+end;
+
+function TThreadSafeFastList.GetObject(index: integer): TObject;
+begin
+  Lock;
+  try
+    Result := FList[index];
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeFastList.SetObject(index: integer; AValue: TObject);
+begin
+  Lock;
+  try
+    FList[index] := AValue;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeFastList.SetCount(AValue: integer);
+begin
+  Lock;
+  try
+    FList.Count := AValue;
+  finally
+    UnLock;
+  end;
+end;
+
+constructor TThreadSafeFastList.Create;
+begin
+  Inherited Create;
+  FList := TFastList.Create;
+end;
+
+function TThreadSafeFastList.Add(const Obj: TObject): Integer;
+begin
+  Lock;
+  try
+    FList.Add(Obj);
+  finally
+    UnLock;
+  end;
+end;
+
+function TThreadSafeFastList.IndexOf(const Obj: TObject): Integer;
+begin
+  Lock;
+  try
+    Result := FList.IndexOf(Obj);
+  finally
+    UnLock;
+  end;
+end;
+
+function TThreadSafeFastList.Remove(const obj: TObject): integer;
+begin
+  Lock;
+  try
+    Result := FList.Remove(Obj);
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeFastList.Delete(Ind: integer);
+begin
+  Lock;
+  try
+    FList.Delete(Ind);
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeFastList.Clear;
+begin
+  Lock;
+  try
+    FList.Clear;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeFastList.Extract(Ind: integer);
+begin
+  Lock;
+  try
+    FList.Extract(Ind);
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeFastList.Pack;
+begin
+  Lock;
+  try
+    FList.Pack;
+  finally
+    UnLock;
+  end;
+end;
+
+destructor TThreadSafeFastList.Destroy;
+begin
+  FList.Free;
+  inherited Destroy;
+end;
+
+procedure TThreadSafeFastList.SortList(func: TObjectSortFunction);
+begin
+  Lock;
+  try
+    FList.SortList(func);
+  finally
+    UnLock;
+  end;
+end;
 
 { TRefMemoryStream }
 
@@ -534,7 +695,7 @@ begin
   end;
 end;
 
-procedure TThreadSafeFastCollection.SetObejct(index : integer; AValue: TObject);
+procedure TThreadSafeFastCollection.SetObject(index: integer; AValue: TObject);
 begin
   Lock;
   try

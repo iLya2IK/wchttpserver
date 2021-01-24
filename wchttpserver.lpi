@@ -70,7 +70,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="26">
+    <Units Count="25">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -144,45 +144,40 @@
         <UnitName Value="ExtSqlite3DS"/>
       </Unit16>
       <Unit17>
-        <Filename Value="extsqlite3backup.pas"/>
+        <Filename Value="openssl/extopenssl.pp"/>
         <IsPartOfProject Value="True"/>
-        <UnitName Value="ExtSqlite3Backup"/>
       </Unit17>
       <Unit18>
-        <Filename Value="openssl/extopenssl.pp"/>
+        <Filename Value="openssl/openssl.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit18>
       <Unit19>
-        <Filename Value="openssl/openssl.pas"/>
+        <Filename Value="openssl/extopensslsockets.pp"/>
         <IsPartOfProject Value="True"/>
       </Unit19>
       <Unit20>
-        <Filename Value="openssl/extopensslsockets.pp"/>
-        <IsPartOfProject Value="True"/>
-      </Unit20>
-      <Unit21>
         <Filename Value="wctestclient.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="WCTestClient"/>
-      </Unit21>
-      <Unit22>
+      </Unit20>
+      <Unit21>
         <Filename Value="wcservertestjobs.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="WCServerTestJobs"/>
-      </Unit22>
-      <Unit23>
+      </Unit21>
+      <Unit22>
         <Filename Value="sortedthreadpool.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="SortedThreadPool"/>
-      </Unit23>
-      <Unit24>
+      </Unit22>
+      <Unit23>
         <Filename Value="wcconfig.pas"/>
         <IsPartOfProject Value="True"/>
-      </Unit24>
-      <Unit25>
+      </Unit23>
+      <Unit24>
         <Filename Value="wcappconfig.inc"/>
         <IsPartOfProject Value="True"/>
-      </Unit25>
+      </Unit24>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

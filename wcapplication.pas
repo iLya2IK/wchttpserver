@@ -36,10 +36,8 @@ uses
   ssockets,
   gzstream,
   BufferedStream,
-  kcThreadPool,
   SortedThreadPool,
-  AvgLvlTree,
-  OGLFastList
+  AvgLvlTree
   {$ifdef NOGUI}
   {$ifdef unix}
   , gwidgetsethelper
@@ -100,7 +98,7 @@ type
     function GetResponse: TWCResponse;
   public
     P1, P2 : Variant;
-    constructor Create(aConn : TWCConnection);
+    constructor Create(aConn : TWCConnection); overload;
     destructor Destroy; override;
     procedure Execute; override;
     procedure ReleaseConnection;
@@ -115,7 +113,7 @@ type
 
   { TWCPreAnalizeClientJob }
 
-  TWCPreAnalizeClientJob = class(TJob)
+  TWCPreAnalizeClientJob = class(TLinearJob)
   private
     FConn : TWCConnection;
     function GetRequest: TWCRequest;
@@ -136,8 +134,7 @@ type
   TWCHttpServer = class(TEmbeddedAbsHttpServer)
   private
     FMaxPreClientsThreads, FMaxMainClientsThreads : Byte;
-    FPreThreadPool : TThreadPool;
-    FMainThreadPool : TSortedThreadPool;
+    FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
     FHTTPRefConnections : TWCHTTPRefConnections;
@@ -145,6 +142,7 @@ type
     procedure SetMaxPreClientsThreads(AValue: Byte);
     function CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
+    procedure CheckThreadPool;
   protected
     procedure SetSSLMasterKeyLog(AValue: String); override;
     procedure SetHostName(AValue: string); override;
@@ -522,7 +520,7 @@ type
 
   { TWCHttpRefSendDataJob }
 
-  TWCHttpRefSendDataJob = class(TJob)
+  TWCHttpRefSendDataJob = class(TLinearJob)
   private
     FConnection : TWCHTTPRefConnection;
   public
@@ -1527,18 +1525,9 @@ begin
   else
      PreJob := TWCPreAnalizeClientJob.Create(TWCConnection(Conn));
 
-  FPoolsLocker.Lock;
-  try
-    if not assigned(FPreThreadPool) then
-    begin
-       FPreThreadPool := TThreadPool.Create(FMaxPreClientsThreads);
-       FPreThreadPool.Running := true;
-    end;
-  finally
-    FPoolsLocker.UnLock;
-  end;
+  CheckThreadPool;
 
-  FPreThreadPool.Add(PreJob);
+  FThreadPool.AddLinear(PreJob);
 end;
 
 function TWCHttpServer.CreateConnection(Data: TSocketStream): TAbsHTTPConnection;
@@ -1596,22 +1585,26 @@ end;
 
 procedure TWCHttpServer.AddToMainPool(AJob: TWCMainClientJob);
 begin
-  FPoolsLocker.Lock;
-  try
-    if not Assigned(FMainThreadPool) then
-    begin
-      FMainThreadPool := TSortedThreadPool.Create(@CompareMainJobs,
-                                                  FMaxMainClientsThreads);
-      FMainThreadPool.Running := true;
-    end;
-  finally
-    FPoolsLocker.UnLock;
-  end;
+  if (FThreadPool.SortedJobsCount > (FMaxMainClientsThreads shl 2)) and
+     (FThreadPool.LinearJobsCount < (FMaxPreClientsThreads shl 2)) then
+     FThreadPool.AddLinear(AJob) else
+     FThreadPool.AddSorted(AJob);
+end;
 
-  if (FMainThreadPool.JobsCount > (FMainThreadPool.ThreadsCount shl 2)) and
-     (FPreThreadPool.JobsCount  < (FPreThreadPool.ThreadsCount shl 2)) then
-     FPreThreadPool.Add(AJob) else
-     FMainThreadPool.Add(AJob);
+procedure TWCHttpServer.CheckThreadPool;
+begin
+   FPoolsLocker.Lock;
+   try
+     if not assigned(FThreadPool) then
+     begin
+       FThreadPool := TSortedThreadPool.Create(@CompareMainJobs,
+                                               FMaxMainClientsThreads,
+                                               FMaxPreClientsThreads);
+       FThreadPool.Running := true;
+     end;
+   finally
+     FPoolsLocker.UnLock;
+   end;
 end;
 
 procedure TWCHttpServer.SetSSLMasterKeyLog(AValue: String);
@@ -1675,13 +1668,12 @@ end;
 
 procedure TWCHttpServer.DoSendData(aConnection: TWCHTTPRefConnection);
 begin
-  FPreThreadPool.Add(TWCHttpRefSendDataJob.Create(aConnection));
+  FThreadPool.AddLinear(TWCHttpRefSendDataJob.Create(aConnection));
 end;
 
 destructor TWCHttpServer.Destroy;
 begin
-  if Assigned(FMainThreadPool) then FMainThreadPool.Free;
-  if Assigned(FPreThreadPool) then FPreThreadPool.Free;
+  if Assigned(FThreadPool) then FThreadPool.Free;
   FPoolsLocker.Free;
   FSSLLocker.Free;
   FHTTPRefConnections.Free;
