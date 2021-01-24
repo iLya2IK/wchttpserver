@@ -2303,6 +2303,7 @@ end;
 
 procedure TWCHTTPRefConnections.RemoveDeadConnections(MaxLifeTime: Cardinal);
 begin
+  FNeedToRemoveDeadConnections.Value := false;
   ExtractObjectsByCriteria(@IsConnDead, @AfterConnExtracted, @MaxLifeTime);
 end;
 
@@ -2412,6 +2413,8 @@ constructor TWCHTTPRefConnection.Create(aOwner: TWCHTTPRefConnections;
   aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData);
 begin
   inherited Create;
+  FReadBuffer := nil;
+  FWriteBuffer := nil;
   FOwner := aOwner;
   FSocketRef := aSocket;
   FSocketRef.IncReference;
@@ -2650,6 +2653,7 @@ function TWCHTTP2Connection.AddNewStream(aStreamID : Cardinal): TWCHTTPStream;
 begin
   Result := TWCHTTPStream.Create(Self, aStreamID);
   FStreams.Push_back(Result);
+  FOwner.GarbageCollector.Add(Result);
 end;
 
 function TWCHTTP2Connection.GetConnSetting(id : Word): Cardinal;
@@ -3227,6 +3231,7 @@ begin
   FStreams.Free;
   ResetHPack;
   FConSettings.Free;
+  if assigned(FErrorData) then FreeMem(FErrorData);
   inherited Destroy;
 end;
 
