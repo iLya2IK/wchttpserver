@@ -2202,11 +2202,11 @@ begin
     if assigned(FConfig) then FConfig.Sync(false);
     WebContainer.DoMaintainingStep;
     GarbageCollector.CleanDead;
+    FSocketsReferences.CleanDead;
   end;
   //
-  ESServer.HTTPRefConnections.Idle;
+  ESServer.HTTPRefConnections.Idle(T);
   //
-  FSocketsReferences.CleanDead;
   Sleep(5);
 end;
 

@@ -109,7 +109,7 @@ type
 implementation
 
 const
-  SORTED_SLEEP_TIME = 30;
+  SORTED_SLEEP_TIME = 20;
 
 { TSortedJob }
 
