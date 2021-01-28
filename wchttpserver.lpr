@@ -66,8 +66,8 @@ uses
   wcapplication,
   fphttp,
   http2consts,
-  IniFiles,
-  WCTestClient, SortedThreadPool, wcconfig;
+  WCTestClient,
+  wcconfig;
 
 var Conf : TWCConfig;
 {$IFDEF LOAD_DYNAMICALLY}

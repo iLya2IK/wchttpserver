@@ -1312,7 +1312,7 @@ begin
       end;
     finally
       if Assigned(HTTPRefCon) then
-         HTTPRefCon.ReleaseRead;
+         HTTPRefCon.ReleaseRead(Result);
     end;
   Except
     On E : Exception do begin

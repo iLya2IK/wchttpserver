@@ -213,7 +213,7 @@
       </Debugging>
     </Linking>
     <Other>
-      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP"/>
+      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dDEBUG"/>
     </Other>
   </CompilerOptions>
   <Debugging>

@@ -45,6 +45,9 @@ uses
   {$ifdef windows}
     winsock2, windows,
   {$endif}
+  {$ifdef DEBUG}
+  debug_vars,
+  {$endif}
   uhpack,
   http2consts,
   http2http1conv;
@@ -408,7 +411,6 @@ type
     {$endif}
     FSocket : TSocketStream;
     FSocketStates: TSocketStates;
-    FReadingLocks, FWritingLocks : Integer;
   public
     constructor Create(aSocket : TSocketStream);
     destructor Destroy; override;
@@ -521,7 +523,7 @@ type
         aSocket: TWCHTTPSocketReference;
         aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData); virtual;
     procedure ConsumeNextFrame(Mem : TBufferedStream); virtual; abstract;
-    procedure ReleaseRead; virtual;
+    procedure ReleaseRead(WithSuccess: Boolean); virtual;
     procedure SendFrames; virtual;
     destructor Destroy; override;
     class function CheckProtocolVersion(Data : Pointer; sz : integer) :
@@ -1091,8 +1093,6 @@ begin
   FWaitTime.tv_usec := 1000;
   {$endif}
   FSocketStates:=[ssCanSend, ssCanRead];
-  FReadingLocks := 0;
-  FWritingLocks := 0;
 end;
 
 destructor TWCHTTPSocketReference.Destroy;
@@ -1214,11 +1214,8 @@ begin
   Lock;
   try
   if CanRead then begin
-    Inc(FReadingLocks);
-    if FReadingLocks > 0 then begin
-      FSocketStates := FSocketStates + [ssReading];
-      Result := true;
-    end else Result := false;
+    FSocketStates := FSocketStates + [ssReading];
+    Result := true;
   end else Result := false;
   finally
     UnLock;
@@ -1229,9 +1226,7 @@ procedure TWCHTTPSocketReference.StopReading;
 begin
   Lock;
   try
-    Dec(FReadingLocks);
-    if FReadingLocks <= 0 then
-      FSocketStates := FSocketStates - [ssReading];
+    FSocketStates := FSocketStates - [ssReading];
   finally
     UnLock;
   end;
@@ -1242,11 +1237,8 @@ begin
   Lock;
   try
   if CanSend then begin
-    Inc(FWritingLocks);
-    if FWritingLocks > 0 then begin
-      FSocketStates := FSocketStates + [ssSending];
-      Result := true;
-    end else Result := false;
+    FSocketStates := FSocketStates + [ssSending];
+    Result := true;
   end else Result := false;
   finally
     UnLock;
@@ -1257,9 +1249,7 @@ procedure TWCHTTPSocketReference.StopSending;
 begin
   Lock;
   try
-    Dec(FWritingLocks);
-    if FWritingLocks <= 0 then
-      FSocketStates := FSocketStates - [ssSending];
+    FSocketStates := FSocketStates - [ssSending];
   finally
     UnLock;
   end;
@@ -1281,7 +1271,7 @@ begin
   try
     Result := FSocket.Write(Buffer, Size);
     {$IFDEF SOCKET_EPOLL_MODE}
-    if (Result <= 0) and  (errno = ESysEAGAIN) then
+    if (Result <= 0) and (errno = ESysEAGAIN) then
     {$ENDIF}
     begin
       Lock;
@@ -1301,11 +1291,16 @@ begin
   if StartReading then
   try
     Result := FSocket.Read(Buffer, Size);
-    Lock;
-    try
-      FSocketStates := FSocketStates - [ssCanRead];
-    finally
-      UnLock;
+    {$IFDEF SOCKET_EPOLL_MODE}
+    if (Result < Size) or (errno = ESysEAGAIN) then
+    {$ENDIF}
+    begin
+      Lock;
+      try
+        FSocketStates := FSocketStates - [ssCanRead];
+      finally
+        UnLock;
+      end;
     end;
   finally
     StopReading;
@@ -2188,8 +2183,8 @@ end;
 procedure TWCHTTPRefConnections.RemoveSocketEpoll(ASocket: TWCHTTPSocketReference);
 begin
   try
-    //epoll_ctl(FEpollFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
-    //epoll_ctl(FEpollReadFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
+    epoll_ctl(FEpollFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
+    epoll_ctl(FEpollReadFD, EPOLL_CTL_DEL, ASocket.FSocket.Handle, nil);
   finally
     ASocket.DecReference;
   end;
@@ -2400,18 +2395,18 @@ end;
 
 function TWCHTTPRefConnection.ReadyToRead(const TS: QWord): Boolean;
 begin
-  Result := ((TS - FReadStamp.Value) > 0) and (not FDataReading.Value);
+  Result := ((Int64(TS) - Int64(FReadStamp.Value)) > 0) and (not FDataReading.Value);
 end;
 
 function TWCHTTPRefConnection.ReadyToWrite(const TS: QWord): Boolean;
 begin
-  Result := ((TS - FWriteStamp.Value) > 0) and (not FDataSending.Value) and
+  Result := ((Int64(TS) - Int64(FWriteStamp.Value)) > 0) and (not FDataSending.Value) and
             ((FFramesToSend.Count > 0) or (FWriteTailSize > 0));
 end;
 
 function TWCHTTPRefConnection.GetLifeTime(const TS: QWord): Cardinal;
 begin
-  Result := (TS - FTimeStamp.Value) div 1000;
+  Result := (Int64(TS) - Int64(FTimeStamp.Value)) div 1000;
 end;
 
 procedure TWCHTTPRefConnection.Refresh(const TS: QWord);
@@ -2445,12 +2440,14 @@ begin
   FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
 end;
 
-procedure TWCHTTPRefConnection.ReleaseRead;
+procedure TWCHTTPRefConnection.ReleaseRead(WithSuccess : Boolean);
 begin
   FDataReading.Value := false;
   {$ifdef SOCKET_EPOLL_MODE}
   FOwner.ResetReadingSocket(FSocketRef);
   {$endif}
+  if WithSuccess then
+    Refresh(GetTickCount64);
 end;
 
 destructor TWCHTTPRefConnection.Destroy;
@@ -2619,7 +2616,6 @@ begin
       assigned(FSocketConsume) then
   begin
     FDataReading.Value := True;
-    Refresh(TS);
     FReadStamp.Value := TS;
     FSocketConsume(FSocketRef);
   end;
