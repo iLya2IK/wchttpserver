@@ -495,6 +495,7 @@ type
     FReadTailSize, FWriteTailSize : Integer;
     FSocket : Cardinal;
     FTimeStamp, FReadStamp, FWriteStamp : TThreadQWord;
+    FReadDelay, FWriteDelay : TThreadInteger;
     FFramesToSend : TThreadSafeFastSeq;
     FErrorData : Pointer;
     FErrorDataSize : Cardinal;
@@ -513,6 +514,8 @@ type
     procedure TryToConsumeFrames(const TS: Qword);
     procedure TryToSendFrames(const TS: Qword);
     procedure InitializeBuffers;
+    procedure HoldDelayValue(aDelay : TThreadInteger);
+    procedure RelaxDelayValue(aDelay : TThreadInteger);
   protected
     function GetInitialReadBufferSize : Cardinal; virtual; abstract;
     function GetInitialWriteBufferSize : Cardinal; virtual; abstract;
@@ -2395,12 +2398,14 @@ end;
 
 function TWCHTTPRefConnection.ReadyToRead(const TS: QWord): Boolean;
 begin
-  Result := ((Int64(TS) - Int64(FReadStamp.Value)) > 0) and (not FDataReading.Value);
+  Result := ((Int64(TS) - Int64(FReadStamp.Value)) > FReadDelay.Value) and
+            (not FDataReading.Value);
 end;
 
 function TWCHTTPRefConnection.ReadyToWrite(const TS: QWord): Boolean;
 begin
-  Result := ((Int64(TS) - Int64(FWriteStamp.Value)) > 0) and (not FDataSending.Value) and
+  Result := ((Int64(TS) - Int64(FWriteStamp.Value)) > FWriteDelay.Value) and
+            (not FDataSending.Value) and
             ((FFramesToSend.Count > 0) or (FWriteTailSize > 0));
 end;
 
@@ -2436,6 +2441,8 @@ begin
   FDataReading := TThreadBoolean.Create(false);
   FReadStamp := TThreadQWord.Create(TS);
   FWriteStamp:= TThreadQWord.Create(TS);
+  FReadDelay := TThreadInteger.Create(0);
+  FWriteDelay := TThreadInteger.Create(0);
   FFramesToSend := TThreadSafeFastSeq.Create;
   FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
 end;
@@ -2447,7 +2454,11 @@ begin
   FOwner.ResetReadingSocket(FSocketRef);
   {$endif}
   if WithSuccess then
+  begin
     Refresh(GetTickCount64);
+    RelaxDelayValue(FReadDelay);
+  end else
+    HoldDelayValue(FReadDelay);
 end;
 
 destructor TWCHTTPRefConnection.Destroy;
@@ -2463,6 +2474,8 @@ begin
   FConnectionState.Free;
   FDataSending.Free;
   FDataReading.Free;
+  FReadDelay.Free;
+  FWriteDelay.Free;
   inherited Destroy;
 end;
 
@@ -2564,19 +2577,20 @@ begin
         FFramesToSend.UnLock;
       end;
       try
-        {while ((WrBuf.Position > 0) or (FWriteTailSize > 0)) and
-               (ssCanSend in FSocketRef.States)  do}
         if ((WrBuf.Position > 0) or (FWriteTailSize > 0)) then
         begin
-            Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
-            if Sz < WrBuf.Position then
-            begin
-              if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
-              FWriteTailSize := WrBuf.Position + FWriteTailSize - Sz;
-              if Sz > 0 then
-                Move(Pointer(CurBuffer + Sz)^, CurBuffer^, FWriteTailSize);
-            end else FWriteTailSize:= 0;
-            WrBuf.Position := 0;
+          Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
+          if Sz < WrBuf.Position then
+          begin
+            if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
+            FWriteTailSize := WrBuf.Position + FWriteTailSize - Sz;
+            if Sz > 0 then
+              Move(Pointer(CurBuffer + Sz)^, CurBuffer^, FWriteTailSize);
+            HoldDelayValue(FWriteDelay);
+          end else begin
+            FWriteTailSize:= 0;
+            RelaxDelayValue(FWriteDelay);
+          end;
         end;
       except
         ConnectionState:= wcDROPPED;
@@ -2648,6 +2662,31 @@ begin
     FWriteBuffer := TThreadPointer.Create(SZ) else
     FWriteBuffer := nil;
   FWriteBufferSize:= SZ;
+end;
+
+procedure TWCHTTPRefConnection.HoldDelayValue(aDelay: TThreadInteger);
+begin
+  aDelay.Lock;
+  try
+    if aDelay.Value = 0 then
+      aDelay.Value := 16 else
+    begin
+      aDelay.Value := aDelay.Value * 2;
+      if (aDelay.Value > 512) then aDelay.Value := 512;
+    end;
+  finally
+    aDelay.UnLock;
+  end;
+end;
+
+procedure TWCHTTPRefConnection.RelaxDelayValue(aDelay: TThreadInteger);
+begin
+  aDelay.Lock;
+  try
+    aDelay.Value := aDelay.Value div 2;
+  finally
+    aDelay.UnLock;
+  end;
 end;
 
 { TWCHTTP2Connection }
