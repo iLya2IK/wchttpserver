@@ -45,7 +45,7 @@ uses
   {$ifdef windows}
     winsock2, windows,
   {$endif}
-  {$ifdef DEBUG}
+  {$ifdef DEBUG_}
   debug_vars,
   {$endif}
   uhpack,
@@ -1080,9 +1080,9 @@ begin
   FSocket := aSocket;
   {$ifdef socket_select_mode}
   {$ifdef windows}
-  FReadFDSet:= GetMem(Sizeof(Cardinal) + Sizeof(TSocket)*1);
-  FWriteFDSet:= GetMem(Sizeof(Cardinal) + Sizeof(TSocket)*1);
-  FErrorFDSet:= GetMem(Sizeof(Cardinal) + Sizeof(TSocket)*1);
+  FReadFDSet := GetMem(Sizeof(TFDSet));//Sizeof(Cardinal) + Sizeof(TSocket)*1);
+  FWriteFDSet:= GetMem(Sizeof(TFDSet));//Sizeof(Cardinal) + Sizeof(TSocket)*1);
+  FErrorFDSet:= GetMem(Sizeof(TFDSet));//Sizeof(Cardinal) + Sizeof(TSocket)*1);
   {$endif}
   {$ifdef linux}
   FReadFDSet:= GetMem(Sizeof(TFDSet));
@@ -1135,13 +1135,13 @@ begin
     FErrorFDSet^.fd_array[0] := Socket.Handle;
     n := Select(Socket.Handle+1, FReadFDSet, FWriteFDSet, FErrorFDSet, @FWaitTime);
     {$endif}
-    FSocketStates:=[];
+    FSocketStates:= FSocketStates - [ssCanRead, ssCanSend];
     if n < 0 then
     begin
       err := socketerror;
       if (err = EsockENOTSOCK) then
       begin
-        FSocketStates := FSocketStates + [ssError];
+        PushError;
         Raise ESocketError.Create(seListenFailed,[Socket.Handle,err]);
       end;
     end else
@@ -1216,10 +1216,10 @@ function TWCHTTPSocketReference.StartReading : Boolean;
 begin
   Lock;
   try
-  if CanRead then begin
-    FSocketStates := FSocketStates + [ssReading];
-    Result := true;
-  end else Result := false;
+    if CanRead then begin
+      FSocketStates := FSocketStates + [ssReading];
+      Result := true;
+    end else Result := false;
   finally
     UnLock;
   end;
@@ -1239,10 +1239,10 @@ function TWCHTTPSocketReference.StartSending: Boolean;
 begin
   Lock;
   try
-  if CanSend then begin
-    FSocketStates := FSocketStates + [ssSending];
-    Result := true;
-  end else Result := false;
+    if CanSend then begin
+      FSocketStates := FSocketStates + [ssSending];
+      Result := true;
+    end else Result := false;
   finally
     UnLock;
   end;
@@ -1272,17 +1272,22 @@ function TWCHTTPSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
   try
-    Result := FSocket.Write(Buffer, Size);
-    {$IFDEF SOCKET_EPOLL_MODE}
-    if (Result <= 0) and (errno = ESysEAGAIN) then
-    {$ENDIF}
-    begin
-      Lock;
-      try
-        FSocketStates := FSocketStates - [ssCanSend];
-      finally
-        UnLock;
+    try
+      Result := FSocket.Write(Buffer, Size);
+      {$IFDEF SOCKET_EPOLL_MODE}
+      if (Result <= 0) and (errno = ESysEAGAIN) then
+      {$ENDIF}
+      begin
+        Lock;
+        try
+          FSocketStates := FSocketStates - [ssCanSend];
+        finally
+          UnLock;
+        end;
       end;
+    except
+      Result := -1;
+      PushError;
     end;
   finally
     StopSending;
@@ -1293,17 +1298,22 @@ function TWCHTTPSocketReference.Read(var Buffer; Size: Integer): Integer;
 begin
   if StartReading then
   try
-    Result := FSocket.Read(Buffer, Size);
-    {$IFDEF SOCKET_EPOLL_MODE}
-    if (Result < Size) or (errno = ESysEAGAIN) then
-    {$ENDIF}
-    begin
-      Lock;
-      try
-        FSocketStates := FSocketStates - [ssCanRead];
-      finally
-        UnLock;
+    try
+      Result := FSocket.Read(Buffer, Size);
+      {$IFDEF SOCKET_EPOLL_MODE}
+      if (Result < Size) or (errno = ESysEAGAIN) then
+      {$ENDIF}
+      begin
+        Lock;
+        try
+          FSocketStates := FSocketStates - [ssCanRead];
+        finally
+          UnLock;
+        end;
       end;
+    except
+      Result := -1;
+      PushError;
     end;
   finally
     StopReading;
@@ -2593,7 +2603,7 @@ begin
           end;
         end;
       except
-        ConnectionState:= wcDROPPED;
+        on E: ESocketError do ConnectionState:= wcDROPPED;
       end;
     finally
       FWriteBuffer.UnLock;
@@ -2610,7 +2620,11 @@ begin
   if assigned(FSocketRef) and ReadyToReadWrite(TS) then
   begin
     {$ifdef socket_select_mode}
-    FSocketRef.GetSocketStates;
+    try
+      FSocketRef.GetSocketStates;
+    except
+      on e : ESocketError do ;
+    end;
     if ssError in FSocketRef.States then
     begin
       ConnectionState:= wcDROPPED;

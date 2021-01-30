@@ -176,6 +176,8 @@ type
   { TWCHttpServerHandler }
 
   TWCHttpServerHandler = class(TAbsHTTPServerHandler)
+  protected
+    procedure HandleRequestError(Sender: TObject; E: Exception); override;
   public
     Function CreateServer : TEmbeddedAbsHttpServer; override;
     function GetESServer : TWCHttpServer;
@@ -810,7 +812,8 @@ begin
   try
     FConnection.SendFrames;
   except
-    FConnection.ConnectionState:= wcDROPPED;
+    on E: ESocketError do
+      FConnection.ConnectionState:= wcDROPPED;
   end;
 end;
 
@@ -1235,8 +1238,10 @@ begin
     try
       //SetupSocket;
       r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
-      If r<0 then
-        Raise EHTTPServer.Create(WCSocketReadError);
+      If r < 0 then begin
+        Result := false;
+        Raise ESocketError.Create(WCSocketReadError);
+      end;
       FInput.SetPointer(FInputBuf, r);  //resize buffered stream
 
       if FInput.Size > 0 then
@@ -1414,7 +1419,7 @@ begin
     end;
   end;
  except
-   //
+   on E: ESocketError do ;
  end;
 end;
 
@@ -1681,6 +1686,16 @@ begin
 end;
 
 { TWCHttpServerHandler }
+
+procedure TWCHttpServerHandler.HandleRequestError(Sender: TObject; E: Exception
+  );
+begin
+  Try
+    Application.DoError('Error (%s) handling request : %s',[E.ClassName,E.Message]);
+  except
+    // Do not let errors escape
+  end;
+end;
 
 function TWCHttpServerHandler.CreateServer: TEmbeddedAbsHttpServer;
 begin

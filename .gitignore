@@ -1,0 +1,15 @@
+
+*.crt
+*.key
+*.log
+*.bak
+*.db
+*.dll
+*.ppu
+*.o
+*.obj
+*.compiled
+*.rsj
+*.dbg
+*.exe
+*.lps

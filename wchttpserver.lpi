@@ -190,11 +190,6 @@
       <OtherUnitFiles Value="openssl;testing"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
-    <Parsing>
-      <SyntaxOptions>
-        <IncludeAssertionCode Value="True"/>
-      </SyntaxOptions>
-    </Parsing>
     <CodeGeneration>
       <Checks>
         <IOChecks Value="True"/>
@@ -217,7 +212,7 @@
     </Other>
   </CompilerOptions>
   <Debugging>
-    <Exceptions Count="4">
+    <Exceptions Count="7">
       <Item1>
         <Name Value="EAbort"/>
       </Item1>
@@ -230,6 +225,16 @@
       <Item4>
         <Name Value="Unknown"/>
       </Item4>
+      <Item5>
+        <Name Value="ESSLIOError"/>
+      </Item5>
+      <Item6>
+        <Name Value="EHTTPServer"/>
+        <Enabled Value="False"/>
+      </Item6>
+      <Item7>
+        <Name Value="ESocketError"/>
+      </Item7>
     </Exceptions>
   </Debugging>
 </CONFIG>
