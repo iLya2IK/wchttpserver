@@ -141,6 +141,7 @@
       <Unit16>
         <Filename Value="../CommonUtils/ecommonobjs.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="ECommonObjs"/>
       </Unit16>
       <Unit17>
         <Filename Value="../CommonUtils/gwidgetsethelper.pas"/>
@@ -157,10 +158,12 @@
       <Unit20>
         <Filename Value="../CommonUtils/sortedthreadpool.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="SortedThreadPool"/>
       </Unit20>
       <Unit21>
         <Filename Value="../CommonUtils/extsqlite3/extsqlite3ds.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="ExtSqlite3DS"/>
       </Unit21>
       <Unit22>
         <Filename Value="../CommonUtils/extsqlite3/sqlitelogger.pas"/>

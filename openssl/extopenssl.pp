@@ -40,7 +40,6 @@ Type
     domains: array of string; // SSL Certificate with one or more alternative names (SAN)
   end;
   TTlsExtCtx = array of TRTlsExtCtx;
-  PTlsExtCtx = ^TTlsExtCtx;
 
   TAlpnSelect = function (outv : PPChar; outl : PChar; inv : PChar; inlen : Cardinal) : integer of object;
 
@@ -171,8 +170,9 @@ begin
     BioFreeAll(B);
 end;
 
-function SelectSNIContextCallback(ASSL: TExtSSL; ad: integer; arg: TTlsExtCtx): integer; cdecl;
+function SelectSNIContextCallback(ASSL: TExtSSL; {%H-}ad: integer; args: Pointer): integer; cdecl;
 var
+  arg :  TTlsExtCtx absolute args;
   sHostName: string;
   o, i, f: integer;
 begin
@@ -198,7 +198,7 @@ begin
   result := SSL_TLSEXT_ERR_OK;
 end;
 
-function alpn_cb(s : PSSL; outv : PPChar; outlen : PChar;
+function alpn_cb({%H-}s : PSSL; outv : PPChar; outlen : PChar;
                            inv : PChar; inlen : integer; arg : SslPtr) : integer; cdecl;
 var alpn_ctx : TExtSSLContext;
 begin
