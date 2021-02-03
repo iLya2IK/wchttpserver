@@ -41,6 +41,5 @@ Free Pascal (v3.2.0) + Lazarus (v2.0.10)
 # Copyrights
 * [fcl-web (fpWeb) - part of Free Pascal's Free Component Library (FCL), focusing on web (related) application development](https://wiki.lazarus.freepascal.org/fcl-web)
 * [Ararat Synapse - SSL support by OpenSSL - Copyright (c) 1999-2005, Lukas Gebauer](http://www.ararat.cz/synapse/doku.php/start)
-* kcThreadPool - thread pools - Copyright (c) 2011, Maciej Kaczkowski / keit.co
-* OGLFastList - lightweighted lists, collections and seqs - Copyright (c) 2018-2019, Ilya Medvedkov
+* [CommonUtils - lightweight lists, collections, seqs and hashes, helping classes for sqlite3 extension, gz compression, data streams - Copyright (c) 2018-2019, Ilya Medvedkov](https://github.com/iLya2IK/commonutils)
 * WCHTTPServer - Copyright (c) 2020-2021, Ilya Medvedkov
