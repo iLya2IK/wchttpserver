@@ -2,7 +2,6 @@
 *.ppu
 *.o
 *.obj
-*.txt
 *.dll
 *.exe
 /lib/
