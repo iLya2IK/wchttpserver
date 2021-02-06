@@ -148,7 +148,7 @@ Type
     Procedure InitRequest(ARequest : TAbsHTTPConnectionRequest); virtual; abstract;
     Procedure InitResponse(AResponse : TAbsHTTPConnectionResponse); virtual; abstract;
     // Called on accept errors
-    procedure DoAcceptError(Sender: TObject; {%H-}ASocket: Longint; {%H-}E: Exception;  var ErrorAction: TAcceptErrorAction);
+    procedure DoAcceptError(Sender: TObject; ASocket: Longint; E: Exception;  var ErrorAction: TAcceptErrorAction);
     // Create a connection handling object.
     function CreateConnection(Data : TSocketStream) : TAbsHTTPConnection; virtual; abstract;
     procedure CreateConnectionThread(Conn: TAbsHTTPConnection); virtual; abstract;
@@ -408,9 +408,8 @@ begin
     end
 end;
 
-procedure TAbsCustomHttpServer.DoAcceptError(Sender: TObject;
-  {%H-}ASocket: Longint;
-  {%H-}E: Exception; var ErrorAction: TAcceptErrorAction);
+procedure TAbsCustomHttpServer.DoAcceptError(Sender: TObject; ASocket: Longint;
+  E: Exception; var ErrorAction: TAcceptErrorAction);
 begin
   If Not Active then
     ErrorAction:=AEAStop

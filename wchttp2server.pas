@@ -555,13 +555,14 @@ type
   protected
     function GetInitialReadBufferSize : Cardinal; override;
     function GetInitialWriteBufferSize : Cardinal; override;
-    function CanExpandWriteBuffer({%H-}aCurSize, aNeedSize : Cardinal) : Boolean; override;
+    function CanExpandWriteBuffer(aCurSize, aNeedSize : Cardinal) : Boolean; override;
     function RequestsWaiting: Boolean; override;
+  private
+    procedure ConsumeNextFrame(Mem : TBufferedStream); override;
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference;
         aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData); override;
-    procedure ConsumeNextFrame({%H-}Mem : TBufferedStream); override;
     class function Protocol : TWCProtocolVersion; override;
   end;
 
@@ -585,7 +586,7 @@ type
     property  CurHPackEncoder : TThreadSafeHPackEncoder read FHPackEncoder;
     function GetInitialReadBufferSize : Cardinal; override;
     function GetInitialWriteBufferSize : Cardinal; override;
-    function CanExpandWriteBuffer({%H-}aCurSize, {%H-}aNeedSize : Cardinal) : Boolean; override;
+    function CanExpandWriteBuffer(aCurSize, aNeedSize : Cardinal) : Boolean; override;
     function RequestsWaiting: Boolean; override;
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
@@ -619,7 +620,7 @@ type
 
   TWCHTTPStreams = class(TThreadSafeFastSeq)
   private
-    function IsStreamClosed(aStrm: TObject; {%H-}data: pointer): Boolean;
+    function IsStreamClosed(aStrm: TObject; data: pointer): Boolean;
     procedure AfterStrmExtracted(aObj : TObject);
   public
     destructor Destroy; override;
@@ -841,7 +842,7 @@ begin
   Result := False;
 end;
 
-procedure TWCHTTP11Connection.ConsumeNextFrame({%H-}Mem: TBufferedStream);
+procedure TWCHTTP11Connection.ConsumeNextFrame(Mem: TBufferedStream);
 begin
   // do nothing for now
 end;
@@ -3360,8 +3361,8 @@ begin
   Result := FConSettings[H2SET_INITIAL_WINDOW_SIZE];
 end;
 
-function TWCHTTP2Connection.CanExpandWriteBuffer({%H-}aCurSize,
-  {%H-}aNeedSize: Cardinal): Boolean;
+function TWCHTTP2Connection.CanExpandWriteBuffer(aCurSize, aNeedSize: Cardinal
+  ): Boolean;
 begin
   Result := false;
 end;
@@ -3373,7 +3374,7 @@ end;
 
 { TWCHTTPStreams }
 
-function TWCHTTPStreams.IsStreamClosed(aStrm: TObject; {%H-}data: pointer): Boolean;
+function TWCHTTPStreams.IsStreamClosed(aStrm: TObject; data: pointer): Boolean;
 begin
   Result := (TWCHTTPStream(aStrm).StreamState = h2ssCLOSED);
 end;

@@ -270,7 +270,6 @@ type
     weak_key: cInt;
   end;
   des_key_schedule = array[1..16] of des_ks_struct;
-  pdes_key_schedule = ^des_key_schedule;
 
   MD2_CTX = record
     num: integer;
@@ -1182,10 +1181,10 @@ var
   function i2dPrivateKeyBio(b: PBIO; pkey: PEVP_PKEY): cInt;
 
   // 3DES functions
-  procedure DESsetoddparity(Key: pdes_cblock);
-  function DESsetkey(key: pdes_cblock; schedule: pdes_key_schedule): cInt;
-  function DESsetkeychecked(key: pdes_cblock; schedule: pdes_key_schedule): cInt;
-  procedure DESecbencrypt(Input: pdes_cblock; output: pdes_cblock; ks: pdes_key_schedule; enc: cInt);
+  procedure DESsetoddparity(Key: des_cblock);
+  function DESsetkey(key: des_cblock; schedule: des_key_schedule): cInt;
+  function DESsetkeychecked(key: des_cblock; schedule: des_key_schedule): cInt;
+  procedure DESecbencrypt(Input: des_cblock; output: des_cblock; ks: des_key_schedule; enc: cInt);
 
   // RAND functions
 
@@ -1670,10 +1669,10 @@ type
   Ti2dPrivateKeyBio= function(b: PBIO; pkey: PEVP_PKEY): cInt; cdecl;
 
   // 3DES functions
-  TDESsetoddparity = procedure(Key: PDES_cblock); cdecl;
-  TDESsetkeychecked = function(key: PDES_cblock; schedule: pdes_key_schedule): cInt; cdecl;
+  TDESsetoddparity = procedure(Key: des_cblock); cdecl;
+  TDESsetkeychecked = function(key: des_cblock; schedule: des_key_schedule): cInt; cdecl;
   TDESsetkey = TDESsetkeychecked;
-  TDESecbencrypt = procedure(Input: PDES_cblock; output: pdes_cblock; ks: pdes_key_schedule; enc: cInt); cdecl;
+  TDESecbencrypt = procedure(Input: des_cblock; output: des_cblock; ks: des_key_schedule; enc: cInt); cdecl;
   //thread lock functions
   TCRYPTOnumlocks = function: cInt; cdecl;
   TCRYPTOSetLockingCallback = procedure(cb: Sslptr); cdecl;
@@ -3088,13 +3087,13 @@ begin
 end;
 
 // 3DES functions
-procedure DESsetoddparity(Key: pdes_cblock);
+procedure DESsetoddparity(Key: des_cblock);
 begin
   if InitSSLInterface and Assigned(_DESsetoddparity) then
     _DESsetoddparity(Key);
 end;
 
-function DESsetkey(key: pdes_cblock; schedule: pdes_key_schedule): cInt;
+function DESsetkey(key: des_cblock; schedule: des_key_schedule): cInt;
 begin
   if InitSSLInterface and Assigned(_DESsetkey) then
     Result := _DESsetkey(key, schedule)
@@ -3102,7 +3101,7 @@ begin
     Result := -1;
 end;
 
-function DESsetkeychecked(key: pdes_cblock; schedule: pdes_key_schedule): cInt;
+function DESsetkeychecked(key: des_cblock; schedule: des_key_schedule): cInt;
 begin
   if InitSSLInterface and Assigned(_DESsetkeychecked) then
     Result := _DESsetkeychecked(key, schedule)
@@ -3110,7 +3109,7 @@ begin
     Result := -1;
 end;
 
-procedure DESecbencrypt(Input: pdes_cblock; output: pdes_cblock; ks: pdes_key_schedule; enc: cInt);
+procedure DESecbencrypt(Input: des_cblock; output: des_cblock; ks: des_key_schedule; enc: cInt);
 begin
   if InitSSLInterface and Assigned(_DESecbencrypt) then
     _DESecbencrypt(Input, output, ks, enc);
@@ -5657,7 +5656,7 @@ begin
   _SSLeay_version := nil;
 end;
 
-procedure locking_callback(mode, ltype: integer; {%H-}lfile: PChar; {%H-}line: integer); cdecl;
+procedure locking_callback(mode, ltype: integer; lfile: PChar; line: integer); cdecl;
 begin
   if (mode and 1) > 0 then
     EnterCriticalSection(Locks[ltype])
