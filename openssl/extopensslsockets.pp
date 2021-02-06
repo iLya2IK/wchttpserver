@@ -91,7 +91,7 @@ end;
 
 // unix
 
-uses BaseUnix, NetDB, Errors, UnixUtil;
+uses BaseUnix, NetDB;
 
 function IsNonFatalError(const anError: Integer): Boolean; inline;
 begin
@@ -282,7 +282,7 @@ begin
   Result:=True;
 end;
 
-Function HandleSSLPwd(buf : PAnsiChar; len:Integer; flags:Integer; UD : Pointer):Integer; cdecl;
+Function HandleSSLPwd(buf : PAnsiChar; len:Integer; {%H-}flags:Integer; UD : Pointer):Integer; cdecl;
 var
   Pwd: AnsiString;
   H :  TExtOpenSSLSocketHandler;
@@ -449,7 +449,7 @@ begin
         Result:=fpShutdown(Socket.Handle,1)=0;
         if Result then
           Result:=CheckSSL(FSsl.Shutdown);
-        end
+      end;
       end;
   If Result then
     Result:=DoneContext;

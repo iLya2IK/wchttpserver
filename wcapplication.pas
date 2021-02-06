@@ -72,7 +72,7 @@ type
     function ConvertFromHTTP2Req(AReq2 : TWCHTTP2Request) : TWCRequest;
     procedure ReadReqContent(ARequest: TWCRequest);
     procedure ConsumeHeader(ARequest: TRequest; AHeader: String); override;
-    procedure UnknownHeader(ARequest: TRequest; const AHeader: String); override;
+    procedure UnknownHeader({%H-}ARequest: TRequest; const {%H-}AHeader: String); override;
     procedure DoSocketAttach(ASocket : TSocketStream); override;
   public
     Constructor Create(AServer : TAbsCustomHTTPServer; ASocket : TSocketStream); override;
@@ -140,7 +140,7 @@ type
     FHTTPRefConnections : TWCHTTPRefConnections;
     procedure SetMaxMainClientsThreads(AValue: Byte);
     procedure SetMaxPreClientsThreads(AValue: Byte);
-    function CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
+    function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
   protected
@@ -215,9 +215,9 @@ type
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
     procedure DoOnException(Sender : TObject; E : Exception);
-    Procedure DoGetModule(Sender : TObject; ARequest : TRequest;
+    Procedure DoGetModule(Sender : TObject; {%H-}ARequest : TRequest;
                                Var ModuleClass : TCustomHTTPModuleClass);
-    procedure DoOnIdle(sender : TObject);
+    procedure DoOnIdle({%H-}sender : TObject);
     function GetClientCookieMaxAge: Integer;
     function GetClientTimeOut: Integer;
     function GetCompressLimit: Cardinal;
@@ -431,7 +431,7 @@ type
     FContainer : TWebClientsContainer;
     FHash : TStringHashList;
     function  GetClient(const cUID : String): TWebClient;
-    function  IsClientDead(aClient : TObject; data : pointer) : Boolean;
+    function  IsClientDead(aClient : TObject; {%H-}data : pointer) : Boolean;
     procedure AfterClientExtracted(aObj : TObject);
     procedure IdleClient(aObj : TObject);
   public
@@ -466,7 +466,7 @@ type
     FCurCID : TThreadSafeAutoIncrementCardinal;
     FConnectedClients : TWebClients;
     procedure ClientRemove(Sender : TObject);
-    function OnGenSessionID(aSession : TSqliteWebSession) : String;
+    function OnGenSessionID({%H-}aSession : TSqliteWebSession) : String;
   public
     constructor Create;
     destructor Destroy; override;
@@ -812,7 +812,7 @@ begin
   try
     FConnection.SendFrames;
   except
-    on E: ESocketError do
+    on e: ESocketError do
       FConnection.ConnectionState:= wcDROPPED;
   end;
 end;
@@ -937,7 +937,7 @@ begin
         if C < 0 then
         begin
           // do nothing
-          raise Exception.CreateFmt('Socket write error %d', [GetConnection.Socket.LastError]);
+          raise ESocketError.CreateFmt('Socket write error %d', [GetConnection.Socket.LastError]);
         end;
       end;
     end;
@@ -1163,7 +1163,7 @@ begin
     begin
       R:=Socket.Read(S[p],L);
       If R<0 then
-        Raise EHTTPServer.Create(WCSocketReadError);
+        Raise ESocketError.Create(WCSocketReadError);
       if (R>0) then
       begin
         P:=P+R;
@@ -1193,8 +1193,8 @@ begin
   ARequest.SetFieldByName(N,V);
 end;
 
-procedure TWCConnection.UnknownHeader(ARequest: TRequest; const AHeader: String
-  );
+procedure TWCConnection.UnknownHeader({%H-}ARequest: TRequest;
+  const {%H-}AHeader: String);
 begin
   // do nothing
 end;
@@ -1900,7 +1900,7 @@ begin
   end;
 end;
 
-function TWebClients.IsClientDead(aClient: TObject; data: pointer): Boolean;
+function TWebClients.IsClientDead(aClient: TObject; {%H-}data: pointer): Boolean;
 begin
   // TWebClients already locked here
   Result := not Container.Sessions.IsActiveSession(TWebClient(aClient).FCUID);
@@ -2123,7 +2123,7 @@ begin
   DoError(E.Message);
 end;
 
-procedure TWCHTTPApplication.DoGetModule(Sender: TObject; ARequest: TRequest;
+procedure TWCHTTPApplication.DoGetModule(Sender: TObject; {%H-}ARequest: TRequest;
   var ModuleClass: TCustomHTTPModuleClass);
 begin
   ModuleClass := nil;
@@ -2164,7 +2164,7 @@ begin
 
   if not TryStrToInt(ParamStr(1), i) then
   begin
-    raise Exception.CreateFmt('Wrong port number "%s"', [ParamStr(1)]);
+    raise EHTTPServer.CreateFmt('Wrong port number "%s"', [ParamStr(1)]);
   end else
     Port := I;
 
@@ -2204,7 +2204,7 @@ begin
   inherited Destroy;
 end;
 
-procedure TWCHTTPApplication.DoOnIdle(sender: TObject);
+procedure TWCHTTPApplication.DoOnIdle({%H-}sender: TObject);
 var T : QWord;
 begin
   {$ifdef NOGUI} {$IFDEF UNIX}
@@ -2749,7 +2749,7 @@ begin
   Application.DoInfo('Client removed ' + aClient.CUID);
 end;
 
-function TWebClientsContainer.OnGenSessionID(aSession: TSqliteWebSession
+function TWebClientsContainer.OnGenSessionID({%H-}aSession: TSqliteWebSession
   ): String;
 var CID : Cardinal;
 begin
