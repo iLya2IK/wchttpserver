@@ -30,7 +30,7 @@
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
-            <OtherUnitFiles Value="openssl;testing"/>
+            <OtherUnitFiles Value="openssl;testing;../CommonUtils;../CommonUtils/extsqlite3"/>
             <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
@@ -70,7 +70,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="25">
+    <Units Count="24">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -89,95 +89,90 @@
         <IsPartOfProject Value="True"/>
       </Unit3>
       <Unit4>
-        <Filename Value="ecommonobjs.pas"/>
+        <Filename Value="custabshttpapp.pas"/>
         <IsPartOfProject Value="True"/>
-        <UnitName Value="ECommonObjs"/>
       </Unit4>
       <Unit5>
-        <Filename Value="sqlitelogger.pas"/>
+        <Filename Value="http2consts.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit5>
       <Unit6>
-        <Filename Value="gzstream.pas"/>
+        <Filename Value="http2http1conv.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit6>
       <Unit7>
-        <Filename Value="sqlitewebsession.pas"/>
+        <Filename Value="abstracthttpserver.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit7>
       <Unit8>
-        <Filename Value="custabshttpapp.pas"/>
+        <Filename Value="openssl/extopenssl.pp"/>
         <IsPartOfProject Value="True"/>
       </Unit8>
       <Unit9>
-        <Filename Value="http2consts.pas"/>
+        <Filename Value="openssl/openssl.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit9>
       <Unit10>
-        <Filename Value="http2http1conv.pas"/>
+        <Filename Value="openssl/extopensslsockets.pp"/>
         <IsPartOfProject Value="True"/>
       </Unit10>
       <Unit11>
-        <Filename Value="abstracthttpserver.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit11>
-      <Unit12>
-        <Filename Value="OGLFastList.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit12>
-      <Unit13>
-        <Filename Value="bufferedstream.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="BufferedStream"/>
-      </Unit13>
-      <Unit14>
-        <Filename Value="gwidgetsethelper.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit14>
-      <Unit15>
-        <Filename Value="extsqlite3funcs.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit15>
-      <Unit16>
-        <Filename Value="extsqlite3ds.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="ExtSqlite3DS"/>
-      </Unit16>
-      <Unit17>
-        <Filename Value="openssl/extopenssl.pp"/>
-        <IsPartOfProject Value="True"/>
-      </Unit17>
-      <Unit18>
-        <Filename Value="openssl/openssl.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit18>
-      <Unit19>
-        <Filename Value="openssl/extopensslsockets.pp"/>
-        <IsPartOfProject Value="True"/>
-      </Unit19>
-      <Unit20>
         <Filename Value="wctestclient.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="WCTestClient"/>
-      </Unit20>
-      <Unit21>
+      </Unit11>
+      <Unit12>
         <Filename Value="wcservertestjobs.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="WCServerTestJobs"/>
-      </Unit21>
-      <Unit22>
-        <Filename Value="sortedthreadpool.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="SortedThreadPool"/>
-      </Unit22>
-      <Unit23>
+      </Unit12>
+      <Unit13>
         <Filename Value="wcconfig.pas"/>
         <IsPartOfProject Value="True"/>
-      </Unit23>
-      <Unit24>
+      </Unit13>
+      <Unit14>
         <Filename Value="wcappconfig.inc"/>
         <IsPartOfProject Value="True"/>
-      </Unit24>
+      </Unit14>
+      <Unit15>
+        <Filename Value="../CommonUtils/bufferedstream.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit15>
+      <Unit16>
+        <Filename Value="../CommonUtils/ecommonobjs.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="ECommonObjs"/>
+      </Unit16>
+      <Unit17>
+        <Filename Value="../CommonUtils/gwidgetsethelper.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit17>
+      <Unit18>
+        <Filename Value="../CommonUtils/gzstream.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit18>
+      <Unit19>
+        <Filename Value="../CommonUtils/OGLFastList.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit19>
+      <Unit20>
+        <Filename Value="../CommonUtils/sortedthreadpool.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="SortedThreadPool"/>
+      </Unit20>
+      <Unit21>
+        <Filename Value="../CommonUtils/extsqlite3/extsqlite3ds.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="ExtSqlite3DS"/>
+      </Unit21>
+      <Unit22>
+        <Filename Value="../CommonUtils/extsqlite3/sqlitelogger.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit22>
+      <Unit23>
+        <Filename Value="../CommonUtils/extsqlite3/sqlitewebsession.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit23>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -187,7 +182,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="openssl;testing"/>
+      <OtherUnitFiles Value="openssl;testing;../CommonUtils;../CommonUtils/extsqlite3"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>
