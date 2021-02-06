@@ -424,6 +424,8 @@ type
 
     function  CanRead : Boolean;
     function  CanSend : Boolean;
+    function  HasErrors : Boolean;
+    function  HasNoErrors : Boolean;
     function  StartReading : Boolean;
     procedure StopReading;
     function  StartSending : Boolean;
@@ -1073,21 +1075,21 @@ end;
 
 { TWCHTTPSocketReference }
 
+{$ifdef windows}
+const SOCKET_FDSET_SIZE = Sizeof(Cardinal) + Sizeof(TSocket) * 2;
+{$endif}
+{$ifdef linux}
+const SOCKET_FDSET_SIZE = Sizeof(TFDSet);
+{$endif}
+
 constructor TWCHTTPSocketReference.Create(aSocket: TSocketStream);
 begin
   inherited Create;
   FSocket := aSocket;
   {$ifdef socket_select_mode}
-  {$ifdef windows}
-  FReadFDSet := GetMem(Sizeof(TFDSet));//Sizeof(Cardinal) + Sizeof(TSocket)*1);
-  FWriteFDSet:= GetMem(Sizeof(TFDSet));//Sizeof(Cardinal) + Sizeof(TSocket)*1);
-  FErrorFDSet:= GetMem(Sizeof(TFDSet));//Sizeof(Cardinal) + Sizeof(TSocket)*1);
-  {$endif}
-  {$ifdef linux}
-  FReadFDSet:= GetMem(Sizeof(TFDSet));
-  FWriteFDSet:= GetMem(Sizeof(TFDSet));
-  FErrorFDSet:= GetMem(Sizeof(TFDSet));
-  {$endif}
+  FReadFDSet := GetMem(SOCKET_FDSET_SIZE);
+  FWriteFDSet:= GetMem(SOCKET_FDSET_SIZE);
+  FErrorFDSet:= GetMem(SOCKET_FDSET_SIZE);
   //FD_ZERO(FReadFDSet);
   //FD_ZERO(FWriteFDSet);
   //FD_ZERO(FErrorFDSet);
@@ -1101,9 +1103,9 @@ destructor TWCHTTPSocketReference.Destroy;
 begin
   if assigned(FSocket) then FreeAndNil(FSocket);
   {$ifdef socket_select_mode}
-  FreeMem(FReadFDSet);
-  FreeMem(FWriteFDSet);
-  FreeMem(FErrorFDSet);
+  FreeMem(Pointer(FReadFDSet),  SOCKET_FDSET_SIZE);
+  FreeMem(Pointer(FWriteFDSet), SOCKET_FDSET_SIZE);
+  FreeMem(Pointer(FErrorFDSet), SOCKET_FDSET_SIZE);
   {$endif}
   inherited Destroy;
 end;
@@ -1147,20 +1149,22 @@ begin
     if n > 0 then
     begin
       {$ifdef windows}
-      if FD_ISSET(Socket.Handle, FReadFDSet^) then
-         FSocketStates:=FSocketStates + [ssCanRead];
-      if FD_ISSET(Socket.Handle, FWriteFDSet^) then
-         FSocketStates:=FSocketStates + [ssCanSend];
       if FD_ISSET(Socket.Handle, FErrorFDSet^) then
-         FSocketStates:=FSocketStates + [ssError];
+         FSocketStates:=FSocketStates + [ssError] else begin
+        if FD_ISSET(Socket.Handle, FReadFDSet^) then
+           FSocketStates:=FSocketStates + [ssCanRead];
+        if FD_ISSET(Socket.Handle, FWriteFDSet^) then
+           FSocketStates:=FSocketStates + [ssCanSend];
+      end;
       {$endif}
       {$ifdef unix}
-      if fpFD_ISSET(Socket.Handle, FReadFDSet^)>0 then
-         FSocketStates:=FSocketStates + [ssCanRead];
-      if fpFD_ISSET(Socket.Handle, FWriteFDSet^)>0 then
-         FSocketStates:=FSocketStates + [ssCanSend];
       if fpFD_ISSET(Socket.Handle, FErrorFDSet^)>0 then
-         FSocketStates:=FSocketStates + [ssError];
+         FSocketStates:=FSocketStates + [ssError] else begin
+        if fpFD_ISSET(Socket.Handle, FReadFDSet^)>0 then
+           FSocketStates:=FSocketStates + [ssCanRead];
+        if fpFD_ISSET(Socket.Handle, FWriteFDSet^)>0 then
+           FSocketStates:=FSocketStates + [ssCanSend];
+      end;
       {$endif}
     end;
   finally
@@ -1209,6 +1213,21 @@ begin
   finally
     UnLock;
   end;
+end;
+
+function TWCHTTPSocketReference.HasErrors: Boolean;
+begin
+  Lock;
+  try
+    Result := ssError in FSocketStates;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTPSocketReference.HasNoErrors: Boolean;
+begin
+  Result := not HasErrors;
 end;
 
 function TWCHTTPSocketReference.StartReading : Boolean;
@@ -1285,8 +1304,11 @@ begin
         end;
       end;
     except
-      Result := -1;
-      PushError;
+      on E : ESocketError do begin
+       Result := -1;
+       PushError;
+       Raise;
+      end;
     end;
   finally
     StopSending;
@@ -1311,8 +1333,11 @@ begin
         end;
       end;
     except
-      Result := -1;
-      PushError;
+      on E : ESocketError do begin
+       Result := -1;
+       PushError;
+       Raise;
+      end;
     end;
   finally
     StopReading;
@@ -2360,7 +2385,7 @@ begin
     begin
       if (TWCHTTPRefConnection(P.Value).ConnectionState = wcCONNECTED) then
       begin
-        if ssError in TWCHTTPRefConnection(P.Value).FSocketRef.States then
+        if TWCHTTPRefConnection(P.Value).FSocketRef.HasErrors then
           TWCHTTPRefConnection(P.Value).ConnectionState:= wcDROPPED else
         if TWCHTTPRefConnection(P.Value).TryToIdleStep(TS) then
         begin
@@ -2589,7 +2614,7 @@ begin
         if ((WrBuf.Position > 0) or (FWriteTailSize > 0)) then
         begin
           Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
-          if Sz < WrBuf.Position then
+          if (Sz < WrBuf.Position) and (FSocketRef.HasNoErrors) then
           begin
             if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
             FWriteTailSize := WrBuf.Position + FWriteTailSize - Sz;
@@ -2622,9 +2647,9 @@ begin
     try
       FSocketRef.GetSocketStates;
     except
-      on e : ESocketError do ;
+      on e : ESocketError do ; //catch error
     end;
-    if ssError in FSocketRef.States then
+    if FSocketRef.HasErrors then
     begin
       ConnectionState:= wcDROPPED;
       Exit;

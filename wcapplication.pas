@@ -812,8 +812,7 @@ begin
   try
     FConnection.SendFrames;
   except
-    on e: ESocketError do
-      FConnection.ConnectionState:= wcDROPPED;
+    on e: Exception do FConnection.ConnectionState:= wcDROPPED;
   end;
 end;
 
@@ -1379,48 +1378,48 @@ var ASynThread : TWCMainClientJob;
     aClient : TWebClient;
     aSession : TSqliteWebSession;
 begin
- try
-  if Assigned(FConn) and FConn.ConsumeSocketData and
-     TWCHttpServer(FConn.Server).ServerActive then begin
-    aSession := WebContainer.CreateSession(Request);
-    if Assigned(aSession) then
-    begin
-      aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
-      if ssNew in aSession.SessionState then
-        aSession.InitResponse(Response); // fill cookies
-      if ssExpired in aSession.SessionState then
-      begin
-        Application.SendError(Response, 205);
-        Exit;
-      end else
-      begin
-        //try to find client
-        //or
-        //if new session then try to create client in clients pool
-        //using ARequest to deteminate some additional data
-        aClient := WebContainer.AddClient(Request, aSession.SessionID);
-        if not assigned(aClient) then begin
-          Application.SendError(Response, 405);
-          Exit;
-        end else begin
-          aClient.Initialize;
-        end;
-      end;
-      FConn.SetSessionParams(aClient, aSession);
-    end else aClient := nil;
-    //
-    if assigned(aClient) then begin
-      ASynThread := GenerateClientJob;
-      if Assigned(ASynThread) then
-      begin
-        FConn := nil; //now fconn is part of ASynThread job
-        Application.ESServer.AddToMainPool(ASynThread);
-      end;
-    end;
+  try
+   if Assigned(FConn) and FConn.ConsumeSocketData and
+      TWCHttpServer(FConn.Server).ServerActive then begin
+     aSession := WebContainer.CreateSession(Request);
+     if Assigned(aSession) then
+     begin
+       aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
+       if ssNew in aSession.SessionState then
+         aSession.InitResponse(Response); // fill cookies
+       if ssExpired in aSession.SessionState then
+       begin
+         Application.SendError(Response, 205);
+         Exit;
+       end else
+       begin
+         //try to find client
+         //or
+         //if new session then try to create client in clients pool
+         //using ARequest to deteminate some additional data
+         aClient := WebContainer.AddClient(Request, aSession.SessionID);
+         if not assigned(aClient) then begin
+           Application.SendError(Response, 405);
+           Exit;
+         end else begin
+           aClient.Initialize;
+         end;
+       end;
+       FConn.SetSessionParams(aClient, aSession);
+     end else aClient := nil;
+     //
+     if assigned(aClient) then begin
+       ASynThread := GenerateClientJob;
+       if Assigned(ASynThread) then
+       begin
+         FConn := nil; //now fconn is part of ASynThread job
+         Application.ESServer.AddToMainPool(ASynThread);
+       end;
+     end;
+   end;
+  except
+    on E: Exception do ; // catch errors. jail them in thread
   end;
- except
-   on E: ESocketError do ;
- end;
 end;
 
 function TWCPreAnalizeClientJob.GenerateClientJob: TWCMainClientJob;
