@@ -40,6 +40,7 @@ Type
     domains: array of string; // SSL Certificate with one or more alternative names (SAN)
   end;
   TTlsExtCtx = array of TRTlsExtCtx;
+  PTlsExtCtx = ^TTlsExtCtx;
 
   TAlpnSelect = function (outv : PPChar; outl : PChar; inv : PChar; inlen : Cardinal) : integer of object;
 
