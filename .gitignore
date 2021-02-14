@@ -18,6 +18,7 @@
 *.exe
 *.lps
 *.sh
+!/openssl/certgen.sh
 *.db
 *.gz
 *.zip

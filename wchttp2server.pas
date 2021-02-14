@@ -2588,8 +2588,9 @@ begin
                Sz := WrBuf.Position + TWCHTTPRefProtoFrame(it.Value).Size;
                if CanExpandWriteBuffer(FWriteBufferSize, Sz) then
                begin
+                 CurBuffer:= ReAllocMem(CurBuffer, Sz);
+                 FWriteBuffer.Realloc(CurBuffer);
                  FWriteBufferSize := Sz;
-                 CurBuffer:= ReAllocMem(CurBuffer, FWriteBufferSize);
                  Sz := WrBuf.Position;
                  WrBuf.SetPointer(Pointer(CurBuffer + FWriteTailSize),
                                              FWriteBufferSize - FWriteTailSize);
@@ -3507,7 +3508,8 @@ begin
       if (TWCHTTPStream(P.Value).ID < aMaxId) and
          (TWCHTTPStream(P.Value).StreamState = h2ssIDLE) then
       begin
-        Erase(P);
+        TWCHTTPStream(P.Value).DecReference;
+        Extract(P);
       end;
       P := NP;
     end;

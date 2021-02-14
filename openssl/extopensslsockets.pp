@@ -440,7 +440,7 @@ begin
     If Not BiDirectional then
       Result:=CheckSSL(FSSL.Shutdown)
     else
-      begin
+    begin
       r:=FSSL.Shutdown;
       if r<>0 then
         Result:=CheckSSL(r)
@@ -450,7 +450,7 @@ begin
         if Result then
           Result:=CheckSSL(FSsl.Shutdown);
       end;
-      end;
+    end;
   If Result then
     Result:=DoneContext;
 end;
