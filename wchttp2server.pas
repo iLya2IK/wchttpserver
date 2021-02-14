@@ -45,8 +45,8 @@ uses
   {$ifdef windows}
     winsock2, windows,
   {$endif}
-  {$ifdef DEBUG_}
-  debug_vars,
+  {$ifdef DEBUG_STAT}
+  wcdebug_vars,
   {$endif}
   uhpack,
   http2consts,
@@ -1075,11 +1075,13 @@ end;
 
 { TWCHTTPSocketReference }
 
+{$ifdef socket_select_mode}
 {$ifdef windows}
 const SOCKET_FDSET_SIZE = Sizeof(Cardinal) + Sizeof(TSocket) * 2;
 {$endif}
 {$ifdef linux}
 const SOCKET_FDSET_SIZE = Sizeof(TFDSet);
+{$endif}
 {$endif}
 
 constructor TWCHTTPSocketReference.Create(aSocket: TSocketStream);
@@ -2414,8 +2416,8 @@ begin
   begin
     FConnectionState.Value := Cst;
     if Cst = wcDROPPED then begin
-      FOwner.PushSocketError;
       FSocketRef.PushError;
+      FOwner.PushSocketError;
     end;
   end;
 end;

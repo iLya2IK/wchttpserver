@@ -588,7 +588,7 @@ begin
   FServer.OnAcceptError:=@DoAcceptError;
   FServer.OnIdle:=OnAcceptIdle;
   FServer.AcceptIdleTimeOut:=AcceptIdleTimeout;
-  //FServer.SetNonBlocking;
+  FServer.SetNonBlocking;
 end;
 
 procedure TAbsCustomHttpServer.StartServerSocket;

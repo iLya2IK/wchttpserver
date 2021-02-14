@@ -67,7 +67,8 @@ uses
   fphttp,
   http2consts,
   WCTestClient,
-  wcconfig;
+  wcconfig,
+  SortedThreadPool;
 
 var Conf : TWCConfig;
 {$IFDEF LOAD_DYNAMICALLY}
@@ -142,6 +143,9 @@ begin
   Conf.SetDefaultValue(CFG_COMPRESS_LIMIT, 500);
   Conf.SetDefaultValue(CFG_MAIN_THREAD_CNT, 6);
   Conf.SetDefaultValue(CFG_PRE_THREAD_CNT, 5);
+  Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT, DefaultJobToJobWait.DefaultValue);
+  Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MAX, DefaultJobToJobWait.AdaptMax);
+  Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MIN, DefaultJobToJobWait.AdaptMin);
   Conf.SetDefaultValue(CFG_CLIENT_COOKIE_MAX_AGE, 86400);
   Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 10);
 

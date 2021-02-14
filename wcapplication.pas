@@ -37,6 +37,9 @@ uses
   gzstream,
   BufferedStream,
   SortedThreadPool,
+  {$ifdef DEBUG_STAT}
+  wcdebug_vars,
+  {$endif}
   AvgLvlTree
   {$ifdef NOGUI}
   {$ifdef unix}
@@ -65,6 +68,9 @@ type
     FClient   : TWebClient;
     FSession  : TSqliteWebSession;
     FProtocolVersion : TWCProtocolVersion;
+    {$ifdef DEBUG_STAT}
+    FDStartStamp, FDWaitStamp, FDStopStamp, FDReadStamp : QWord;
+    {$endif}
     procedure DoInitialize;
   protected
     function ReadLine : String;
@@ -133,16 +139,17 @@ type
 
   TWCHttpServer = class(TEmbeddedAbsHttpServer)
   private
-    FMaxPreClientsThreads, FMaxMainClientsThreads : Byte;
     FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
     FHTTPRefConnections : TWCHTTPRefConnections;
-    procedure SetMaxMainClientsThreads(AValue: Byte);
-    procedure SetMaxPreClientsThreads(AValue: Byte);
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
+    procedure AddLinearJob(AJob : TLinearJob);
+    procedure AddSortedJob(AJob : TSortedJob);
+    function GetMaxMainClientsThreads: Integer;
+    function GetMaxPreClientsThreads: Integer;
   protected
     procedure SetSSLMasterKeyLog(AValue: String); override;
     procedure SetHostName(AValue: string); override;
@@ -163,8 +170,8 @@ type
     function AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
       aServerDoConsume: THttpRefSocketConsume;
       aSendData: THttpRefSendData): TWCHTTP11Connection;
-    property  MaxPreClientsThreads : Byte read FMaxPreClientsThreads write SetMaxPreClientsThreads;
-    property  MaxMainClientsThreads : Byte read FMaxMainClientsThreads write SetMaxMainClientsThreads;
+    property  MaxPreClientsThreads : Integer read GetMaxPreClientsThreads;
+    property  MaxMainClientsThreads : Integer read GetMaxMainClientsThreads;
     function  ServerActive : Boolean;
     procedure DoConnectToSocketRef(SockRef : TWCHTTPSocketReference);
     procedure DoSendData(aConnection : TWCHTTPRefConnection);
@@ -205,6 +212,7 @@ type
     FConfig : TWCHTTPConfig;
     FMaxMainThreads: TThreadInteger;
     FMaxPrepareThreads: TThreadInteger;
+    FThreadJobToJobWait : TThreadJobToJobWait;
     FCompressLimit: TThreadInteger;
     FClientCookieMaxAge : TThreadInteger;
     FClientTimeOut : TThreadInteger;
@@ -223,6 +231,7 @@ type
     function GetCompressLimit: Cardinal;
     function GetConfigFileName: String;
     function GetESServer: TWCHttpServer;
+    function GetJobToJobWait: TJobToJobWait;
     function GetLogDbLoc: String;
     function GetMainHTTP: String;
     function GetMaxMainThreads: Byte;
@@ -237,6 +246,7 @@ type
     procedure SetClientTimeOut(AValue: Integer);
     procedure SetCompressLimit(AValue: Cardinal);
     procedure SetConfigFileName(AValue: String);
+    procedure SetJobToJobWait(AValue: TJobToJobWait);
     procedure SetLogDbLoc(AValue: String);
     procedure SetMainHTTP(AValue: String);
     procedure SetMaxMainThreads(AValue: Byte);
@@ -280,6 +290,7 @@ type
     //threads
     property MaxPrepareThreads : Byte read GetMaxPrepareThreads write SetMaxPrepareThreads;
     property MaxMainThreads : Byte read GetMaxMainThreads write SetMaxMainThreads;
+    property ThreadPoolJobToJobWait : TJobToJobWait read GetJobToJobWait write SetJobToJobWait;
     //clients
     property ClientTimeOut : Integer read GetClientTimeOut write SetClientTimeOut;
     property ClientCookieMaxAge : Integer read GetClientCookieMaxAge write SetClientCookieMaxAge;
@@ -525,6 +536,9 @@ type
   TWCHttpRefSendDataJob = class(TLinearJob)
   private
     FConnection : TWCHTTPRefConnection;
+    {$ifdef DEBUG_STAT}
+    FDStartStamp : QWord;
+    {$endif}
   public
     constructor Create(aConnection : TWCHTTPRefConnection);
     destructor Destroy; override;
@@ -768,6 +782,9 @@ begin
   MainSec.AddValue(CFG_COMPRESS_LIMIT, wccrInteger);
   MainSec.AddValue(CFG_MAIN_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_PRE_THREAD_CNT, wccrInteger);
+  MainSec.AddValue(CFG_JOB_TO_JOB_WAIT, wccrInteger);
+  MainSec.AddValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MIN, wccrInteger);
+  MainSec.AddValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MAX, wccrInteger);
 
   SSLSec := Root.AddSection(HashToConfig(CFG_OPENSSL_SEC)^.NAME_STR);
   SSLSec.AddValue(CFG_USE_SSL, wccrBoolean);
@@ -799,11 +816,25 @@ begin
   inherited Create;
   FConnection := aConnection;
   FConnection.IncReference;
+  {$ifdef DEBUG_STAT}
+  FDStartStamp:= GetTickCount64;
+  {$endif}
 end;
 
 destructor TWCHttpRefSendDataJob.Destroy;
+{$ifdef DEBUG_STAT}
+var DT: Integer;
+{$endif}
 begin
   FConnection.DecReference;
+  {$ifdef DEBUG_STAT}
+  DT := Int64(GetTickCount64) - Int64(FDStartStamp);
+  if DT < 0 then DT := 0;
+  if DEBUG_GLOBALS_LONGWORD[DG_WRITE_DELTA_TIME_MAX] < DT then DEBUG_GLOBALS_LONGWORD[DG_WRITE_DELTA_TIME_MAX] := DT;
+  DEBUG_GLOBALS_QWORD[DG_WRITE_DELTA_TIME_SUM] := DEBUG_GLOBALS_QWORD[DG_WRITE_DELTA_TIME_SUM] + DT;
+  Inc(DEBUG_GLOBALS_QWORD[DG_WRITE_DELTA_TIME_CNT]);
+  DEBUG_GLOBALS_LONGWORD[DG_WRITE_DELTA_TIME_AV] := DEBUG_GLOBALS_QWORD[DG_WRITE_DELTA_TIME_SUM] div DEBUG_GLOBALS_QWORD[DG_WRITE_DELTA_TIME_CNT];
+  {$endif}
   inherited Destroy;
 end;
 
@@ -1028,6 +1059,7 @@ end;
 
 procedure TWCConnection.DoInitialize;
 begin
+  FProtocolVersion := wcUNK;
   FInputBuf := GetMem(WC_INITIAL_READ_BUFFER_SIZE);
   FInput  := TBufferedStream.Create;
   FInput.SetPointer(FInputBuf, WC_INITIAL_READ_BUFFER_SIZE);
@@ -1035,6 +1067,12 @@ begin
   FResponse := nil;
   FClient := nil;
   FSession := nil;
+  {$ifdef DEBUG_STAT}
+  FDStartStamp := GetTickCount64;
+  FDWaitStamp := FDStartStamp;
+  FDStopStamp := FDStartStamp;
+  FDReadStamp := FDStartStamp;
+  {$endif}
 end;
 
 function TWCConnection.ReadLine: String;
@@ -1235,7 +1273,6 @@ begin
     end;
 
     try
-      //SetupSocket;
       r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
       If r < 0 then begin
         Result := false;
@@ -1245,7 +1282,7 @@ begin
 
       if FInput.Size > 0 then
       begin
-        if not Assigned(HTTPRefCon) then
+        if FProtocolVersion = wcUNK then
         begin
           FProtocolVersion := TWCHTTP2Connection.CheckProtocolVersion(FInput.Memory, FInput.Size);
           if FProtocolVersion = wcHTTP2 then begin
@@ -1281,12 +1318,7 @@ begin
             end;
           end;
           if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
-          begin
-            // Create Response
-            FResponse:= TWCResponse(TWCHttpServer(Server).CreateResponse(FRequest));
-            TWCHttpServer(Server).InitResponse(FResponse);
-            FResponse.SetConnection(Self);
-          end;
+            Result := true;
         end else Result := false;
       end else Result := false;
       if FProtocolVersion = wcHTTP2 then
@@ -1307,16 +1339,19 @@ begin
            HTTPRefCon.ConsumeNextFrame(FInput);
         HTTP2Str := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
         if Assigned(HTTP2Str) then
-        begin
-          FRequest := ConvertFromHTTP2Req(HTTP2Str.Request);
-          FResponse:= TWCResponse(TWCHttpServer(Server).CreateResponse(FRequest));
-          TWCHttpServer(Server).InitResponse(FResponse);
-          FResponse.SetConnection(Self);
-        end else Result := false;
+          FRequest := ConvertFromHTTP2Req(HTTP2Str.Request) else
+          Result := false;
       end;
     finally
       if Assigned(HTTPRefCon) then
          HTTPRefCon.ReleaseRead(Result);
+    end;
+    if Result then
+    begin
+      // Create Response
+      FResponse:= TWCResponse(TWCHttpServer(Server).CreateResponse(FRequest));
+      TWCHttpServer(Server).InitResponse(FResponse);
+      FResponse.SetConnection(Self);
     end;
   Except
     On E : Exception do begin
@@ -1338,6 +1373,9 @@ begin
 end;
 
 destructor TWCConnection.Destroy;
+{$ifdef DEBUG_STAT}
+var DT : Integer;
+{$endif}
 begin
   if Assigned(FRequest) then FreeAndNil(FRequest);
   if Assigned(FResponse) then FreeAndNil(FResponse);
@@ -1345,6 +1383,29 @@ begin
   if Assigned(FClient) then FClient.DecReference;
   FInput.Free;
   FreeMem(FInputBuf);
+
+  {$ifdef DEBUG_STAT}
+  FDStopStamp := GetTickCount64;
+  DT := Int64(FDStopStamp) - Int64(FDReadStamp);
+  if DT < 0 then DT := 0;
+  if DEBUG_GLOBALS_LONGWORD[DG_WORK_DELTA_TIME_MAX] < DT then DEBUG_GLOBALS_LONGWORD[DG_WORK_DELTA_TIME_MAX] := DT;
+  DEBUG_GLOBALS_QWORD[DG_WORK_DELTA_TIME_SUM] := DEBUG_GLOBALS_QWORD[DG_WORK_DELTA_TIME_SUM] + DT;
+  Inc(DEBUG_GLOBALS_QWORD[DG_WORK_DELTA_TIME_CNT]);
+  DEBUG_GLOBALS_LONGWORD[DG_WORK_DELTA_TIME_AV] := DEBUG_GLOBALS_QWORD[DG_WORK_DELTA_TIME_SUM] div DEBUG_GLOBALS_QWORD[DG_WORK_DELTA_TIME_CNT];
+  DT := Int64(FDReadStamp) - Int64(FDWaitStamp);
+  if DT < 0 then DT := 0;
+  if DEBUG_GLOBALS_LONGWORD[DG_READ_DELTA_TIME_MAX] < DT then DEBUG_GLOBALS_LONGWORD[DG_READ_DELTA_TIME_MAX] := DT;
+  DEBUG_GLOBALS_QWORD[DG_READ_DELTA_TIME_SUM] := DEBUG_GLOBALS_QWORD[DG_READ_DELTA_TIME_SUM] + DT;
+  Inc(DEBUG_GLOBALS_QWORD[DG_READ_DELTA_TIME_CNT]);
+  DEBUG_GLOBALS_LONGWORD[DG_READ_DELTA_TIME_AV] := DEBUG_GLOBALS_QWORD[DG_READ_DELTA_TIME_SUM] div DEBUG_GLOBALS_QWORD[DG_READ_DELTA_TIME_CNT];
+  DT := Int64(FDWaitStamp) - Int64(FDStartStamp);
+  if DT < 0 then DT := 0;
+  if DEBUG_GLOBALS_LONGWORD[DG_WAIT_DELTA_TIME_MAX] < DT then DEBUG_GLOBALS_LONGWORD[DG_WAIT_DELTA_TIME_MAX] := DT;
+  DEBUG_GLOBALS_QWORD[DG_WAIT_DELTA_TIME_SUM] := DEBUG_GLOBALS_QWORD[DG_WAIT_DELTA_TIME_SUM] + DT;
+  Inc(DEBUG_GLOBALS_QWORD[DG_WAIT_DELTA_TIME_CNT]);
+  DEBUG_GLOBALS_LONGWORD[DG_WAIT_DELTA_TIME_AV] := DEBUG_GLOBALS_QWORD[DG_WAIT_DELTA_TIME_SUM] div DEBUG_GLOBALS_QWORD[DG_WAIT_DELTA_TIME_CNT];
+  {$endif}
+
   inherited Destroy;
 end;
 
@@ -1379,6 +1440,9 @@ var ASynThread : TWCMainClientJob;
     aSession : TSqliteWebSession;
 begin
   try
+   {$ifdef DEBUG_STAT}
+   FConn.FDWaitStamp := GetTickCount64;
+   {$endif}
    if Assigned(FConn) and FConn.ConsumeSocketData and
       TWCHttpServer(FConn.Server).ServerActive then begin
      aSession := WebContainer.CreateSession(Request);
@@ -1407,6 +1471,9 @@ begin
        end;
        FConn.SetSessionParams(aClient, aSession);
      end else aClient := nil;
+     {$ifdef DEBUG_STAT}
+     FConn.FDReadStamp := GetTickCount64;
+     {$endif}
      //
      if assigned(aClient) then begin
        ASynThread := GenerateClientJob;
@@ -1416,7 +1483,13 @@ begin
          Application.ESServer.AddToMainPool(ASynThread);
        end;
      end;
+   end
+   {$ifdef DEBUG_STAT}
+   else
+   begin
+     Inc(DEBUG_GLOBALS_LONGWORD[DG_FAILED_PREP_CNT]);
    end;
+   {$endif}
   except
     on E: Exception do ; // catch errors. jail them in thread
   end;
@@ -1475,20 +1548,6 @@ end;
 
 { TWCHttpServer }
 
-procedure TWCHttpServer.SetMaxMainClientsThreads(AValue: Byte);
-begin
-  if FMaxMainClientsThreads=AValue then Exit;
-  FMaxMainClientsThreads:=AValue;
-  //todo: resize thread pool here
-end;
-
-procedure TWCHttpServer.SetMaxPreClientsThreads(AValue: Byte);
-begin
-  if FMaxPreClientsThreads=AValue then Exit;
-  FMaxPreClientsThreads:=AValue;
-  //todo: resize thread pool here
-end;
-
 function TWCHttpServer.CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer
   ): Integer;
 begin
@@ -1499,11 +1558,10 @@ end;
 constructor TWCHttpServer.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
   FHTTPRefConnections := TWCHTTPRefConnections.Create(nil);
-  FMaxMainClientsThreads := 1;
-  FMaxPreClientsThreads  := 1;
 end;
 
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;
@@ -1531,7 +1589,7 @@ begin
 
   CheckThreadPool;
 
-  FThreadPool.AddLinear(PreJob);
+  AddLinearJob(PreJob);
 end;
 
 function TWCHttpServer.CreateConnection(Data: TSocketStream): TAbsHTTPConnection;
@@ -1588,11 +1646,18 @@ begin
 end;
 
 procedure TWCHttpServer.AddToMainPool(AJob: TWCMainClientJob);
+var SC, LC : Integer;
 begin
-  if (FThreadPool.SortedJobsCount > (FMaxMainClientsThreads shl 2)) and
-     (FThreadPool.LinearJobsCount < (FMaxPreClientsThreads shl 2)) then
-     FThreadPool.AddLinear(AJob) else
-     FThreadPool.AddSorted(AJob);
+  SC := FThreadPool.SortedJobsCount * MaxPreClientsThreads div
+                                      MaxMainClientsThreads shr 1;
+  LC := FThreadPool.LinearJobsCount;
+  {if ((SC > (FMaxMainClientsThreads shl 2)) and
+      (LC < (FMaxPreClientsThreads shl 1))) or
+     ((SC > (FMaxMainClientsThreads shl 1)) and
+      (LC <  FMaxPreClientsThreads)) then}
+  if SC > LC then
+     AddLinearJob(AJob) else
+     AddSortedJob(AJob);
 end;
 
 procedure TWCHttpServer.CheckThreadPool;
@@ -1602,13 +1667,48 @@ begin
      if not assigned(FThreadPool) then
      begin
        FThreadPool := TSortedThreadPool.Create(@CompareMainJobs,
-                                               FMaxMainClientsThreads,
-                                               FMaxPreClientsThreads);
+                                               Application.ThreadPoolJobToJobWait,
+                                               Application.MaxMainThreads,
+                                               Application.MaxPrepareThreads);
        FThreadPool.Running := true;
      end;
    finally
      FPoolsLocker.UnLock;
    end;
+end;
+
+procedure TWCHttpServer.AddLinearJob(AJob: TLinearJob);
+begin
+  FThreadPool.AddLinear(AJob);
+  {$ifdef DEBUG_STAT}
+  if DEBUG_GLOBALS_LONGWORD[DG_MAX_LIVE_LINEAR_JOBS] < FThreadPool.LinearJobsCount then
+  begin
+    DEBUG_GLOBALS_LONGWORD[DG_MAX_LIVE_LINEAR_JOBS] := FThreadPool.LinearJobsCount;
+  end;
+  Inc(DEBUG_GLOBALS_LONGWORD[DG_COUNT_LINEAR_JOBS]);
+  {$endif}
+end;
+
+procedure TWCHttpServer.AddSortedJob(AJob: TSortedJob);
+begin
+  FThreadPool.AddSorted(AJob);
+  {$ifdef DEBUG_STAT}
+  if DEBUG_GLOBALS_LONGWORD[DG_MAX_LIVE_SORTED_JOBS] < FThreadPool.SortedJobsCount then
+  begin
+    DEBUG_GLOBALS_LONGWORD[DG_MAX_LIVE_SORTED_JOBS] := FThreadPool.SortedJobsCount;
+  end;
+  Inc(DEBUG_GLOBALS_LONGWORD[DG_COUNT_SORTED_JOBS]);
+  {$endif}
+end;
+
+function TWCHttpServer.GetMaxMainClientsThreads: Integer;
+begin
+  Result := FThreadPool.SortedThreadsCount;
+end;
+
+function TWCHttpServer.GetMaxPreClientsThreads: Integer;
+begin
+  Result := FThreadPool.LinearThreadsCount;
 end;
 
 procedure TWCHttpServer.SetSSLMasterKeyLog(AValue: String);
@@ -1672,7 +1772,7 @@ end;
 
 procedure TWCHttpServer.DoSendData(aConnection: TWCHTTPRefConnection);
 begin
-  FThreadPool.AddLinear(TWCHttpRefSendDataJob.Create(aConnection));
+  AddLinearJob(TWCHttpRefSendDataJob.Create(aConnection));
 end;
 
 destructor TWCHttpServer.Destroy;
@@ -2046,6 +2146,7 @@ begin
 end;
 
 procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
+var JTJ : TJobToJobWait;
 begin
   if not VarIsNull(Sender.Value) then
   case Sender.HashName of
@@ -2071,10 +2172,22 @@ begin
       SSLLoc := Sender.Value + cSysDelimiter;
     CFG_COMPRESS_LIMIT :
       CompressLimit:= Sender.Value;
+    CFG_JOB_TO_JOB_WAIT,
+    CFG_JOB_TO_JOB_WAIT_ADAPT_MIN,
+    CFG_JOB_TO_JOB_WAIT_ADAPT_MAX :
+    begin
+      JTJ := ThreadPoolJobToJobWait;
+      case Sender.HashName of
+        CFG_JOB_TO_JOB_WAIT :        JTJ.DefaultValue:= Sender.Value;
+        CFG_JOB_TO_JOB_WAIT_ADAPT_MIN : JTJ.AdaptMin := Sender.Value;
+        CFG_JOB_TO_JOB_WAIT_ADAPT_MAX : JTJ.AdaptMax := Sender.Value;
+      end;
+      ThreadPoolJobToJobWait := JTJ;
+    end;
     CFG_MAIN_THREAD_CNT :
-       MaxMainThreads:= Sender.Value;
+      MaxMainThreads:= Sender.Value;
     CFG_PRE_THREAD_CNT :
-       MaxPrepareThreads:= Sender.Value;
+      MaxPrepareThreads:= Sender.Value;
     //openssl
     CFG_SSL_CIPHER : begin
       ESServer.FSSLLocker.Lock;
@@ -2149,6 +2262,7 @@ begin
   FWebFilesLoc := TThreadUtf8String.Create('');
   FSSLLoc := TThreadUtf8String.Create('');
   FMimeLoc := TThreadUtf8String.Create('');
+  FThreadJobToJobWait := TThreadJobToJobWait.Create(DefaultJobToJobWait);
   OnException:=@DoOnException;
 
   FNetDebugMode:=False;
@@ -2200,6 +2314,7 @@ begin
   FMimeLoc.Free;
   FClientCookieMaxAge.Free;
   FClientTimeOut.Free;
+  FThreadJobToJobWait.Free;
   inherited Destroy;
 end;
 
@@ -2249,6 +2364,11 @@ end;
 function TWCHTTPApplication.GetESServer: TWCHttpServer;
 begin
   Result := GetWebHandler.GetESServer;
+end;
+
+function TWCHTTPApplication.GetJobToJobWait: TJobToJobWait;
+begin
+  Result := FThreadJobToJobWait.Value;
 end;
 
 function TWCHTTPApplication.GetLogDbLoc: String;
@@ -2329,6 +2449,16 @@ begin
   FConfig.Sync(true);
 end;
 
+procedure TWCHTTPApplication.SetJobToJobWait(AValue: TJobToJobWait);
+begin
+  if assigned(ESServer) and
+     Assigned(ESServer.FThreadPool) then begin
+     ESServer.FThreadPool.ThreadJobToJobWait := AValue;
+     FThreadJobToJobWait.Value := ESServer.FThreadPool.ThreadJobToJobWait;
+  end else
+     FThreadJobToJobWait.Value := AValue;
+end;
+
 procedure TWCHTTPApplication.SetLogDbLoc(AValue: String);
 var loc : String;
 begin
@@ -2360,11 +2490,10 @@ begin
   if FMaxMainThreads.Value=AValue then Exit;
 
 
-  if ConfigChangeHalt then begin
-    FMaxMainThreads.Value:=AValue;
-    if assigned(GetESServer) then
-       GetESServer.MaxMainClientsThreads:=aValue;
-  end;
+  FMaxMainThreads.Value:=AValue;
+  if assigned(ESServer) and
+     assigned(ESServer.FThreadPool) then
+     ESServer.FThreadPool.SortedThreadsCount:=aValue;
 end;
 
 procedure TWCHTTPApplication.SetMaxPrepareThreads(AValue: Byte);
@@ -2373,11 +2502,10 @@ begin
   if AValue > WC_MAX_PREP_THREADS then AValue := WC_MAX_PREP_THREADS;
   if FMaxPrepareThreads.Value=AValue then Exit;
 
-  if ConfigChangeHalt then begin
-    FMaxPrepareThreads.Value:=AValue;
-    if assigned(GetESServer) then
-       GetESServer.MaxPreClientsThreads:=aValue;
-  end;
+  FMaxPrepareThreads.Value:=AValue;
+  if assigned(ESServer) and
+     assigned(ESServer.FThreadPool) then
+     GetESServer.FThreadPool.LinearThreadsCount:=aValue;
 end;
 
 procedure TWCHTTPApplication.SetMimeLoc(AValue: String);

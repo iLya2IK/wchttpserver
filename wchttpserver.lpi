@@ -208,7 +208,7 @@
       </Debugging>
     </Linking>
     <Other>
-      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dDEBUG"/>
+      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dDEBUG -dDEBUG_STAT"/>
     </Other>
   </CompilerOptions>
   <Debugging>

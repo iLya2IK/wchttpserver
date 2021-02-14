@@ -10,6 +10,9 @@ const
   CFG_COMPRESS_LIMIT = $81;
   CFG_MAIN_THREAD_CNT= $91;
   CFG_PRE_THREAD_CNT = $A1;
+  CFG_JOB_TO_JOB_WAIT= $B1;
+  CFG_JOB_TO_JOB_WAIT_ADAPT_MIN= $C1;
+  CFG_JOB_TO_JOB_WAIT_ADAPT_MAX= $D1;
   CFG_OPENSSL_SEC      = $02;
   CFG_USE_SSL          = $12;
   CFG_HOST_NAME        = $22;
@@ -43,10 +46,12 @@ const
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_CLIENTS_DB     ;Name:'ClientsDb'     ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_LOG_DB         ;Name:'LogDb'         ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_MIME_NAME      ;Name:'MimeName'      ),
-    (ParentHash:CFG_MAIN_SEC; Hash:CFG_COMPRESS_LIMIT ;Name:'CompressLimit' ),
+    (ParentHash:CFG_MAIN_SEC; Hash:CFG_COMPRESS_LIMIT ;Name:'CompressLimitByte' ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_MAIN_THREAD_CNT;Name:'MainThreadsCnt'),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_PRE_THREAD_CNT ;Name:'PreThreadsCnt' ),
-    (ParentHash:CFG_MAIN_SEC; Hash:CFG_COMPRESS_LIMIT ;Name:'CompressLimit' ),
+    (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT ;Name:'ThreadJobToJobWaitMs' ),
+    (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT_ADAPT_MIN ;Name:'AdaptThreadJobToJobMinWaitMs' ),
+    (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT_ADAPT_MAX ;Name:'AdaptThreadJobToJobMaxWaitMs' ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_USE_SSL        ; Name:'UseSSL'         ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_HOST_NAME      ; Name:'HostName'       ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_LOC        ; Name:'SSLLoc'         ),
@@ -55,8 +60,8 @@ const
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_CERTIFICATE    ; Name:'CertificateLoc' ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_TLSKEY_LOG     ; Name:'TLSKeyLog'      ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_ALPN_USE_HTTP2 ; Name:'UseHTTP2'       ),
-    (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_COOKIE_MAX_AGE; Name:'CookieMaxAge'),
-    (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_TIMEOUT       ; Name:'Timeout'     ),
+    (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_COOKIE_MAX_AGE; Name:'CookieMaxAgeSec'),
+    (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_TIMEOUT       ; Name:'TimeoutSec'     ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_HEADER_TABLE_SIZE      ; Name:'HEADER_TABLE_SIZE'     ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_ENABLE_PUSH            ; Name:'ENABLE_PUSH'           ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_CONCURRENT_STREAMS ; Name:'MAX_CONCURRENT_STREAMS'),
