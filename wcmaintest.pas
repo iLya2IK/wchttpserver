@@ -12,6 +12,7 @@ interface
 uses
   SysUtils, Classes,
   wcapplication,
+  SortedThreadPool,
   httpdefs, fpHTTP, httpprotocol,
   WCTestClient;
 
@@ -24,23 +25,21 @@ type
     function GenerateClientJob: TWCMainClientJob; override;
   end;
 
-  { TESWCSynchroThread }
+  { TWCSynchroJob }
 
-  TWCSynchroThread = class(TThread)
+  TWCSynchroJob = class(TWCMainClientJob)
   private
     CID : String;
     lastEventID: Cardinal;
-    FConn : TWCConnection;
-    function GetResponse: TWCResponse;
+    curEventID : Cardinal;
+    FStage : Byte;
   public
     constructor Create(aConnection : TWCConnection;
-      aLastEventID: Cardinal);
-    destructor Destroy; override;
+      aLastEventID: Cardinal); overload;
     procedure Execute; override;
-    property Response : TWCResponse read GetResponse;
+    procedure UpdateScore; override;
   end;
 
-procedure StartSynchroTimer(aConnection : TWCConnection; lastEventID: Cardinal);
 procedure InitializeJobsTree;
 procedure DisposeJobsTree;
 
@@ -88,41 +87,29 @@ begin
   end;
 end;
 
-{ TWCSynchroThread }
+{ TWCSynchroJob }
 
-function TWCSynchroThread.GetResponse: TWCResponse;
-begin
-  Result := FConn.Response;
-end;
-
-constructor TWCSynchroThread.Create(aConnection: TWCConnection;
+constructor TWCSynchroJob.Create(aConnection: TWCConnection;
   aLastEventID: Cardinal);
 begin
-  FConn := aConnection;
+  inherited Create(aConnection);
   CID := aConnection.Client.CUID;
   lastEventID:= aLastEventID;
-  inherited Create(false);
-  FreeOnTerminate := true;
 end;
 
-destructor TWCSynchroThread.Destroy;
+procedure TWCSynchroJob.UpdateScore;
 begin
-  FreeAndNil(FConn);
-  inherited Destroy;
+  Connection.Client.UpdateScore;
+  Score := Connection.Client.Score;
 end;
 
-procedure TWCSynchroThread.Execute;
-var aClient : TWCTestWebClient;
-    S : String;
-    curEventID : Cardinal;
+procedure TWCSynchroJob.Execute;
+var S : String;
 function SendResponse : Boolean;
 begin
   try
     if not Response.HeadersSent then
-    begin
-       Response.SendHeaders;
-       Sleep(1000); // timeout 1s
-    end;
+      Response.SendHeaders;
     Response.SendUtf8String(S);
     Result := True;
   except
@@ -134,99 +121,92 @@ begin
     end;
   end;
 end;
+var aClient : TWCTestWebClient;
 begin
-  Response.Code:=200;
-  Response.ContentType:='text/event-stream; charset=utf-8';
-  Response.CacheControl:='no-cache';
-  Response.KeepStreamAlive:=true;
-  aClient := nil;
+  ResponseReadyToSend := false;
+  if FStage = 0 then
+  begin
+    Response.Code:=200;
+    Response.ContentType:='text/event-stream; charset=utf-8';
+    Response.CacheControl:='no-cache';
+    Response.KeepStreamAlive:=true;
+    FStage := 1;
+  end;
   try
-    while not Terminated do
-    begin
-      WebContainer.Clients.Lock;
-      try
-        aClient := TWCTestWebClient(WebContainer.GetClient(CID));
+    try
+      if FStage = 1 then
+      begin
+        FStage := 2; // set here to react on exceptions and exits
+        aClient := TWCTestWebClient(Client);
         if not assigned(aClient) then begin
           Application.SendError(Response, 405);
           Exit;
         end else begin
-          aClient.IncReference;
-          try
-            if (aClient.State = csDisconnected) then
-            begin
-              S := 'event: disconnect' + #10;
-              SendResponse;
-              Exit;
-            end;
-            aClient.HasSynConnection := True;
-
-            curEventID := aClient.LastBackupFrame;
-            if (lastEventID > curEventID) or
-                ((curEventID - lastEventID) > 1) or
-                 (lastEventID = 0) then
-            begin
-               // restore state here
-               aClient.LastBackupFrame := lastEventID;
-            end else
-            if (curEventID > lastEventID) then
-            begin
-               // rollback here
-               aClient.LastBackupFrame := lastEventID;
-            end;
-
-            S := '';
-
-            if aClient.LaunchChanged then
-              S := S + inttostr(VAL_LAUNCH_STATE);
-            if aClient.ConnectionChanged then
-            begin
-              if Length(S) > 0 then S := S + ',';
-              S := S + inttostr(VAL_CONNECTION_STATE);
-            end;
-            if aClient.Launched then
-            begin
-              if Length(S) > 0 then S := S + ',';
-              S := S + inttostr(VAL_LIFETIME_VALUE);
-            end;
-
-            curEventID := aClient.LastBackupFrame;
-            if (curEventID = 0) then begin
-              if length(S) = 0 then
-                S := inttostr(VAL_CONNECTION_STATE);
-              inc(curEventID); //some reconnection issue
-            end;
-            if length(S) > 0 then
-              S := '{"events":[' + S + ']}';
-            lastEventID := curEventID;
-          finally
-            aClient.DecReference
+          if (aClient.State = csDisconnected) then
+          begin
+            S := 'event: disconnect' + #10;
+            SendResponse;
+            Exit;
           end;
+          Client.HasSynConnection := True;
+
+          curEventID := aClient.LastBackupFrame;
+          if (lastEventID > curEventID) or
+              ((curEventID - lastEventID) > 1) or
+               (lastEventID = 0) then
+          begin
+             // restore state here
+             aClient.LastBackupFrame := lastEventID;
+          end else
+          if (curEventID > lastEventID) then
+          begin
+             // rollback here
+             aClient.LastBackupFrame := lastEventID;
+          end;
+
+          S := '';
+
+          if aClient.LaunchChanged then
+            S := S + inttostr(VAL_LAUNCH_STATE);
+          if aClient.ConnectionChanged then
+          begin
+            if Length(S) > 0 then S := S + ',';
+            S := S + inttostr(VAL_CONNECTION_STATE);
+          end;
+          if aClient.Launched then
+          begin
+            if Length(S) > 0 then S := S + ',';
+            S := S + inttostr(VAL_LIFETIME_VALUE);
+          end;
+
+          curEventID := aClient.LastBackupFrame;
+          if (curEventID = 0) then begin
+            if length(S) = 0 then
+              S := inttostr(VAL_CONNECTION_STATE);
+            inc(curEventID); //some reconnection issue
+          end;
+          if length(S) > 0 then
+            S := '{"events":[' + S + ']}';
+          lastEventID := curEventID;
         end;
-      finally
-        WebContainer.Clients.UnLock;
+        if Length(S) > 0 then begin
+          S := 'data: ' + S + #10 + 'id: ' + inttostr(curEventID) + #10#10;
+          if not SendResponse then Exit;
+        end;
+        FStage := 1;
+        RestartJob(500, GetTickCount64);
       end;
-      if Length(S) > 0 then begin
-        S := 'data: ' + S + #10 + 'id: ' + inttostr(curEventID) + #10#10;
-        if not SendResponse then Exit;
-      end;
-      Sleep(500);
+    except
+      FStage := 2;
     end;
   finally
-    Response.CloseStream;
-    WebContainer.Clients.Lock;
-    try
-      aClient := TWCTestWebClient(WebContainer.GetClient(CID));
+    if FStage = 2 then begin
+      Response.CloseStream;
+      aClient := TWCTestWebClient(Client);
       if assigned(aClient) then
         aClient.HasSynConnection:=false;
-    finally
-      WebContainer.Clients.UnLock;
     end;
   end;
-end;
-
-procedure StartSynchroTimer(aConnection : TWCConnection; lastEventID: Cardinal);
-begin
-  TWCSynchroThread.Create(aConnection, lastEventID);
 end;
 
 end.

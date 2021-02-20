@@ -146,8 +146,6 @@ type
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
-    procedure AddLinearJob(AJob : TLinearJob);
-    procedure AddSortedJob(AJob : TSortedJob);
     function GetMaxMainClientsThreads: Integer;
     function GetMaxPreClientsThreads: Integer;
   protected
@@ -172,6 +170,8 @@ type
       aSendData: THttpRefSendData): TWCHTTP11Connection;
     property  MaxPreClientsThreads : Integer read GetMaxPreClientsThreads;
     property  MaxMainClientsThreads : Integer read GetMaxMainClientsThreads;
+    procedure AddLinearJob(AJob : TLinearJob);
+    procedure AddSortedJob(AJob : TSortedJob);
     function  ServerActive : Boolean;
     procedure DoConnectToSocketRef(SockRef : TWCHTTPSocketReference);
     procedure DoSendData(aConnection : TWCHTTPRefConnection);
