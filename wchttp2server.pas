@@ -3193,7 +3193,7 @@ begin
 
                 DataSize := FrameHeader.PayloadLength;
 
-                while DataSize > 0 do
+                while DataSize >= H2P_SETTINGS_BLOCK_SIZE do
                 begin
                   S.Read(SettFrame, H2P_SETTINGS_BLOCK_SIZE);
                   WV := SettFrame.Identifier;

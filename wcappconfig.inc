@@ -7,12 +7,11 @@ const
   CFG_CLIENTS_DB     = $51;
   CFG_LOG_DB         = $61;
   CFG_MIME_NAME      = $71;
-  CFG_COMPRESS_LIMIT = $81;
-  CFG_MAIN_THREAD_CNT= $91;
-  CFG_PRE_THREAD_CNT = $A1;
-  CFG_JOB_TO_JOB_WAIT= $B1;
-  CFG_JOB_TO_JOB_WAIT_ADAPT_MIN= $C1;
-  CFG_JOB_TO_JOB_WAIT_ADAPT_MAX= $D1;
+  CFG_MAIN_THREAD_CNT= $81;
+  CFG_PRE_THREAD_CNT = $91;
+  CFG_JOB_TO_JOB_WAIT= $A1;
+  CFG_JOB_TO_JOB_WAIT_ADAPT_MIN= $B1;
+  CFG_JOB_TO_JOB_WAIT_ADAPT_MAX= $C1;
   CFG_OPENSSL_SEC      = $02;
   CFG_USE_SSL          = $12;
   CFG_HOST_NAME        = $22;
@@ -32,12 +31,17 @@ const
   CFG_H2SET_INITIAL_WINDOW_SIZE    = $44;
   CFG_H2SET_MAX_FRAME_SIZE         = $54;
   CFG_H2SET_MAX_HEADER_LIST_SIZE   = $64;
+  CFG_WEBFILES_SEC                 = $05;
+  CFG_IGNORE_FILES                 = $15;
+  CFG_EXCLUDE_IGNORE_FILES         = $25;
+  CFG_COMPRESS_LIMIT               = $35;
 
   WC_CFG_CONFIGURATION : TWCConfiguration = (
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAIN_SEC;    Name:'Main'   ),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_OPENSSL_SEC; Name:'OpenSSL'),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_CLIENTS_SEC; Name:'Clients'),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_HTTP2_SEC;   Name:'Http2'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAIN_SEC;     Name:'Main'   ),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_OPENSSL_SEC;  Name:'OpenSSL'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_CLIENTS_SEC;  Name:'Clients'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_HTTP2_SEC;    Name:'Http2'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_WEBFILES_SEC; Name:'WebFiles'),
 
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_SITE_FOLDER    ;Name:'SiteFolder'    ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_SERVER_NAME    ;Name:'ServerName'    ),
@@ -46,7 +50,6 @@ const
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_CLIENTS_DB     ;Name:'ClientsDb'     ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_LOG_DB         ;Name:'LogDb'         ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_MIME_NAME      ;Name:'MimeName'      ),
-    (ParentHash:CFG_MAIN_SEC; Hash:CFG_COMPRESS_LIMIT ;Name:'CompressLimitByte' ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_MAIN_THREAD_CNT;Name:'MainThreadsCnt'),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_PRE_THREAD_CNT ;Name:'PreThreadsCnt' ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT ;Name:'ThreadJobToJobWaitMs' ),
@@ -67,5 +70,8 @@ const
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_CONCURRENT_STREAMS ; Name:'MAX_CONCURRENT_STREAMS'),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_INITIAL_WINDOW_SIZE    ; Name:'INITIAL_WINDOW_SIZE'   ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_FRAME_SIZE         ; Name:'MAX_FRAME_SIZE'        ),
-    (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_HEADER_LIST_SIZE   ; Name:'MAX_HEADER_LIST_SIZE'  )
+    (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_HEADER_LIST_SIZE   ; Name:'MAX_HEADER_LIST_SIZE'  ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_COMPRESS_LIMIT ;      Name:'CompressLimitByte' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES ;        Name:'WebFilesIgnore' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES ;Name:'WebFilesExcludeIgnore' )
     );

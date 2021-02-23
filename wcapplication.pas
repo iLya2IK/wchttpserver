@@ -37,6 +37,7 @@ uses
   gzstream,
   BufferedStream,
   SortedThreadPool,
+  RegExpr,
   {$ifdef DEBUG_STAT}
   wcdebug_vars,
   {$endif}
@@ -219,6 +220,8 @@ type
     FVPath, FMainHTTP, FSessionsLoc,
     FSessionsDb, FLogDbLoc,
     FWebFilesLoc, FSSLLoc, FMimeLoc : TThreadUtf8String;
+    FWebFilesIgnore, FWebFilesExceptIgnore : TThreadUtf8String;
+    FWebFilesIgnoreRx, FWebFilesExceptIgnoreRx : TRegExpr;
 
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
@@ -241,6 +244,8 @@ type
     function GetSessionsLoc: String;
     function GetSitePath: String;
     function GetSSLLoc: String;
+    function GetWebFilesExcludeIgnore: String;
+    function GetWebFilesIgnore: String;
     function getWebFilesLoc: String;
     procedure SetClientCookieMaxAge(AValue: Integer);
     procedure SetClientTimeOut(AValue: Integer);
@@ -255,6 +260,8 @@ type
     procedure SetSessionsDb(AValue: String);
     procedure SetSessionsLoc(AValue: String);
     procedure SetSSLLoc(AValue: String);
+    procedure SetWebFilesExcludeIgnore(AValue: String);
+    procedure SetWebFilesIgnore(AValue: String);
     procedure SetWebFilesLoc(AValue: String);
     function  Initialized : Boolean;
     function ConfigChangeHalt : Boolean;
@@ -285,8 +292,12 @@ type
     property SessionsDb : String read GetSessionsDb write SetSessionsDb;
     property LogDb : String read GetLogDbLoc write SetLogDbLoc;
     property MimeLoc : String read GetMimeLoc write SetMimeLoc;
+    //webfiles
     property WebFilesLoc : String read getWebFilesLoc write SetWebFilesLoc;
     property CompressLimit : Cardinal read GetCompressLimit write SetCompressLimit;
+    property WebFilesIgnore : String read GetWebFilesIgnore write SetWebFilesIgnore;
+    property WebFilesExcludeIgnore : String read GetWebFilesExcludeIgnore write SetWebFilesExcludeIgnore;
+    function IsAcceptedWebFile(const FN: String) : Boolean;
     //threads
     property MaxPrepareThreads : Byte read GetMaxPrepareThreads write SetMaxPrepareThreads;
     property MaxMainThreads : Byte read GetMaxMainThreads write SetMaxMainThreads;
@@ -545,6 +556,13 @@ type
     procedure Execute; override;
   end;
 
+  { TWCSendServerFile }
+
+  TWCSendServerFile = class(TWCMainClientJob)
+  public
+    procedure Execute; override;
+  end;
+
 var
   WebContainer : TWebClientsContainer;
 
@@ -769,7 +787,7 @@ end;
 { TWCHTTPConfig }
 
 procedure TWCHTTPConfig.DoInitialize();
-var MainSec, SSLSec, ClientsSec, Http2Sec : TWCConfigRecord;
+var MainSec, SSLSec, WFSec, ClientsSec, Http2Sec : TWCConfigRecord;
 begin
   MainSec := Root.AddSection(HashToConfig(CFG_MAIN_SEC)^.NAME_STR);
   MainSec.AddValue(CFG_SITE_FOLDER, wccrString);
@@ -779,12 +797,16 @@ begin
   MainSec.AddValue(CFG_CLIENTS_DB, wccrString);
   MainSec.AddValue(CFG_LOG_DB, wccrString);
   MainSec.AddValue(CFG_MIME_NAME, wccrString);
-  MainSec.AddValue(CFG_COMPRESS_LIMIT, wccrInteger);
   MainSec.AddValue(CFG_MAIN_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_PRE_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_JOB_TO_JOB_WAIT, wccrInteger);
   MainSec.AddValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MIN, wccrInteger);
   MainSec.AddValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MAX, wccrInteger);
+
+  WFSec := Root.AddSection(HashToConfig(CFG_WEBFILES_SEC)^.NAME_STR);
+  WFSec.AddValue(CFG_COMPRESS_LIMIT, wccrInteger);
+  WFSec.AddValue(CFG_IGNORE_FILES, wccrString);
+  WFSec.AddValue(CFG_EXCLUDE_IGNORE_FILES, wccrString);
 
   SSLSec := Root.AddSection(HashToConfig(CFG_OPENSSL_SEC)^.NAME_STR);
   SSLSec.AddValue(CFG_USE_SSL, wccrBoolean);
@@ -845,6 +867,79 @@ begin
   except
     on e: Exception do FConnection.ConnectionState:= wcDROPPED;
   end;
+end;
+
+{ TWCSendServerFile }
+
+procedure TWCSendServerFile.Execute;
+var FN, FE, aURI : String;
+  aCachedFile : TWebCachedItem;
+begin
+  ResponseReadyToSend := false; // prevent to send response
+
+  aURI := Request.PathInfo;
+  if (aURI = '/') or (Length(aURI) = 0) then
+  begin
+    aURI := Application.MainURI;
+  end;
+  FN := StringReplace(aURI, cNonSysDelimiter, cSysDelimiter, [rfReplaceAll]);
+  if (Pos(FN, '..') = 0) and (Length(FN) > 0) and
+     Application.IsAcceptedWebFile(FN) then
+  begin
+    if FN[1] = cSysDelimiter then
+      Delete(FN, 1, 1);
+
+    FN := Application.SitePath + FN;
+
+    FE := ExtractFileExt(FN);
+    if SameText(FE, '.svgz') then begin
+      if Client.AcceptGzip then
+        Response.SetHeader(hhContentEncoding, cSgzip) else
+        FN := ChangeFileExt(FN, '.svg');
+    end;
+
+    aCachedFile := WebContainer.GetWebCachedItem(FN);
+    if assigned(aCachedFile) and
+       (aCachedFile.Size > 0) then
+    begin
+      aCachedFile.Lock;
+      try
+        Response.ContentType := aCachedFile.MimeType;
+        Response.CacheControl:= aCachedFile.CacheControl;
+
+        {$IFDEF ALLOW_STREAM_GZIP}
+        if Client.AcceptGzip and aCachedFile.GzipReady then
+        begin
+          Response.ContentLength:=aCachedFile.GzipSize;
+          Response.RefStream:=aCachedFile.GzipCache;
+          Response.SetHeader(hhContentEncoding, cSgzip)
+        end else
+        {$ENDIF}
+        if Client.AcceptDeflate and aCachedFile.DeflateReady then
+        begin
+          Response.ContentLength:=aCachedFile.DeflateSize;
+          Response.RefStream:=aCachedFile.DeflateCache;
+          Response.SetHeader(hhContentEncoding, cSdeflate)
+        end else
+        begin
+          Response.ContentLength:=aCachedFile.Size;
+          Response.RefStream:=aCachedFile.Cache;
+        end;
+
+        Response.SendContent;
+      finally
+        aCachedFile.UnLock;
+      end;
+      Response.ContentStream:=Nil;
+    end else
+    begin
+      Application.SendError(Response, 404);
+    end;
+  end else
+  begin
+    Application.SendError(Response, 404);
+  end;
+  // inherited Execute;
 end;
 
 { TWCRequest }
@@ -2170,8 +2265,6 @@ begin
       HostName := Sender.Value;
     CFG_SSL_LOC :
       SSLLoc := Sender.Value + cSysDelimiter;
-    CFG_COMPRESS_LIMIT :
-      CompressLimit:= Sender.Value;
     CFG_JOB_TO_JOB_WAIT,
     CFG_JOB_TO_JOB_WAIT_ADAPT_MIN,
     CFG_JOB_TO_JOB_WAIT_ADAPT_MAX :
@@ -2227,6 +2320,13 @@ begin
       ESServer.HTTPRefConnections.HTTP2Settings.Add((Sender.HashName shr 4) and $0f,
                                                               Sender.Value);
     end;
+    //Web files
+    CFG_COMPRESS_LIMIT :
+      CompressLimit:= Sender.Value;
+    CFG_IGNORE_FILES :
+      WebFilesIgnore := Sender.Value;
+    CFG_EXCLUDE_IGNORE_FILES :
+      WebFilesExcludeIgnore := Sender.Value;
   end;
 end;
 
@@ -2248,6 +2348,8 @@ begin
 
   FStartStamp := 0;
   FConfig := nil;
+  FWebFilesIgnoreRx := nil;
+  FWebFilesExceptIgnoreRx := nil;
 
   FMaxMainThreads:= TThreadInteger.Create(1);
   FMaxPrepareThreads:= TThreadInteger.Create(1);
@@ -2260,6 +2362,8 @@ begin
   FSessionsDb := TThreadUtf8String.Create('');
   FLogDbLoc := TThreadUtf8String.Create('');
   FWebFilesLoc := TThreadUtf8String.Create('');
+  FWebFilesIgnore := TThreadUtf8String.Create('');
+  FWebFilesExceptIgnore := TThreadUtf8String.Create('');
   FSSLLoc := TThreadUtf8String.Create('');
   FMimeLoc := TThreadUtf8String.Create('');
   FThreadJobToJobWait := TThreadJobToJobWait.Create(DefaultJobToJobWait);
@@ -2310,11 +2414,15 @@ begin
   FSessionsDb.Free;
   FLogDbLoc.Free;
   FWebFilesLoc.Free;
+  FWebFilesIgnore.Free;
+  FWebFilesExceptIgnore.Free;
   FSSLLoc.Free;
   FMimeLoc.Free;
   FClientCookieMaxAge.Free;
   FClientTimeOut.Free;
   FThreadJobToJobWait.Free;
+  if Assigned(FWebFilesIgnoreRx) then  FWebFilesIgnoreRx.Free;
+  if Assigned(FWebFilesExceptIgnoreRx) then FWebFilesExceptIgnoreRx.Free;
   inherited Destroy;
 end;
 
@@ -2414,6 +2522,16 @@ end;
 function TWCHTTPApplication.GetSSLLoc: String;
 begin
   Result := FSSLLoc.Value;
+end;
+
+function TWCHTTPApplication.GetWebFilesExcludeIgnore: String;
+begin
+  Result := FWebFilesExceptIgnore.Value;
+end;
+
+function TWCHTTPApplication.GetWebFilesIgnore: String;
+begin
+  Result := FWebFilesIgnore.Value
 end;
 
 function TWCHTTPApplication.getWebFilesLoc: String;
@@ -2550,6 +2668,58 @@ begin
   end;
 end;
 
+procedure TWCHTTPApplication.SetWebFilesExcludeIgnore(AValue: String);
+begin
+  FWebFilesExceptIgnore.Lock;
+  try
+    if Length(AValue) = 0 then begin
+      FWebFilesExceptIgnore.Value:= '';
+      if Assigned(FWebFilesExceptIgnoreRx) then
+        FreeAndNil(FWebFilesExceptIgnoreRx);
+      Exit;
+    end;
+    if SameText(AValue, FWebFilesExceptIgnore.Value) then Exit;
+
+    FWebFilesExceptIgnore.Value:= AValue;
+    if assigned(FWebFilesExceptIgnoreRx) then
+      FreeAndNil(FWebFilesExceptIgnoreRx);
+    try
+      FWebFilesExceptIgnoreRx := TRegExpr.Create(AValue);
+    except
+      if assigned(FWebFilesExceptIgnoreRx) then
+        FreeAndNil(FWebFilesExceptIgnoreRx);
+    end;
+  finally
+    FWebFilesExceptIgnore.UnLock;
+  end;
+end;
+
+procedure TWCHTTPApplication.SetWebFilesIgnore(AValue: String);
+begin
+ FWebFilesIgnore.Lock;
+ try
+   if Length(AValue) = 0 then begin
+     FWebFilesIgnore.Value:= '';
+     if assigned(FWebFilesIgnoreRx) then
+       FreeAndNil(FWebFilesIgnoreRx);
+     Exit;
+   end;
+   if SameText(AValue, FWebFilesIgnore.Value) then Exit;
+
+   FWebFilesIgnore.Value:= AValue;
+   if assigned(FWebFilesIgnoreRx) then
+     FreeAndNil(FWebFilesIgnoreRx);
+   try
+     FWebFilesIgnoreRx := TRegExpr.Create(AValue);
+   except
+     if assigned(FWebFilesIgnoreRx) then
+       FreeAndNil(FWebFilesIgnoreRx);
+   end;
+ finally
+   FWebFilesIgnore.UnLock;
+ end;
+end;
+
 procedure TWCHTTPApplication.SetWebFilesLoc(AValue: String);
 var loc : String;
 begin
@@ -2658,6 +2828,47 @@ function TWCHTTPApplication.CreateReferedMemoryStream: TRefMemoryStream;
 begin
   Result := TRefMemoryStream.Create;
   Application.GarbageCollector.Add(Result);
+end;
+
+function TWCHTTPApplication.IsAcceptedWebFile(const FN: String): Boolean;
+begin
+  Result := true;
+  //regexp here to ignore files
+  //exclude from ignore exceptions
+  //example: ignore_files:   ".*wec\\.jpg|loot.*";
+  //         exclude_ignore: "chelowec\\.jpg|looter\\.java"
+  //         will ignore all *wec.jpg and loot*.* files
+  //         except chelowec.jpg and looter.java
+  //nb: double escape \\ needed for json format
+  try
+    FWebFilesIgnore.Lock;
+    try
+      if assigned(FWebFilesIgnoreRx) and
+         FWebFilesIgnoreRx.Exec(RegExprString(FN)) then
+      begin
+        //ignore file finded
+        Result := False;
+      end;
+    finally
+      FWebFilesIgnore.UnLock;
+    end;
+    if not Result then begin
+      //check exclude
+      FWebFilesExceptIgnore.Lock;
+      try
+        if assigned(FWebFilesExceptIgnoreRx) and
+           FWebFilesExceptIgnoreRx.Exec(RegExprString(FN)) then
+        begin
+          //exclude finded ignore
+          Result := True;
+        end;
+      finally
+        FWebFilesExceptIgnore.UnLock;
+      end;
+    end;
+  except
+    // ignore parse exceptions
+  end;
 end;
 
 { TWebCachedItem }

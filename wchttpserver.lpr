@@ -114,6 +114,10 @@ begin
   // MimeLoc - location of mime file
   // then mime file location will be home/folder/CFG_SITE_FOLDER/CFG_MIME_NAME
   Conf.SetDefaultValue(CFG_MIME_NAME, 'mime.txt');
+  // WebFiles Config
+  Conf.SetDefaultValue(CFG_COMPRESS_LIMIT, 500);
+  Conf.SetDefaultValue(CFG_EXCLUDE_IGNORE_FILES, '');
+  Conf.SetDefaultValue(CFG_IGNORE_FILES, '');
   //SSL/TLS configuration
   Conf.SetDefaultValue(CFG_USE_SSL, true);
   Conf.SetDefaultValue(CFG_HOST_NAME, 'localhost');
@@ -140,7 +144,6 @@ begin
   Conf.SetDefaultValue(CFG_TLSKEY_LOG, ''); // tlskey.log
   Application.ESServer.SSLType:= stTLSv1_2;
   Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2, True);
-  Conf.SetDefaultValue(CFG_COMPRESS_LIMIT, 500);
   Conf.SetDefaultValue(CFG_MAIN_THREAD_CNT, 6);
   Conf.SetDefaultValue(CFG_PRE_THREAD_CNT, 5);
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT, DefaultJobToJobWait.DefaultValue);

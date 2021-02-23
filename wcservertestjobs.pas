@@ -58,13 +58,6 @@ type
     procedure Execute; override;
   end;
 
-  { TWCSendServerFile }
-
-  TWCSendServerFile = class(TWCMainClientJob)
-  public
-    procedure Execute; override;
-  end;
-
 const
   cSStatusBADJSON  = '{"status":"BAD"}';
   cSStatusOKJSON   = '{"status":"OK"}';
@@ -114,78 +107,6 @@ begin
   end;
   ResponseReadyToSend := false; // prevent to send response
   inherited Execute;
-end;
-
-{ TWCSendServerFile }
-
-procedure TWCSendServerFile.Execute;
-var FN, FE, aURI : String;
-  aCachedFile : TWebCachedItem;
-begin
-  ResponseReadyToSend := false; // prevent to send response
-
-  aURI := Request.PathInfo;
-  if (aURI = '/') or (Length(aURI) = 0) then
-  begin
-    aURI := Application.MainURI;
-  end;
-  FN := StringReplace(aURI, cNonSysDelimiter, cSysDelimiter, [rfReplaceAll]);
-  if (Pos(FN, '..') = 0) and (Length(FN) > 0) then
-  begin
-    if FN[1] = cSysDelimiter then
-      Delete(FN, 1, 1);
-
-    FN := Application.SitePath + FN;
-
-    FE := ExtractFileExt(FN);
-    if SameText(FE, '.svgz') then begin
-      if Client.AcceptGzip then
-        Response.SetHeader(hhContentEncoding, cSgzip) else
-        FN := ChangeFileExt(FN, '.svg');
-    end;
-
-    aCachedFile := WebContainer.GetWebCachedItem(FN);
-    if assigned(aCachedFile) and
-       (aCachedFile.Size > 0) then
-    begin
-      aCachedFile.Lock;
-      try
-        Response.ContentType := aCachedFile.MimeType;
-        Response.CacheControl:= aCachedFile.CacheControl;
-
-        {$IFDEF ALLOW_STREAM_GZIP}
-        if Client.AcceptGzip and aCachedFile.GzipReady then
-        begin
-          Response.ContentLength:=aCachedFile.GzipSize;
-          Response.RefStream:=aCachedFile.GzipCache;
-          Response.SetHeader(hhContentEncoding, cSgzip)
-        end else
-        {$ENDIF}
-        if Client.AcceptDeflate and aCachedFile.DeflateReady then
-        begin
-          Response.ContentLength:=aCachedFile.DeflateSize;
-          Response.RefStream:=aCachedFile.DeflateCache;
-          Response.SetHeader(hhContentEncoding, cSdeflate)
-        end else
-        begin
-          Response.ContentLength:=aCachedFile.Size;
-          Response.RefStream:=aCachedFile.Cache;
-        end;
-
-        Response.SendContent;
-      finally
-        aCachedFile.UnLock;
-      end;
-      Response.ContentStream:=Nil;
-    end else
-    begin
-      Application.SendError(Response, 404);
-    end;
-  end else
-  begin
-    Application.SendError(Response, 406);
-  end;
-  // inherited Execute;
 end;
 
 { TWCDisconnect }

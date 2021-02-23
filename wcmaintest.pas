@@ -29,7 +29,6 @@ type
 
   TWCSynchroJob = class(TWCMainClientJob)
   private
-    CID : String;
     lastEventID: Cardinal;
     curEventID : Cardinal;
     FStage : Byte;
@@ -93,7 +92,6 @@ constructor TWCSynchroJob.Create(aConnection: TWCConnection;
   aLastEventID: Cardinal);
 begin
   inherited Create(aConnection);
-  CID := aConnection.Client.CUID;
   lastEventID:= aLastEventID;
 end;
 
