@@ -148,7 +148,7 @@
         <IsPartOfProject Value="True"/>
       </Unit17>
       <Unit18>
-        <Filename Value="../CommonUtils/gzstream.pas"/>
+        <Filename Value="../commonutils/gzstream.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit18>
       <Unit19>
@@ -212,7 +212,7 @@
     </Other>
   </CompilerOptions>
   <Debugging>
-    <Exceptions Count="4">
+    <Exceptions Count="5">
       <Item1>
         <Name Value="EAbort"/>
       </Item1>
@@ -225,6 +225,9 @@
       <Item4>
         <Name Value="Unknown"/>
       </Item4>
+      <Item5>
+        <Name Value="ESSLIOError"/>
+      </Item5>
     </Exceptions>
   </Debugging>
 </CONFIG>

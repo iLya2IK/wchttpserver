@@ -87,9 +87,19 @@ uses
 
 var
   {$IFDEF WINDOWS}
+  {$IFDEF WIN64}
+  DLLSSLName: string = 'ssleay64.dll';
+  DLLSSLName2: string = 'libssl64.dll';
+  DLLSSLName3: string = 'libssl-1_1-x64.dll';
+  DLLUtilName: string = 'libeay64.dll';
+  DLLUtilName2: string = 'libcrypto-1_1-x64.dll';
+  {$else}
   DLLSSLName: string = 'ssleay32.dll';
   DLLSSLName2: string = 'libssl32.dll';
+  DLLSSLName3: string = 'libssl-1_1.dll';
   DLLUtilName: string = 'libeay32.dll';
+  DLLUtilName2: string = 'libcrypto-1_1.dll';
+  {$endif}
   {$ELSE}
    {$IFDEF OS2}
     {$IFDEF OS2GCC}
@@ -5731,6 +5741,10 @@ begin
   {$IFDEF MSWINDOWS}
   if (SSLLibHandle = 0) then
     SSLLibHandle := LoadLib(DLLSSLName2);
+  if (SSLLibHandle = 0) then
+    SSLLibHandle := LoadLib(DLLSSLName3);
+  if (SSLUtilHandle = 0) then
+    SSLUtilHandle := LoadLib(DLLUtilName2);
   {$ELSE MSWINDOWS}
    {$IFDEF OS2}
   if (SSLUtilHandle = 0) then

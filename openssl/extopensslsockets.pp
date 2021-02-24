@@ -75,7 +75,8 @@ uses Winsock2, Windows;
 
 function IsNonFatalError(const anError: Integer): Boolean; inline;
 begin
-  Result := (anError = WSAEINVAL) or (anError = WSAEFAULT)
+  Result := (anError = 0)
+         or (anError = WSAEINVAL) or (anError = WSAEFAULT)
          or (anError = WSAEOPNOTSUPP) or (anError = WSAEMSGSIZE)
          or (anError = WSAEADDRNOTAVAIL) or (anError = WSAEAFNOSUPPORT)
          or (anError = WSAEDESTADDRREQ);
@@ -95,7 +96,8 @@ uses BaseUnix, NetDB;
 
 function IsNonFatalError(const anError: Integer): Boolean; inline;
 begin
-  Result := (anError = ESysEINTR) or (anError = ESysEMSGSIZE)
+  Result := (anError = 0) or (anError = Low(SocketError))
+         or (anError = ESysEINTR) or (anError = ESysEMSGSIZE)
          or (anError = ESysEFAULT) or (anError = ESysEINVAL)
          or (anError = ESysEOPNOTSUPP);
 end;
@@ -123,19 +125,31 @@ begin
   Result := (anError = SSL_ERROR_WANT_READ) or (anError = SSL_ERROR_WANT_WRITE);
 end;
 
-function IsSSLNonFatalError(const anError, aRet: Longint): Boolean; inline;
-var
-  tmp: Longint;
+function IsSSLNonFatalError(const anError, aRet: Longint; out aErr : Longint): Boolean; inline;
 begin
-  Result := False;
-  if anError = SSL_ERROR_SYSCALL then repeat
-    tmp := ErrGetError();
-    if tmp = 0 then begin // we neet to check the ret
-      if aRet <= 0 then Exit; // EOF or BIO crap, we skip those
-      Result := IsNonFatalError(aRet);
+  aErr := SSL_ERROR_NONE;
+  Result := (anError <> SSL_ERROR_SSL); // SSL_ERROR_SSL - fatal error
+  if (anError = SSL_ERROR_SYSCALL) then begin
+    aErr := ErrGetError();
+    if aErr = 0 then begin // we need to check the ret
+      if aRet < 0 then
+      begin
+        {$ifdef unix}
+        aErr := fpgeterrno;
+        {$else}
+        {$ifdef windows}
+        aErr := WSAGetLastError;
+        {$endif}{$endif}
+        Result := IsNonFatalError(aErr);
+      end
+      else
+        aErr := SSL_ERROR_SYSCALL; //unexpected EOF, ignore
     end else // check what exactly
-      Result := IsNonFatalError(tmp);
-  until tmp <= 0; // we need to empty the queue
+    begin
+      Result := IsNonFatalError(aErr);
+    end;
+  end;
+  ErrClearError; // we need to empty the queue
 end;
 
 function TExtOpenSSLSocketHandler.CreateCertGenerator: TX509Certificate;
@@ -241,11 +255,10 @@ end;
 
 procedure TExtOpenSSLSocketHandler.HandleSSLIOError(aResult: Integer; isSend : Boolean);
 begin
-  FLastError := aResult;
-  if (aResult <> 0) and (FLastError <> Low(SocketError)) then begin
+  if (FSSLLastError <> 0) then begin
     if not IsSSLBlockError(FSSLLastError) then
     begin
-      if not IsSSLNonFatalError(FSSLLastError, aResult) then
+      if not IsSSLNonFatalError(FSSLLastError, aResult, FLastError) then
       begin
         if IsSend and (IsPipeError(FLastError)) then
           raise ESSLIOError.CreateFmt('pipe error %d', [FLastError])
@@ -466,7 +479,7 @@ begin
   FSSLLastError:=FSsl.GetError(Result);
   if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
     Result:=0 else
-    HandleSSLIOError(FSSLLastError, true);
+    HandleSSLIOError(Result, true);
 end;
 
 function TExtOpenSSLSocketHandler.Recv(const Buffer; Count: Integer): Integer;
@@ -474,10 +487,10 @@ begin
   Result:=FSSL.Read(@Buffer, Count);
   FSSLLastError:=FSSL.GetError(Result);
   if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout>0) then
-     FSSLLastError:=SSL_ERROR_ZERO_RETURN;
+    FSSLLastError:=SSL_ERROR_ZERO_RETURN;
   if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
     Result:=0 else
-    HandleSSLIOError(FSSLLastError, false);
+    HandleSSLIOError(Result, false);
 end;
 
 function TExtOpenSSLSocketHandler.BytesAvailable: Integer;
