@@ -477,7 +477,9 @@ begin
       FreeServerSocket;
     end
     else
+    begin
       StopServerSocket;
+    end;
 end;
 
 procedure TAbsCustomHttpServer.SetCertificate(AValue: String);

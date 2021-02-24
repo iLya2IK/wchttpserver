@@ -35,6 +35,8 @@ const
   CFG_IGNORE_FILES                 = $15;
   CFG_EXCLUDE_IGNORE_FILES         = $25;
   CFG_COMPRESS_LIMIT               = $35;
+  CFG_MAINTAIN_SEC                 = $06;
+  CFG_SHUTDOWN                     = $16;
 
   WC_CFG_CONFIGURATION : TWCConfiguration = (
     (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAIN_SEC;     Name:'Main'   ),
@@ -42,6 +44,7 @@ const
     (ParentHash:CFG_ROOT_HASH; Hash:CFG_CLIENTS_SEC;  Name:'Clients'),
     (ParentHash:CFG_ROOT_HASH; Hash:CFG_HTTP2_SEC;    Name:'Http2'),
     (ParentHash:CFG_ROOT_HASH; Hash:CFG_WEBFILES_SEC; Name:'WebFiles'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAINTAIN_SEC; Name:'Maintaining'),
 
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_SITE_FOLDER    ;Name:'SiteFolder'    ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_SERVER_NAME    ;Name:'ServerName'    ),
@@ -73,5 +76,6 @@ const
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_HEADER_LIST_SIZE   ; Name:'MAX_HEADER_LIST_SIZE'  ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_COMPRESS_LIMIT ;      Name:'CompressLimitByte' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES ;        Name:'WebFilesIgnore' ),
-    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES ;Name:'WebFilesExcludeIgnore' )
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES ;Name:'WebFilesExcludeIgnore' ),
+    (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_SHUTDOWN ;            Name:'Shutdown' )
     );

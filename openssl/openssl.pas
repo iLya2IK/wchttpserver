@@ -2608,17 +2608,22 @@ begin
   if InitSSLInterface and Assigned(_SSL_get_client_random) then
   begin
     sslk := GetMem(MAXSSLCLIENTRANDOM_SIZE);
-    Result := _SSL_get_client_random(ssl, sslk, MAXSSLCLIENTRANDOM_SIZE);
-    if Result > 0 then
-    begin
-      s := '';
-      for i := 0 to Result-1 do
+    try
+      Result := _SSL_get_client_random(ssl, sslk, MAXSSLCLIENTRANDOM_SIZE);
+      if Result > 0 then
       begin
-        s := s + IntToHex(PByte(sslk)[i], 2);
-      end;
-      s := LowerCase(s);
-    end else
-      s := '';
+        s := '';
+        for i := 0 to Result-1 do
+        begin
+          s := s + IntToHex(PByte(sslk)[i], 2);
+        end;
+        s := LowerCase(s);
+      end else
+        s := '';
+    finally
+      // bug fixed. memory leak. 24.02.2021
+      FreeMem(sslk);
+    end;
   end
   else begin
     Result := 0;
@@ -2633,17 +2638,22 @@ begin
   if InitSSLInterface and Assigned(_SSL_SESSION_get_master_key) then
   begin
     sslk := GetMem(MAXSSLMASTERKEY_SIZE);
-    Result := _SSL_SESSION_get_master_key(session, sslk, MAXSSLMASTERKEY_SIZE);
-    if Result > 0 then
-    begin
-      s := '';
-      for i := 0 to Result-1 do
+    try
+      Result := _SSL_SESSION_get_master_key(session, sslk, MAXSSLMASTERKEY_SIZE);
+      if Result > 0 then
       begin
-        s := s + IntToHex(PByte(sslk)[i], 2);
-      end;
-      s := LowerCase(s);
-    end else
-      s := '';
+        s := '';
+        for i := 0 to Result-1 do
+        begin
+          s := s + IntToHex(PByte(sslk)[i], 2);
+        end;
+        s := LowerCase(s);
+      end else
+        s := '';
+    finally
+      // bug fixed. memory leak. 24.02.2021
+      FreeMem(sslk);
+    end;
   end
   else begin
     Result := 0;

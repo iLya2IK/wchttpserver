@@ -80,7 +80,8 @@ type
     property DefaultValue : Variant read FDefaultValue;
     function AddSection(const aName : String) : TWCConfigRecord;
     function AddValue(const aName : String; aDefault : Variant) : TWCConfigRecord; overload;
-    function AddValue(const aName: String; aKind: TWCConfigRecordKind
+    function AddValue(Hash: Cardinal; aDefault : Variant) : TWCConfigRecord; overload;
+    function AddValue(const aName : String; aKind: TWCConfigRecordKind
       ): TWCConfigRecord; overload;
     function AddValue(Hash: Cardinal; aKind: TWCConfigRecordKind
       ): TWCConfigRecord; overload;
@@ -126,6 +127,7 @@ const  CFG_ROOT_HASH = $00;
 function  StrToConfig(Parent : Cardinal; const str : String) : PWCConfigRec;
 function  HashToConfig(hash : Cardinal) : PWCConfigRec;
 function  StrConfigToHash(Parent : Cardinal; const str : String) : Cardinal;
+function  VarToConfigKind(const V : Variant) : TWCConfigRecordKind;
 
 var CFG_CONFIGURATION : TWCConfiguration;
 
@@ -173,6 +175,14 @@ begin
     end;
   end;
   Result := 0;
+end;
+
+function VarToConfigKind(const V: Variant): TWCConfigRecordKind;
+begin
+  Result := wccrUnknown;
+  if VarIsStr(V) then Result:= wccrString else
+  if VarIsBool(V) then Result:= wccrBoolean else
+  if VarIsOrdinal(V) then Result:= wccrInteger;
 end;
 
 { TWCConfigRec }
@@ -286,15 +296,30 @@ function TWCConfigRecord.AddValue(const aName: String; aDefault: Variant
   ): TWCConfigRecord;
 var aKind : TWCConfigRecordKind;
 begin
-  aKind := wccrUnknown;
-  if VarIsStr(aDefault) then aKind:= wccrString else
-  if VarIsBool(aDefault) then aKind:= wccrBoolean else
-  if VarIsOrdinal(aDefault) then aKind:= wccrInteger;
+  aKind := VarToConfigKind(aDefault);
   if aKind > wccrUnknown then
   begin
     Result := TWCConfigRecord.Create(Self, aName, aKind);
     Result.SetDefaultValue(aDefault);
     AddChild(Result);
+  end else
+    Result := nil;
+end;
+
+function TWCConfigRecord.AddValue(Hash: Cardinal; aDefault: Variant
+  ): TWCConfigRecord;
+var R : PWCConfigRec;
+    aKind : TWCConfigRecordKind;
+begin
+  aKind := VarToConfigKind(aDefault);
+  if aKind > wccrUnknown then
+  begin
+    R := HashToConfig(Hash);
+    if Assigned(R) then begin
+      Result := TWCConfigRecord.Create(Self, R, aKind);
+      Result.SetDefaultValue(aDefault);
+      AddChild(Result);
+    end else Result := nil;
   end else
     Result := nil;
 end;
@@ -357,7 +382,8 @@ begin
        begin
          if Assigned(FJsonConfig) then FreeAndNil(FJsonConfig);
          FJsonConfig := TJSONObject(jsonData);
-       end;
+       end else
+         if assigned(jsonData) then FreeAndNil(jsonData);
      except
        // do nothing. maybe broken json file
      end;

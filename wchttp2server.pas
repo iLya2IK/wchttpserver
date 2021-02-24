@@ -3432,6 +3432,7 @@ end;
 function TWCHTTPStreams.GetByID(aID: Cardinal): TWCHTTPStream;
 var P : TIteratorObject;
 begin
+  Result := nil; // bug fixed. 24.02.2021
   Lock;
   try
     P := ListBegin;

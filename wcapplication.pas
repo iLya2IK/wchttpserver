@@ -149,6 +149,7 @@ type
     procedure CheckThreadPool;
     function GetMaxMainClientsThreads: Integer;
     function GetMaxPreClientsThreads: Integer;
+    procedure StopThreads;
   protected
     procedure SetSSLMasterKeyLog(AValue: String); override;
     procedure SetHostName(AValue: string); override;
@@ -223,6 +224,9 @@ type
     FWebFilesIgnore, FWebFilesExceptIgnore : TThreadUtf8String;
     FWebFilesIgnoreRx, FWebFilesExceptIgnoreRx : TRegExpr;
 
+    FNeedShutdown : TThreadBoolean;
+
+    procedure StopThreads;
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
     procedure DoOnException(Sender : TObject; E : Exception);
@@ -240,6 +244,7 @@ type
     function GetMaxMainThreads: Byte;
     function GetMaxPrepareThreads: Byte;
     function GetMimeLoc: String;
+    function GetNeedShutdown: Boolean;
     function GetSessionsDb: String;
     function GetSessionsLoc: String;
     function GetSitePath: String;
@@ -257,6 +262,7 @@ type
     procedure SetMaxMainThreads(AValue: Byte);
     procedure SetMaxPrepareThreads(AValue: Byte);
     procedure SetMimeLoc(AValue: String);
+    procedure SetNeedShutdown(AValue: Boolean);
     procedure SetSessionsDb(AValue: String);
     procedure SetSessionsLoc(AValue: String);
     procedure SetSSLLoc(AValue: String);
@@ -265,6 +271,8 @@ type
     procedure SetWebFilesLoc(AValue: String);
     function  Initialized : Boolean;
     function ConfigChangeHalt : Boolean;
+  protected
+    Procedure DoRun; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -310,6 +318,8 @@ type
     //main config
     property Config : TWCHTTPConfig read FConfig;
     property ConfigFileName : String read GetConfigFileName write SetConfigFileName;
+    //maintaining
+    property NeedShutdown : Boolean read GetNeedShutdown write SetNeedShutdown;
   end;
 
   { TWebCachedItem }
@@ -563,6 +573,9 @@ type
     procedure Execute; override;
   end;
 
+  EServerStopped = class(ESocketError)
+  end;
+
 var
   WebContainer : TWebClientsContainer;
 
@@ -777,7 +790,8 @@ begin
   if CustomApplication=Application then
     CustomApplication := nil;
   try
-    FreeAndNil(Application);
+    Application.Free;
+    Application := nil;
   except
     if ShowCleanUpErrors then
       Raise;
@@ -787,7 +801,7 @@ end;
 { TWCHTTPConfig }
 
 procedure TWCHTTPConfig.DoInitialize();
-var MainSec, SSLSec, WFSec, ClientsSec, Http2Sec : TWCConfigRecord;
+var MainSec, SSLSec, WFSec, ClientsSec, Http2Sec, MaintSec : TWCConfigRecord;
 begin
   MainSec := Root.AddSection(HashToConfig(CFG_MAIN_SEC)^.NAME_STR);
   MainSec.AddValue(CFG_SITE_FOLDER, wccrString);
@@ -829,6 +843,9 @@ begin
   Http2Sec.AddValue(CFG_H2SET_INITIAL_WINDOW_SIZE   , wccrInteger);
   Http2Sec.AddValue(CFG_H2SET_MAX_FRAME_SIZE        , wccrInteger);
   Http2Sec.AddValue(CFG_H2SET_MAX_HEADER_LIST_SIZE  , wccrInteger);
+
+  MaintSec := Root.AddSection(HashToConfig(CFG_MAINTAIN_SEC)^.NAME_STR);
+  MaintSec.AddValue(CFG_SHUTDOWN, False);
 end;
 
 { TWCHttpRefSendDataJob }
@@ -1806,6 +1823,11 @@ begin
   Result := FThreadPool.LinearThreadsCount;
 end;
 
+procedure TWCHttpServer.StopThreads;
+begin
+  if Assigned(FThreadPool) then FreeAndNil(FThreadPool);
+end;
+
 procedure TWCHttpServer.SetSSLMasterKeyLog(AValue: String);
 begin
   FSSLLocker.Lock;
@@ -2097,7 +2119,8 @@ end;
 function TWebClients.IsClientDead(aClient: TObject; {%H-}data: pointer): Boolean;
 begin
   // TWebClients already locked here
-  Result := not Container.Sessions.IsActiveSession(TWebClient(aClient).FCUID);
+  Result := (not Container.Sessions.IsActiveSession(TWebClient(aClient).FCUID)) or
+             Application.Terminated;
   if Result then
     Application.DoInfo('Client is dead ' + TWebClient(aClient).CUID);
 end;
@@ -2240,11 +2263,18 @@ begin
   WriteLn('An error handled: ' + E.Message);
 end;
 
+procedure TWCHTTPApplication.StopThreads;
+begin
+  if Assigned(ESServer) then ESServer.StopThreads;
+end;
+
 procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
 var JTJ : TJobToJobWait;
 begin
   if not VarIsNull(Sender.Value) then
   case Sender.HashName of
+    CFG_SHUTDOWN :
+      NeedShutdown := Sender.Value;
     CFG_SITE_FOLDER :
       WebFilesLoc := Sender.Value + cSysDelimiter;
     CFG_SERVER_NAME :
@@ -2367,6 +2397,7 @@ begin
   FSSLLoc := TThreadUtf8String.Create('');
   FMimeLoc := TThreadUtf8String.Create('');
   FThreadJobToJobWait := TThreadJobToJobWait.Create(DefaultJobToJobWait);
+  FNeedShutdown := TThreadBoolean.Create(False);
   OnException:=@DoOnException;
 
   FNetDebugMode:=False;
@@ -2398,10 +2429,22 @@ begin
   {$ifdef NOGUI}{$IFDEF UNIX}
   GWidgetHelper.Free;
   {$endif}{$endif}
-  if assigned(WebContainer) then FreeAndNil(WebContainer);
+  // first we need to dec references to all referenced objects
+  // wait all jobs and kill threads
+  StopThreads;
+  // dec references to all clients
+  WebContainer.ClearDeadClients;
+  // dec references to all connections
+  if assigned(ESServer) then
+    ESServer.HTTPRefConnections.RemoveDeadConnections(GetTickCount64, 0);
+  // clear cache (referenced streams)
+  WebContainer.ClearCache;
+  // finally clean lists of references
   if assigned(FReferences) then FreeAndNil(FReferences);
   if assigned(FSocketsReferences) then FreeAndNil(FSocketsReferences);
-  //
+  if assigned(WebContainer) then FreeAndNil(WebContainer);
+  // normal destruction step then
+  Application := nil;
   OnException:=@DoOnException;
   FLogDB.Free;
   if assigned(FConfig) then FreeAndNil(FConfig);
@@ -2423,6 +2466,7 @@ begin
   FThreadJobToJobWait.Free;
   if Assigned(FWebFilesIgnoreRx) then  FWebFilesIgnoreRx.Free;
   if Assigned(FWebFilesExceptIgnoreRx) then FWebFilesExceptIgnoreRx.Free;
+  FNeedShutdown.Free;
   inherited Destroy;
 end;
 
@@ -2445,6 +2489,12 @@ begin
   ESServer.HTTPRefConnections.Idle(T);
   //
   Sleep(5);
+  if FNeedShutdown.Value then
+  begin
+    ESServer.Active := false;
+    Terminate;
+    //raise EServerStopped.Create('Server stopped');
+  end;
 end;
 
 function TWCHTTPApplication.GetClientCookieMaxAge: Integer;
@@ -2502,6 +2552,11 @@ end;
 function TWCHTTPApplication.GetMimeLoc: String;
 begin
   Result := FMimeLoc.Value;
+end;
+
+function TWCHTTPApplication.GetNeedShutdown: Boolean;
+begin
+  Result := FNeedShutdown.Value;
 end;
 
 function TWCHTTPApplication.GetSessionsDb: String;
@@ -2638,6 +2693,11 @@ begin
     MimeTypes.LoadFromFile(MimeTypesFile);
 end;
 
+procedure TWCHTTPApplication.SetNeedShutdown(AValue: Boolean);
+begin
+  FNeedShutdown.Value := AValue;
+end;
+
 procedure TWCHTTPApplication.SetSessionsDb(AValue: String);
 begin
   if Length(AValue) = 0 then Exit;
@@ -2754,6 +2814,17 @@ begin
   Result := not Initialized;
   if not Result then
     DoError('Config value changed in runtime. Denied.');
+end;
+
+procedure TWCHTTPApplication.DoRun;
+begin
+  try
+    inherited DoRun;
+  except
+    on EServerStopped do ;
+    else
+    raise;
+  end;
 end;
 
 procedure TWCHTTPApplication.DoInfo(const V: String);
@@ -3084,7 +3155,8 @@ begin
   aClient := TWebClient(Sender);
 
   PREP_ClientStop.Execute([aClient.CUID]);
-  Application.DoInfo('Client removed ' + aClient.CUID);
+  if assigned(Application) then
+    Application.DoInfo('Client removed ' + aClient.CUID);
 end;
 
 function TWebClientsContainer.OnGenSessionID({%H-}aSession: TSqliteWebSession
