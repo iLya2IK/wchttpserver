@@ -100,7 +100,7 @@ var
   DLLUtilNames: array[1..2] of string = ('libeay32.dll',
                                          'libcrypto%s.dll');
   {$endif}
-  DLLWinVersions : Array[1..1] of string = ('', '-1_1');
+  DLLWinVersions : Array[1..2] of string = ('', '-1_1');
   {$ELSE}
    {$IFDEF OS2}
     {$IFDEF OS2GCC}
