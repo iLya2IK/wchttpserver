@@ -88,18 +88,19 @@ uses
 var
   {$IFDEF WINDOWS}
   {$IFDEF WIN64}
-  DLLSSLName: string = 'ssleay64.dll';
-  DLLSSLName2: string = 'libssl64.dll';
-  DLLSSLName3: string = 'libssl-1_1-x64.dll';
-  DLLUtilName: string = 'libeay64.dll';
-  DLLUtilName2: string = 'libcrypto-1_1-x64.dll';
+  DLLSSLNames : array[1..3] of string = ('ssleay64.dll',
+                                         'libssl64.dll',
+                                         'libssl%s-x64.dll');
+  DLLUtilNames: array[1..2] of string = ('libeay64.dll',
+                                         'libcrypto%s-x64.dll');
   {$else}
-  DLLSSLName: string = 'ssleay32.dll';
-  DLLSSLName2: string = 'libssl32.dll';
-  DLLSSLName3: string = 'libssl-1_1.dll';
-  DLLUtilName: string = 'libeay32.dll';
-  DLLUtilName2: string = 'libcrypto-1_1.dll';
+  DLLSSLNames : array[1..3] of string = ('ssleay32.dll',
+                                         'libssl32.dll',
+                                         'libssl%s.dll');
+  DLLUtilNames: array[1..2] of string = ('libeay32.dll',
+                                         'libcrypto%s.dll');
   {$endif}
+  DLLWinVersions : Array[1..1] of string = ('', '-1_1');
   {$ELSE}
    {$IFDEF OS2}
     {$IFDEF OS2GCC}
@@ -116,11 +117,11 @@ var
    {$ELSE OS2}
   DLLSSLName: string = 'libssl';
   DLLUtilName: string = 'libcrypto';
-
   { ADD NEW ONES WHEN THEY APPEAR!
     Always make .so/dylib first, then versions, in descending order!
     Add "." .before the version, first is always just "" }
-  DLLVersions: array[1..17] of string = ('', '.1.1', '.1.0.6', '.1.0.5', '.1.0.4', '.1.0.3',
+  DLLVersions: array[1..18] of string = ('', '.1.1.1',
+                                        '.1.1', '.1.0.6', '.1.0.5', '.1.0.4', '.1.0.3',
                                         '.1.0.2', '.1.0.1','.1.0.0','.0.9.8',
                                         '.0.9.7', '.0.9.6', '.0.9.5', '.0.9.4',
                                         '.0.9.3', '.0.9.2', '.0.9.1');
@@ -4859,9 +4860,9 @@ begin
 end;
 
 {$IFNDEF WINDOWS}
- {$IFNDEF OS2}
+{$IFNDEF OS2}
 { Try to load all library versions until you find or run out }
-function LoadLibHack(const Value: String): HModule;
+function LoadLibUnix(const Value: String): HModule;
 var
   i: cInt;
 begin
@@ -4878,21 +4879,38 @@ begin
       Break;
   end;
 end;
- {$ENDIF OS2}
-{$ENDIF WINDOWS}
-
+{$ENDIF OS2}
 function LoadLib(const Value: String): HModule;
 begin
-  {$IFDEF WINDOWS}
-  Result := LoadLibrary(Value);
-  {$ELSE WINDOWS}
    {$IFDEF OS2}
   Result := LoadLibrary(Value);
    {$ELSE OS2}
-  Result := LoadLibHack(Value);
+  Result := LoadLibUnix(Value);
    {$ENDIF OS2}
-  {$ENDIF WINDOWS}
 end;
+{$ELSE WINDOWS}
+{ Try to load all win library versions until you find or run out }
+procedure LoadLibsWin;
+var
+  i, j: cInt;
+begin
+  SSLUtilHandle := NilHandle;
+  SSLLibHandle := NilHandle;
+
+  for j := Low(DLLWinVersions) to High(DLLWinVersions) do begin
+    for i := Low(DLLSSLNames) to High(DLLSSLNames) do begin
+      SSLLibHandle := LoadLibrary(Format(DLLSSLNames[i], [DLLWinVersions[j]]));
+      if SSLLibHandle <> NilHandle then
+        Break;
+    end;
+    for i := Low(DLLUtilNames) to High(DLLUtilNames) do begin
+      SSLUtilHandle := LoadLibrary(Format(DLLUtilNames[i], [DLLWinVersions[j]]));
+      if SSLUtilHandle <> NilHandle then
+        Break;
+    end;
+   end;
+end;
+{$ENDIF WINDOWS}
 
 Function CheckOK(ProcName : string ) : string;
 
@@ -5312,11 +5330,13 @@ Function LoadUtilLibrary : Boolean;
 
 begin
   Result:=(SSLUtilHandle<>0);
+  {$ifndef WINDOWS}
   if not Result then
     begin
     SSLUtilHandle := LoadLib(DLLUtilName);
     Result:=(SSLUtilHandle<>0);
     end;
+  {$ENDIF}
 end;
 
 
@@ -5716,44 +5736,38 @@ Procedure UnloadLibraries;
 
 begin
   SSLloaded := false;
-  if SSLLibHandle <> 0 then
+  if SSLLibHandle <> NilHandle then
   begin
     FreeLibrary(SSLLibHandle);
-    SSLLibHandle := 0;
+    SSLLibHandle := NilHandle;
   end;
-  if SSLUtilHandle <> 0 then
+  if SSLUtilHandle <> NilHandle then
   begin
     FreeLibrary(SSLUtilHandle);
-    SSLUtilHandle := 0;
+    SSLUtilHandle := NilHandle;
   end;
 end;
 
 Function LoadLibraries : Boolean;
-
 begin
   Result:=False;
 {$IFDEF DARWIN}  
   // Mac OS no longer allows you to load the unversioned one. Bug ID 36484.
   DLLVERSIONS[1]:=DLLVERSIONS[2];
 {$ENDIF}
+  {$IFDEF WINDOWS}
+  LoadLibsWin;
+  {$ELSE}
   SSLUtilHandle := LoadLib(DLLUtilName);
   SSLLibHandle := LoadLib(DLLSSLName);
-  {$IFDEF MSWINDOWS}
-  if (SSLLibHandle = 0) then
-    SSLLibHandle := LoadLib(DLLSSLName2);
-  if (SSLLibHandle = 0) then
-    SSLLibHandle := LoadLib(DLLSSLName3);
-  if (SSLUtilHandle = 0) then
+  {$IFDEF OS2}
+  if (SSLUtilHandle = NilHandle) then
     SSLUtilHandle := LoadLib(DLLUtilName2);
-  {$ELSE MSWINDOWS}
-   {$IFDEF OS2}
-  if (SSLUtilHandle = 0) then
-    SSLUtilHandle := LoadLib(DLLUtilName2);
-  if (SSLLibHandle = 0) then
+  if (SSLLibHandle = NilHandle) then
     SSLLibHandle := LoadLib(DLLSSLName2);
-   {$ENDIF OS2}
-  {$ENDIF MSWINDOWS}
-  Result:=(SSLLibHandle<>0) and (SSLUtilHandle<>0);
+  {$ENDIF OS2}
+  {$ENDIF}
+  Result:=(SSLLibHandle<>NilHandle) and (SSLUtilHandle<>NilHandle);
 end;
 
 function InitSSLInterface: Boolean;

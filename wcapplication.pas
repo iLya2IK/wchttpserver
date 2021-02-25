@@ -192,11 +192,55 @@ type
     function GetESServer : TWCHttpServer;
   end;
 
+  { TWCHTTPTemplate }
+
+  TWCHTTPTemplateRecord = record
+    Compress : Boolean;
+    Cache    : String;
+  end;
+
+  TWCHTTPTemplate = class
+  private
+    FRegExp   : TRegExpr;
+    FComplete : Boolean;
+    FCompress : PBoolean;
+    FCache    : PChar;
+    FPriority : Integer;
+  public
+    constructor Create(obj : TJSONObject);
+    procedure   Rebuild(obj : TJSONObject);
+    destructor  Destroy; override;
+    function Check(const aVal : String) : Boolean;
+    function GetCompress(lV : Boolean) : Boolean;
+    procedure GetCache(var lV: String);
+    procedure GetStatus(var R : TWCHTTPTemplateRecord);
+    property Priority : Integer read FPriority;
+    property Complete : Boolean read FComplete;
+  end;
+
+  { TWCHTTPMimeTemplates }
+
+  TWCHTTPMimeTemplates = class(TThreadSafeFastCollection)
+  private
+    function GetTemplateInd(index : Integer): TWCHTTPTemplate;
+  public
+    procedure SortTemplates;
+    procedure Rebuild(aTemplates : TJSONArray);
+    function  GetTemplate(const aMime : String) : TWCHTTPTemplateRecord;
+    property Template[index : Integer] : TWCHTTPTemplate read
+                                                 GetTemplateInd; default;
+  end;
+
   { TWCHTTPConfig }
 
   TWCHTTPConfig = class(TWCConfig)
+  private
+    FMimeTemplates : TWCHTTPMimeTemplates;
+    procedure  DoConfigLoaded(aConfig : TJSONObject);
   protected
-    procedure DoInitialize(); override;
+    procedure  DoInitialize(); override;
+  public
+    destructor Destroy; override;
   end;
 
   { TWCHTTPApplication }
@@ -226,6 +270,7 @@ type
 
     FNeedShutdown : TThreadBoolean;
 
+    function GetMimeTemplates: TWCHTTPMimeTemplates;
     procedure StopThreads;
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
@@ -306,6 +351,7 @@ type
     property WebFilesIgnore : String read GetWebFilesIgnore write SetWebFilesIgnore;
     property WebFilesExcludeIgnore : String read GetWebFilesExcludeIgnore write SetWebFilesExcludeIgnore;
     function IsAcceptedWebFile(const FN: String) : Boolean;
+    property MimeTemplates : TWCHTTPMimeTemplates read GetMimeTemplates;
     //threads
     property MaxPrepareThreads : Byte read GetMaxPrepareThreads write SetMaxPrepareThreads;
     property MaxMainThreads : Byte read GetMaxMainThreads write SetMaxMainThreads;
@@ -798,11 +844,179 @@ begin
   end;
 end;
 
+{ TWCHTTPMimeTemplates }
+
+function TWCHTTPMimeTemplates.GetTemplateInd(index : Integer): TWCHTTPTemplate;
+begin
+  Result := TWCHTTPTemplate(Self.Item[index]);
+end;
+
+function TWCHTTPMimeTemplatesCompare(obj1: TObject; obj2 : TObject) : Integer;
+begin
+  Result := Integer(CompareValue(TWCHTTPTemplate(obj1).Priority,
+                                 TWCHTTPTemplate(obj2).Priority));
+end;
+
+procedure TWCHTTPMimeTemplates.SortTemplates;
+begin
+  SortList(@TWCHTTPMimeTemplatesCompare);
+end;
+
+procedure TWCHTTPMimeTemplates.Rebuild(aTemplates: TJSONArray);
+var i : integer;
+    d : TJSONData;
+begin
+  if not assigned(aTemplates) then Exit;
+  Lock;
+  try
+    Clear;
+    for i := 0 to aTemplates.Count-1 do
+    begin
+      d := aTemplates[i];
+      if d is TJSONObject then
+      begin
+        Add(TWCHTTPTemplate.Create(TJSONObject(d)));
+      end;
+    end;
+    SortTemplates;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTPMimeTemplates.GetTemplate(const aMime: String
+  ): TWCHTTPTemplateRecord;
+var i : integer;
+    T : TWCHTTPTemplate;
+begin
+  Result.Cache := 'no-cache';
+  Result.Compress := false;
+  Lock;
+  try
+    for i := 0 to Count-1 do
+    begin
+      T := Template[i];
+      if T.Check(aMime) then
+      begin
+        T.GetStatus(Result);
+      end;
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+{ TWCHTTPTemplate }
+
+constructor TWCHTTPTemplate.Create(obj: TJSONObject);
+begin
+  FComplete := false;
+  FPriority := 0;
+  FCache:= nil;
+  FCompress:=nil;
+  FRegExp := nil;
+  Rebuild(obj);
+end;
+
+procedure TWCHTTPTemplate.Rebuild(obj: TJSONObject);
+var d : TJSONData;
+    S : String;
+begin
+  if assigned(FCache) then begin StrDispose(FCache); FCache := nil; end;
+  if assigned(FCompress) then FreeMemAndNil(FCompress);
+  if assigned(FRegExp) then FreeAndNil(FRegExp);
+
+  try
+    FComplete := true;
+    d := obj.Find('mime');
+    if assigned(d) and (d is TJSONString) then
+    begin
+      FRegExp := TRegExpr.Create(d.AsString);
+    end else FComplete := false;
+    if FComplete then
+    begin
+      d := obj.Find('prior');
+      if assigned(d) and (d is TJSONNumber) then
+        FPriority := d.AsInteger;
+      d := obj.Find('cache');
+      if assigned(d) and (d is TJSONString) then
+      begin
+        S := UTF8Encode(d.AsString);
+        FCache := StrAlloc(Length(S) + 1);
+        StrPCopy(FCache, S);
+      end;
+      d := obj.Find('compress');
+      if assigned(d) and (d is TJSONBoolean) then
+      begin
+        FCompress:= GetMem(Sizeof(Boolean));
+        FCompress^:=d.AsBoolean;
+      end;
+    end;
+  except
+    FComplete := false;
+  end;
+end;
+
+destructor TWCHTTPTemplate.Destroy;
+begin
+  if assigned(FCache) then begin StrDispose(FCache); FCache := nil; end;
+  if assigned(FCompress) then FreeMem(FCompress);
+  if assigned(FRegExp) then FRegExp.Free;
+  inherited Destroy;
+end;
+
+function TWCHTTPTemplate.Check(const aVal: String): Boolean;
+begin
+  if Complete then
+  begin
+    try
+      Result := FRegExp.Exec(aVal);
+    except
+      Result := false;
+    end;
+  end else Result := false;
+end;
+
+function TWCHTTPTemplate.GetCompress(lV: Boolean): Boolean;
+begin
+  if assigned(FCompress) then Result := FCompress^ else
+                              Result := lV;
+end;
+
+procedure TWCHTTPTemplate.GetCache(var lV: String);
+begin
+  if assigned(FCache) then lV := StrPas(FCache);
+end;
+
+procedure TWCHTTPTemplate.GetStatus(var R: TWCHTTPTemplateRecord);
+begin
+  if assigned(FCompress) then R.Compress := FCompress^;
+  if assigned(FCache) then    R.Cache := StrPas(FCache);
+end;
+
 { TWCHTTPConfig }
+
+procedure TWCHTTPConfig.DoConfigLoaded(aConfig: TJSONObject);
+var d : TJSONData;
+begin
+  d := aConfig.FindPath(HashToConfig(CFG_WEBFILES_SEC)^.NAME_STR + '.' +
+                        HashToConfig(CFG_MIME_TEMPLATES)^.NAME_STR);
+  if assigned(d) and (d is TJSONArray) then
+    FMimeTemplates.Rebuild(TJSONArray(d));
+end;
+
+destructor TWCHTTPConfig.Destroy;
+begin
+  FMimeTemplates.Free;
+  inherited Destroy;
+end;
 
 procedure TWCHTTPConfig.DoInitialize();
 var MainSec, SSLSec, WFSec, ClientsSec, Http2Sec, MaintSec : TWCConfigRecord;
 begin
+  FMimeTemplates := TWCHTTPMimeTemplates.Create;
+  OnConfigLoaded := @DoConfigLoaded;
+
   MainSec := Root.AddSection(HashToConfig(CFG_MAIN_SEC)^.NAME_STR);
   MainSec.AddValue(CFG_SITE_FOLDER, wccrString);
   MainSec.AddValue(CFG_SERVER_NAME, wccrString);
@@ -2268,6 +2482,11 @@ begin
   if Assigned(ESServer) then ESServer.StopThreads;
 end;
 
+function TWCHTTPApplication.GetMimeTemplates: TWCHTTPMimeTemplates;
+begin
+  Result := FConfig.FMimeTemplates;
+end;
+
 procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
 var JTJ : TJobToJobWait;
 begin
@@ -2493,7 +2712,6 @@ begin
   begin
     ESServer.Active := false;
     Terminate;
-    //raise EServerStopped.Create('Server stopped');
   end;
 end;
 
@@ -3022,6 +3240,7 @@ begin
 end;
 
 constructor TWebCachedItem.Create(const aLoc: String);
+var T : TWCHTTPTemplateRecord;
 begin
   inherited Create;
   FCache := nil;
@@ -3038,19 +3257,10 @@ begin
 
   FDeflateCache := nil;
 
-  //todo : move this to config file
-  if (Pos('image/',    FMimeType) = 1) or
-     (((Pos('text/html', FMimeType) = 1) or
-       (Pos('text/css',  FMimeType) = 1) or
-       (Pos('application/javascript',  FMimeType) = 1)) and
-                          (not Application.NetDebugMode)) then begin
-    // for all pictures allow cache 1 hr
-    FCacheControl := 'public, max-age=3600';
-  end else
-    FCacheControl := 'no-cache';
-
-  FNeedToCompress := (Pos('text/', FMimeType) = 1) or
-                     (Pos('application/', FMimeType) = 1);
+  T := Application.MimeTemplates.GetTemplate(FMimeType);
+  if (Application.NetDebugMode) then FCacheControl:='no-cache' else
+                                     FCacheControl:= T.Cache;
+  FNeedToCompress:= T.Compress;
 end;
 
 destructor TWebCachedItem.Destroy;

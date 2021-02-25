@@ -39,6 +39,7 @@ type
   TWCConfigRecord = class;
 
   TWCConfigValueEvent = procedure (Sender : TWCConfigRecord) of object;
+  TWCConfigLoadedEvent = procedure (Config : TJSONObject) of object;
 
   { TWCConfigRecords }
 
@@ -101,6 +102,7 @@ type
     FJsonConfig : TJSONObject;
     FRootConfig : TWCConfigRecord;
     FOnChangeValue : TWCConfigValueEvent;
+    FOnConfigLoaded : TWCConfigLoadedEvent;
     procedure Reload;
     procedure SetConfigFileName(AValue: String);
     procedure SyncConfigRecord(aRecord: TWCConfigRecord; Parent: TJSONObject;
@@ -117,6 +119,8 @@ type
     property FileName : String read FConfigFile write SetConfigFileName;
     property OnChangeValue : TWCConfigValueEvent read FOnChangeValue write
                                                       FOnChangeValue;
+    property OnConfigLoaded : TWCConfigLoadedEvent read FOnConfigLoaded write
+                                                      FOnConfigLoaded;
   end;
 
 type
@@ -455,6 +459,8 @@ constructor TWCConfig.Create(const aFileName: String);
 begin
   inherited Create;
 
+  FOnConfigLoaded := nil;
+  FOnChangeValue := nil;
   FJsonConfig := nil;
   FConfigFile := '';
   if assigned(FRootConfig) then FreeAndNil(FRootConfig);
@@ -485,7 +491,13 @@ begin
         FDataTime := cDT;
         Reload;
         if assigned(FJsonConfig) then
+        begin
           SyncConfigRecord(FRootConfig, FJsonConfig, Forced);
+          if assigned(FOnConfigLoaded) then
+          begin
+            FOnConfigLoaded(FJsonConfig);
+          end;
+        end;
       end;
     end;
   finally

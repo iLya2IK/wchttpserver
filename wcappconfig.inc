@@ -35,6 +35,7 @@ const
   CFG_IGNORE_FILES                 = $15;
   CFG_EXCLUDE_IGNORE_FILES         = $25;
   CFG_COMPRESS_LIMIT               = $35;
+  CFG_MIME_TEMPLATES               = $45;
   CFG_MAINTAIN_SEC                 = $06;
   CFG_SHUTDOWN                     = $16;
 
@@ -74,8 +75,9 @@ const
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_INITIAL_WINDOW_SIZE    ; Name:'INITIAL_WINDOW_SIZE'   ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_FRAME_SIZE         ; Name:'MAX_FRAME_SIZE'        ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_HEADER_LIST_SIZE   ; Name:'MAX_HEADER_LIST_SIZE'  ),
-    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_COMPRESS_LIMIT ;      Name:'CompressLimitByte' ),
-    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES ;        Name:'WebFilesIgnore' ),
-    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES ;Name:'WebFilesExcludeIgnore' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_COMPRESS_LIMIT;       Name:'CompressLimitByte' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES;         Name:'WebFilesIgnore' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES; Name:'WebFilesExcludeIgnore' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_MIME_TEMPLATES;       Name:'MimeTemplates' ),
     (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_SHUTDOWN ;            Name:'Shutdown' )
     );
