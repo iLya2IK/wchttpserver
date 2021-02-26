@@ -42,8 +42,9 @@ uses
   wcdebug_vars,
   {$endif}
   AvgLvlTree
-  {$ifdef NOGUI}
   {$ifdef unix}
+  , BaseUnix
+  {$ifdef NOGUI}
   , gwidgetsethelper
   {$endif}
   {$endif}    ;
@@ -143,7 +144,7 @@ type
     FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
-    FHTTPRefConnections : TWCHTTPRefConnections;
+    FHTTPRefConnections : TWCHTTPServerRefConnections;
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
@@ -179,7 +180,7 @@ type
     procedure DoSendData(aConnection : TWCHTTPRefConnection);
     destructor Destroy; override;
 
-    property  HTTPRefConnections : TWCHTTPRefConnections read FHTTPRefConnections;
+    property  HTTPRefConnections : TWCHTTPServerRefConnections read FHTTPRefConnections;
   end;
 
   { TWCHttpServerHandler }
@@ -619,7 +620,7 @@ type
     procedure Execute; override;
   end;
 
-  EServerStopped = class(ESocketError)
+  EPipeException = class(ESocketError)
   end;
 
 var
@@ -823,8 +824,19 @@ begin
   Request.ProtocolVersion:=trim(S);
 end;
 
+{$IFDEF UNIX}
+Procedure SignalHandler(SigNo: cint); cdecl;
+Begin
+    If SigNo = SIGPIPE Then
+     raise EPipeException.Create('SIGPIPE catched');
+End;
+{$ENDIF}
+
 Procedure InitHTTP;
 begin
+  {$IFDEF UNIX}
+  fpSignal(SIGPIPE, @SignalHandler);
+  {$ENDIF}
   CFG_CONFIGURATION := WC_CFG_CONFIGURATION;
   Application:=TWCHTTPApplication.Create(Nil);
   if not assigned(CustomApplication) then
@@ -1664,8 +1676,17 @@ begin
         if FInput.Size > 0 then
            HTTPRefCon.ConsumeNextFrame(FInput);
         HTTP2Str := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
-        if Assigned(HTTP2Str) then
-          FRequest := ConvertFromHTTP2Req(HTTP2Str.Request) else
+        if Assigned(HTTP2Str) then begin
+          FRequest := ConvertFromHTTP2Req(HTTP2Str.Request);
+          // check Malformed Requests
+          if FRequest.ContentLength <> HTTP2Str.Request.DataBlockSize then
+          begin
+            TWCHTTP2Connection(HTTPRefCon).ResetStream(HTTP2Str.ID,
+                                                       H2E_PROTOCOL_ERROR);
+            TWCHTTP2Connection(HTTPRefCon).GoAway(H2E_PROTOCOL_ERROR);
+            Result := false;
+          end;
+        end else
           Result := false;
       end;
     finally
@@ -1887,7 +1908,7 @@ begin
   FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
-  FHTTPRefConnections := TWCHTTPRefConnections.Create(nil);
+  FHTTPRefConnections := TWCHTTPServerRefConnections.Create(nil);
 end;
 
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;

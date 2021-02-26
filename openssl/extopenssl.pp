@@ -84,6 +84,7 @@ Type
   TExtSSL = Class(TObject)
   Public
     FSSL : PSSL;
+    FHasFatalError : Boolean;
   Public
     Constructor Create(ASSL : PSSL = Nil);
     Constructor Create(AContext : TExtSSLContext);
@@ -590,6 +591,7 @@ end;
 Constructor TExtSSL.Create(AContext: TExtSSLContext);
 begin
   FSSL:=Nil;
+  FHasFatalError := false;
   if Assigned(AContext) and Assigned(AContext.CTX) then
     FSSL:=sslNew(AContext.CTX);
   If (FSSL=Nil) then
@@ -626,9 +628,13 @@ end;
 function TExtSSL.Shutdown: cInt;
 begin
   try
-    Result:=sslShutDown(fSSL);
+    Result := 1;
+    if not FHasFatalError then
+     if (SslGetShutdown(fSSL) and (SSL_RECEIVED_SHUTDOWN or SSL_SENT_SHUTDOWN)) > 0 then
+      Result:=sslShutDown(fSSL);
   except
     // Sometimes, SSL gives an error when the connection is lost
+    Result := -1;
   end;
 end;
 
@@ -660,6 +666,8 @@ end;
 Function TExtSSL.GetError(AResult: cint): cint;
 begin
   Result:=SslGetError(FSsl,AResult);
+  if (Result in [SSL_ERROR_SYSCALL, SSL_ERROR_SSL]) then
+    FHasFatalError:= true;
 end;
 
 function TExtSSL.GetCurrentCipher: SslPtr;

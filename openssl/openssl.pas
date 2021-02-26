@@ -1121,6 +1121,8 @@ var
   function SslAccept(ssl: PSSL):cInt;
   function SslConnect(ssl: PSSL):cInt;
   function SslShutdown(ssl: PSSL):cInt;
+  function SslGetShutdown(ssl: PSSL):cInt;
+  procedure SslSetShutdown(ssl: PSSL; mode : cInt);
   function SslRead(ssl: PSSL; buf: SslPtr; num: cInt):cInt;
   function SslPeek(ssl: PSSL; buf: SslPtr; num: cInt):cInt;
   function SslWrite(ssl: PSSL; buf: SslPtr; num: cInt):cInt;
@@ -1610,6 +1612,8 @@ type
   TSslAccept = function(ssl: PSSL):cInt; cdecl;
   TSslConnect = function(ssl: PSSL):cInt; cdecl;
   TSslShutdown = function(ssl: PSSL):cInt; cdecl;
+  TSslGetShutdown = procedure(ssl: PSSL; mode : cint); cdecl;
+  TSslSetShutdown = function(ssl: PSSL):cInt; cdecl;
   TSslRead = function(ssl: PSSL; buf: PChar; num: cInt):cInt; cdecl;
   TSslPeek = function(ssl: PSSL; buf: PChar; num: cInt):cInt; cdecl;
   TSslWrite = function(ssl: PSSL; const buf: PChar; num: cInt):cInt; cdecl;
@@ -1847,6 +1851,8 @@ var
   _SslAccept: TSslAccept = nil;
   _SslConnect: TSslConnect = nil;
   _SslShutdown: TSslShutdown = nil;
+  _SslGetShutdown: TSslSetShutdown = nil;
+  _SslSetShutdown: TSslGetShutdown = nil;
   _SslRead: TSslRead = nil;
   _SslPeek: TSslPeek = nil;
   _SslWrite: TSslWrite = nil;
@@ -2476,6 +2482,20 @@ begin
     Result := _SslShutdown(ssl)
   else
     Result := -1;
+end;
+
+function SslGetShutdown(ssl: PSSL):cInt;
+begin
+  if InitSSLInterface and Assigned(_SslGetShutdown) then
+    Result := _SslGetShutdown(ssl)
+  else
+    Result := 0;
+end;
+
+procedure SslSetShutdown(ssl: PSSL; mode : cint);
+begin
+  if InitSSLInterface and Assigned(_SslSetShutdown) then
+    SslSetShutdown(ssl, mode);
 end;
 
 function SslRead(ssl: PSSL; buf: SslPtr; num: cInt):cInt;
@@ -5015,6 +5035,8 @@ begin
   _SslAccept := GetProcAddr(SSLLibHandle, 'SSL_accept');
   _SslConnect := GetProcAddr(SSLLibHandle, 'SSL_connect');
   _SslShutdown := GetProcAddr(SSLLibHandle, 'SSL_shutdown');
+  _SslGetShutdown := GetProcAddr(SSLLibHandle, 'SSL_get_shutdown');
+  _SslSetShutdown := GetProcAddr(SSLLibHandle, 'SSL_set_shutdown');
   _SslRead := GetProcAddr(SSLLibHandle, 'SSL_read');
   _SslPeek := GetProcAddr(SSLLibHandle, 'SSL_peek');
   _SslWrite := GetProcAddr(SSLLibHandle, 'SSL_write');
@@ -5378,6 +5400,8 @@ begin
   _SslAccept := nil;
   _SslConnect := nil;
   _SslShutdown := nil;
+  _SslGetShutdown := nil;
+  _SslSetShutdown := nil;
   _SslRead := nil;
   _SslPeek := nil;
   _SslWrite := nil;

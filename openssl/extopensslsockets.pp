@@ -458,7 +458,7 @@ begin
       if r<>0 then
         Result:=CheckSSL(r)
       else
-        begin
+      begin
         Result:=fpShutdown(Socket.Handle,1)=0;
         if Result then
           Result:=CheckSSL(FSsl.Shutdown);

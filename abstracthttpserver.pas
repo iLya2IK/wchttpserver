@@ -104,7 +104,7 @@ Type
     FAddress: string;
     FPort: Word;
     FQueueSize: Word;
-    FServer : TInetServer;
+    FServer : TAbsInetServer;
     FLoadActivate : Boolean;
     FServerBanner: string;
     FLookupHostNames,
@@ -412,10 +412,7 @@ procedure TAbsCustomHttpServer.DoAcceptError(Sender: TObject;
   {%H-}ASocket: Longint;
   {%H-}E: Exception; var ErrorAction: TAcceptErrorAction);
 begin
-  If Not Active then
-    ErrorAction:=AEAStop
-  else
-    ErrorAction:=AEARaise
+  ErrorAction:=AEARaise
 end;
 
 function TAbsCustomHttpServer.GetActive: Boolean;
@@ -472,14 +469,15 @@ begin
     if AValue then
     begin
       CreateServerSocket;
-      SetupSocket;
-      StartServerSocket;
-      FreeServerSocket;
+      try
+        SetupSocket;
+        StartServerSocket;
+      finally
+        FreeServerSocket;
+      end;
     end
     else
-    begin
       StopServerSocket;
-    end;
 end;
 
 procedure TAbsCustomHttpServer.SetCertificate(AValue: String);
@@ -590,7 +588,7 @@ begin
   FServer.OnAcceptError:=@DoAcceptError;
   FServer.OnIdle:=OnAcceptIdle;
   FServer.AcceptIdleTimeOut:=AcceptIdleTimeout;
-  //FServer.SetNonBlocking;
+  FServer.SetNonBlocking;
 end;
 
 procedure TAbsCustomHttpServer.StartServerSocket;
@@ -602,7 +600,7 @@ end;
 
 procedure TAbsCustomHttpServer.FreeServerSocket;
 begin
-  FreeAndNil(FServer);
+  if assigned(FServer) then FreeAndNil(FServer);
 end;
 
 procedure TAbsCustomHttpServer.HandleRequest(var ARequest: TAbsHTTPConnectionRequest;

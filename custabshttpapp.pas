@@ -154,6 +154,9 @@ type
     Property HostName : String Read GetHostName Write SetHostName;
   end;
 
+  EServerStopped = class(ESocketError)
+  end;
+
 Implementation
 
 { TEmbeddedAbsHttpServer }
@@ -302,7 +305,8 @@ begin
   inherited Terminate;
   // We need to break the accept loop. Do a fake connect.
   if Threaded And (AcceptIdleTimeout=0) then
-    FakeConnect;
+    FakeConnect else
+    raise EServerStopped.Create('');
 end;
 
 { TAbsHTTPServerHandler }

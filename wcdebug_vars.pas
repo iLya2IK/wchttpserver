@@ -5,11 +5,11 @@ unit wcdebug_vars;
 interface
 
 var
-  DEBUG_GLOBALS_LONGWORD : Array [0..12] of Cardinal = (0, 0, 0,
+  DEBUG_GLOBALS_LONGWORD : Array [0..13] of Cardinal = (0, 0, 0,
                                                        0, 0, 0,
                                                        0, 0, 0,
                                                        0, 0, 0,
-                                                       0);
+                                                       0, 0);
 
   DEBUG_GLOBALS_QWORD    : Array [0..11] of QWORD   = (0, 0, 0,
                                                        0, 0, 0,
@@ -29,6 +29,7 @@ const DG_WORK_DELTA_TIME_AV = 9;
 const DG_WRITE_DELTA_TIME_MAX = 10;
 const DG_WRITE_DELTA_TIME_AV = 11;
 const DG_FAILED_PREP_CNT = 12;
+const DG_MAX_CONCURRENT_STREAMS = 13;
 
 const DG_WAIT_DELTA_TIME_SUM = 0;
 const DG_WAIT_DELTA_TIME_CNT = 1;

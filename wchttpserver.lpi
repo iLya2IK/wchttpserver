@@ -148,7 +148,7 @@
         <IsPartOfProject Value="True"/>
       </Unit17>
       <Unit18>
-        <Filename Value="../commonutils/gzstream.pas"/>
+        <Filename Value="../CommonUtils/gzstream.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit18>
       <Unit19>
