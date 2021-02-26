@@ -37,6 +37,13 @@ Free Pascal (v3.2.0) + Lazarus (v2.0.10)
 # Necessary libraries
 1. SQLite
 2. OpenSSL (v1.1.0 or higher)
+3. CommonUtils - you can download sources [here](https://github.com/iLya2IK/commonutils). 
+```
+Note: unpack the CommonUtils archive into the same directory as the server directory:
+example: 
+your wchttpserver dir:     /home/projects/wchttpserver
+then your commonutils dir: /home/projects/commonutils
+```
 
 # Copyrights
 * [fcl-web (fpWeb) - part of Free Pascal's Free Component Library (FCL), focusing on web (related) application development](https://wiki.lazarus.freepascal.org/fcl-web)
