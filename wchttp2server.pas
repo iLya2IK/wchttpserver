@@ -630,10 +630,15 @@ type
 
   TWCHTTPStreams = class(TThreadSafeFastSeq)
   private
+    FClosedStreams : PIntegerArray;
+    FClosedStreamsCount, FClosedStreamsCapacity : Integer;
+    procedure AddClosedStream(SID : Cardinal);
     function IsStreamClosed(aStrm: TObject; {%H-}data: pointer): Boolean;
     procedure AfterStrmExtracted(aObj : TObject);
   public
+    constructor Create;
     destructor Destroy; override;
+    function IsStreamInClosedArch(SID : Cardinal) : Boolean;
     function GetByID(aID : Cardinal) : TWCHTTPStream;
     function GetNextStreamWithRequest : TWCHTTPStream;
     function HasStreamWithRequest: Boolean;
@@ -2831,7 +2836,7 @@ begin
     else
     begin
       R:=FSocketRef.Read(PByte(FReadBuffer.Value)[Result], AddSz);
-      If R < 0 then
+      If R <= 0 then
         break;
     end;
     if R > 0 then begin
@@ -2854,7 +2859,7 @@ function TruncReadBuffer : Int64;
 begin
   Result := S.Size - S.Position;
   if Result > 0 then
-     Move(PByte(FReadBuffer)[S.Position], FReadBuffer.Value^, Result);
+     Move(PByte(FReadBuffer.Value)[S.Position], FReadBuffer.Value^, Result);
 end;
 
 function ProceedHeadersPayload(Strm : TWCHTTPStream; aSz : Cardinal) : Byte;
@@ -2902,28 +2907,30 @@ end;
 
 var B : Byte;
     DataSize : Integer;
-    RemoteID : Cardinal;
+    RemoteID, CV : Cardinal;
     WV: Word;
     SettFrame : THTTP2SettingsBlock;
+    CurStreamClosed : Boolean;
 begin
   Str := nil; RemoteStr := nil;
   if assigned(Mem) then begin
     MemSz := Mem.Size - Mem.Position;
-    Sz := MemSz;
-  end else begin
-    Sz := WC_INITIAL_READ_BUFFER_SIZE;
+    if MemSz = 0 then Exit;
   end;
 
   FReadBuffer.Lock;
   try
+    Sz := FReadBufferSize;
     FrameHeader := TWCHTTP2FrameHeader.Create;
     S := TBufferedStream.Create;
     try
       if Sz > (FReadBufferSize - FReadTailSize) then
          Sz := (FReadBufferSize - FReadTailSize);
-      if Sz = 0 then
+      if Sz <= 0 then
       begin
-        err := H2E_READ_BUFFER_OVERFLOW;
+        if FReadTailSize >= FReadBufferSize then
+          err := H2E_INTERNAL_ERROR else
+          err := H2E_READ_BUFFER_OVERFLOW;
         exit;
       end;
       ReadLoc := 0;
@@ -2940,9 +2947,11 @@ begin
         if (S.Size - S.Position) < H2P_FRAME_HEADER_SIZE then
         begin
           L := TruncReadBuffer;
-          Sz := ReadMore(L, Sz);
+          Sz := ReadMore(L, (FReadBufferSize - Sz));
           if Sz < H2P_FRAME_HEADER_SIZE then begin
             fallbackpos := 0;
+            S.Position := 0;
+            S.Size := Sz;
             err := H2E_PARSE_ERROR;
             break;
           end;
@@ -2954,7 +2963,9 @@ begin
         // find stream
         if assigned(Str) then Str.DecReference;
         if assigned(RemoteStr) then RemoteStr.DecReference;
+        Str := nil;
         RemoteStr := nil;
+        CurStreamClosed := false;
         if FrameHeader.StreamID > 0 then
         begin
           if FOwner is TWCHTTPServerRefConnections then
@@ -2978,9 +2989,14 @@ begin
             Str := FStreams.GetByID(FrameHeader.StreamID);
             if not Assigned(Str) then
             begin
-              err := H2E_PROTOCOL_ERROR;
-              break;
-            end;
+              CurStreamClosed := FStreams.IsStreamInClosedArch(FrameHeader.StreamID);
+              if not CurStreamClosed then
+              begin
+                err := H2E_PROTOCOL_ERROR;
+                break;
+              end;
+            end else
+              CurStreamClosed := (Str.StreamState = h2ssCLOSED);
           end else begin
             FLastStreamID := FrameHeader.StreamID;
             if FrameHeader.FrameType in [H2FT_DATA, H2FT_HEADERS,
@@ -2997,6 +3013,51 @@ begin
           if Assigned(Str) then Str.UpdateState(FrameHeader);
         end else
           Str := nil;
+
+        if Assigned(Str) and
+           Str.FWaitingForContinueFrame and
+           (FrameHeader.FrameType <> H2FT_CONTINUATION) then
+        begin
+          err := H2E_PROTOCOL_ERROR;
+          break;
+        end;
+        if (not Assigned(Str)) and
+           (not CurStreamClosed) and
+           (FrameHeader.FrameType in [H2FT_DATA,
+                                      H2FT_CONTINUATION,
+                                      H2FT_HEADERS,
+                                      H2FT_PRIORITY,
+                                      H2FT_RST_STREAM,
+                                      H2FT_PUSH_PROMISE]) then
+        begin
+          err := H2E_PROTOCOL_ERROR; // sec.6.1-6.4,6.6
+          break;
+        end;
+        if (Assigned(Str) or (FrameHeader.StreamID > 0)) and
+           (FrameHeader.FrameType in [H2FT_PING,
+                                      H2FT_SETTINGS,
+                                      H2FT_GOAWAY]) then
+        begin
+          err := H2E_PROTOCOL_ERROR; // sec.6.5, 6.7
+          break;
+        end;
+        if Assigned(Str) and
+           (Str.FStreamState = h2ssIDLE) and
+           not (FrameHeader.FrameType in [H2FT_HEADERS, H2FT_PRIORITY]) then
+        begin
+          err := H2E_PROTOCOL_ERROR; // sec.5.1
+          break;
+        end;
+        if ((Assigned(Str) and
+            (Str.FStreamState in [h2ssHLFCLOSEDRem])) or
+            CurStreamClosed) and
+           not (FrameHeader.FrameType in [H2FT_WINDOW_UPDATE,
+                                          H2FT_PRIORITY,
+                                          H2FT_RST_STREAM]) then
+        begin
+          err := H2E_STREAM_CLOSED; // sec.5.1
+          break;
+        end;
 
         R := FConSettings[H2SET_MAX_FRAME_SIZE];
         case FrameHeader.FrameType of
@@ -3045,37 +3106,11 @@ begin
               break;
             end;
           else
-          if (FrameHeader.PayloadLength + H2P_FRAME_HEADER_SIZE) > R then
+          if FrameHeader.PayloadLength > R then //bug fixed 27.02.2021
           begin
             err := H2E_FRAME_SIZE_ERROR;
             break;
           end;
-        end;
-
-        if Assigned(Str) and
-           Str.FWaitingForContinueFrame and
-           (FrameHeader.FrameType <> H2FT_CONTINUATION) then
-        begin
-          err := H2E_PROTOCOL_ERROR;
-          break;
-        end;
-        if (not Assigned(Str)) and
-           (FrameHeader.FrameType in [H2FT_DATA,
-                                      H2FT_CONTINUATION,
-                                      H2FT_HEADERS,
-                                      H2FT_PRIORITY,
-                                      H2FT_RST_STREAM,
-                                      H2FT_PUSH_PROMISE]) then
-        begin
-          err := H2E_PROTOCOL_ERROR; // sec.6.1-6.4,6.6
-          break;
-        end;
-        if (Assigned(Str) or (FrameHeader.StreamID > 0)) and
-           (FrameHeader.FrameType in [H2FT_PING, H2FT_SETTINGS,
-                                      H2FT_GOAWAY]) then
-        begin
-          err := H2E_PROTOCOL_ERROR; // sec.6.5, 6.7
-          break;
         end;
 
         if (FrameHeader.PayloadLength > (S.Size - S.Position)) then
@@ -3083,15 +3118,12 @@ begin
           // try to load rest octets for frame
           S.Position := fallbackpos; // truncate to the begining of the frame
           L := TruncReadBuffer;
-          if L <> H2P_FRAME_HEADER_SIZE then
-          begin
-            err := H2E_INTERNAL_ERROR;
-            break;
-          end;
-          Sz := ReadMore(H2P_FRAME_HEADER_SIZE, R);
+          Sz := ReadMore(L, (FReadBufferSize - Sz));
           if (Sz - H2P_FRAME_HEADER_SIZE) < FrameHeader.PayloadLength then
           begin
             fallbackpos := 0;
+            S.Position := 0;
+            S.Size := Sz;
             err := H2E_PARSE_ERROR;
             break;
           end;
@@ -3127,8 +3159,7 @@ begin
             H2FT_HEADERS : begin
               if not (Str.StreamState in [h2ssIDLE,
                                           h2ssRESERVEDLoc,
-                                          h2ssOPEN,
-                                          h2ssHLFCLOSEDRem]) then
+                                          h2ssOPEN]) then
               begin
                 err := H2E_STREAM_CLOSED;
                 break;
@@ -3250,20 +3281,25 @@ begin
                   CheckStreamAfterState(Str);
               end;
             H2FT_PRIORITY : begin
-              S.Read(Str.FParentStream, H2P_STREAM_ID_SIZE);
-              Str.FParentStream := BETON(Str.FParentStream) and H2P_STREAM_ID_MASK;
-              S.Read(Str.FPriority, H2P_PRIORITY_WEIGHT_SIZE);
-              Str.ResetRecursivePriority;
+              S.Read(CV, H2P_STREAM_ID_SIZE);
+              if Assigned(Str) then
+              begin
+                Str.FParentStream := BETON(CV) and H2P_STREAM_ID_MASK;
+              end;
+              S.Read(B, H2P_PRIORITY_WEIGHT_SIZE);
+              if Assigned(Str) then
+              begin
+                Str.FPriority := B;
+                Str.ResetRecursivePriority;
+              end;
             end;
             H2FT_RST_STREAM : begin
-              if not Assigned(Str) then
+              S.Read(CV, H2P_ERROR_CODE_SIZE);
+              if Assigned(Str) then
               begin
-                err := H2E_PROTOCOL_ERROR;
-                break;
+                Str.FFinishedCode := BETON(CV);
+                Str.FStreamState := h2ssCLOSED;
               end;
-              S.Read(Str.FFinishedCode, H2P_ERROR_CODE_SIZE);
-              Str.FFinishedCode := BETON(Str.FFinishedCode);
-              Str.FStreamState := h2ssCLOSED;
             end;
             H2FT_SETTINGS : begin
               DataSize := FrameHeader.PayloadLength;
@@ -3288,7 +3324,8 @@ begin
               end;
 
               // send ack settings frame
-              PushFrame(H2FT_SETTINGS, 0, H2FL_ACK, nil, 0);
+              if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then //bug fixed 27.02.21
+                PushFrame(H2FT_SETTINGS, 0, H2FL_ACK, nil, 0);
             end;
             H2FT_WINDOW_UPDATE : begin
               S.Read(DataSize, H2P_WINDOW_INC_SIZE);
@@ -3322,11 +3359,6 @@ begin
               break;
             end;
             H2FT_PING : begin
-              if FrameHeader.PayloadLength < H2P_PING_SIZE then
-              begin
-                err := H2E_FRAME_SIZE_ERROR;
-                break;
-              end;
               Buffer := GetMem(H2P_PING_SIZE);
               //fill ping buffer
               S.Read(Buffer^, H2P_PING_SIZE);
@@ -3336,6 +3368,8 @@ begin
             end;
             else
             begin
+              //Implementations MUST ignore and discard any frame that
+              //has a type that is unknown. RFC 7540 4.1
               err := H2E_PROTOCOL_ERROR;
               break;
             end;
@@ -3343,7 +3377,7 @@ begin
          if err = H2E_NO_ERROR then
             S.Position := fallbackpos + H2P_FRAME_HEADER_SIZE + FrameHeader.PayloadLength;
         end;
-        if (err > H2E_NO_ERROR) or (S.Position >= S.Size) then begin
+        if (err <> H2E_NO_ERROR) or (S.Position >= S.Size) then begin
           break;
         end;
       end;
@@ -3360,7 +3394,7 @@ begin
       if assigned(RemoteStr) then RemoteStr.DecReference;
       if assigned(Str) then Str.DecReference;
       if assigned(FrameHeader) then FrameHeader.Free;
-      if err <> H2E_NO_ERROR then
+      if not (err in [H2E_READ_BUFFER_OVERFLOW, H2E_PARSE_ERROR, H2E_NO_ERROR]) then
       begin
        GoAway(err);
       end;
@@ -3496,6 +3530,22 @@ end;
 
 { TWCHTTPStreams }
 
+procedure TWCHTTPStreams.AddClosedStream(SID: Cardinal);
+begin
+  Lock;
+  try
+    if FClosedStreamsCapacity = FClosedStreamsCount then
+    begin
+      Inc(FClosedStreamsCapacity, 8);
+      FClosedStreams := ReAllocMem(FClosedStreams,FClosedStreamsCapacity * Sizeof(Integer));
+    end;
+    FClosedStreams^[FClosedStreamsCount] := SID and H2P_STREAM_ID_MASK;
+    Inc(FClosedStreamsCount);
+  finally
+    UnLock;
+  end;
+end;
+
 function TWCHTTPStreams.IsStreamClosed(aStrm: TObject; {%H-}data: pointer): Boolean;
 begin
   Result := (TWCHTTPStream(aStrm).StreamState = h2ssCLOSED);
@@ -3503,7 +3553,16 @@ end;
 
 procedure TWCHTTPStreams.AfterStrmExtracted(aObj: TObject);
 begin
+  AddClosedStream(TWCHTTPStream(aObj).ID);
   TWCHTTPStream(aObj).DecReference;
+end;
+
+constructor TWCHTTPStreams.Create;
+begin
+  inherited Create;
+  FClosedStreamsCount:= 0;
+  FClosedStreamsCapacity := 64;
+  FClosedStreams := GetMem(Sizeof(Integer) * FClosedStreamsCapacity);
 end;
 
 destructor TWCHTTPStreams.Destroy;
@@ -3521,7 +3580,23 @@ begin
   finally
     UnLock;
   end;
+  FreeMem(FClosedStreams);
   inherited Destroy;
+end;
+
+function TWCHTTPStreams.IsStreamInClosedArch(SID: Cardinal): Boolean;
+var i : integer;
+begin
+  Result := false;
+  Lock;
+  try
+    for i := 0 to FClosedStreamsCount-1 do
+    begin
+      if FClosedStreams^[i] = Integer(SID) then Exit(true);
+    end;
+  finally
+    UnLock;
+  end;
 end;
 
 function TWCHTTPStreams.GetByID(aID: Cardinal): TWCHTTPStream;
