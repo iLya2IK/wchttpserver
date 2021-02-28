@@ -1485,14 +1485,17 @@ begin
     TWCHttpServer(Server).InitRequest(Result);
     Result.SetConnection(Self);
     StartLine := ReadLine;
-    ParseStartLine(Result,StartLine);
-    Repeat
-      S := ReadLine;
-      if (S<>'') then
-        ConsumeHeader(Result, S);
-    Until (S='');
-    Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
-    Result.ServerPort := TWCHttpServer(Server).Port;
+    if ParseStartLine(Result,StartLine) then
+    begin
+      Repeat
+        S := ReadLine;
+        if (S<>'') then
+          ConsumeHeader(Result, S);
+      Until (S='');
+      Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
+      Result.ServerPort := TWCHttpServer(Server).Port;
+    end else
+      FreeAndNil(Result);
   except
     FreeAndNil(Result);
     Raise;
@@ -1635,28 +1638,35 @@ begin
           // Request headers and content reading on one round
           // Read headers.
           FRequest:= ReadReqHeaders;
-          // Read content, if any
-          If FRequest.ContentLength>0 then
-            ReadReqContent(FRequest);
-          FRequest.InitRequestVars;
-          //check here if http1.1 upgrade to http2
-          //here can be implemented simple mechanism for transitioning
-          //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
-          //
-          //this mechanism is not implemented due to its rare use
-          if not Assigned(HTTPRefCon) then
+          if Assigned(FRequest) then
           begin
-            if SameText(FRequest.ProtocolVersion, '1.1') and
-               SameText(FRequest.GetHeader(hhConnection), 'keep-alive') then
+            // Read content, if any
+            If FRequest.ContentLength>0 then
+              ReadReqContent(FRequest);
+            FRequest.InitRequestVars;
+            //check here if http1.1 upgrade to http2
+            //here can be implemented simple mechanism for transitioning
+            //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
+            //
+            //this mechanism is not implemented due to its rare use
+            if not Assigned(HTTPRefCon) then
             begin
-              HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
-                                                                     @(TWCHttpServer(Server).DoConnectToSocketRef),
-                                                                     @(TWCHttpServer(Server).DoSendData));
-              HTTPRefCon.IncReference; // reference not incremented here, need to increment
+              if SameText(FRequest.ProtocolVersion, '1.1') and
+                 SameText(FRequest.GetHeader(hhConnection), 'keep-alive') then
+              begin
+                HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
+                                                                       @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                       @(TWCHttpServer(Server).DoSendData));
+                HTTPRefCon.IncReference; // reference not incremented here, need to increment
+              end;
             end;
+            if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
+              Result := true else
+              Result := false;
+          end else begin
+            FProtocolVersion:= wcUNK;
+            Result := false;
           end;
-          if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
-            Result := true;
         end else Result := false;
       end else Result := false;
       if FProtocolVersion = wcHTTP2 then
