@@ -63,7 +63,7 @@ type
   TWCHTTPRefConnections = class;
   TWCHTTPStream = class;
 
-  TWCConnectionState = (wcCONNECTED, wcDROPPED, wcDEAD);
+  TWCConnectionState = (wcCONNECTED, wcHALFCLOSED, wcDROPPED, wcDEAD);
   TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP1_1, wcHTTP2);
 
   { TWCHTTP2FrameHeader }
@@ -268,7 +268,7 @@ type
     constructor Create(HeadersListSize, TableSize: Cardinal);
     destructor Destroy; override;
     procedure Decode(aStream: TStream);
-    function  EndHeaderBlockTruncated: Boolean;
+    function Malformed: Boolean;
     property  DecodedHeaders: THPackHeaderTextList read GetDecodedHeaders;
   end;
 
@@ -380,7 +380,7 @@ type
     property WaitingForContinueFrame : Boolean read FWaitingForContinueFrame write
                                          SetWaitingForContinueFrame;
     procedure PushData(Data : Pointer; sz : Cardinal);
-    procedure FinishHeaders(aDecoder : TThreadSafeHPackDecoder);
+    function FinishHeaders(aDecoder: TThreadSafeHPackDecoder): Byte;
   public
     constructor Create(aConnection : TWCHTTP2Connection; aStreamID : Cardinal);
     destructor Destroy; override;
@@ -541,6 +541,7 @@ type
     procedure PushFrame(Strm : TReferencedStream); overload;
     procedure PushFrameFront(fr : TWCHTTPRefProtoFrame);
     function TryToIdleStep(const TS: Qword): Boolean; virtual;
+    function ConnectionAvaible: Boolean;
     property Socket : Cardinal read FSocket;
     // lifetime in seconds
     function GetLifeTime(const TS : QWord): Cardinal;
@@ -1083,11 +1084,15 @@ begin
   end;
 end;
 
-function TThreadSafeHPackDecoder.EndHeaderBlockTruncated: Boolean;
+function TThreadSafeHPackDecoder.Malformed: Boolean;
 begin
   Lock;
   try
     Result := FDecoder.EndHeaderBlockTruncated;
+    if not Result then
+    begin
+      Result := FDecoder.DecodedHeaders.Count = 0;
+    end;
   finally
     UnLock;
   end;
@@ -2267,7 +2272,7 @@ function TWCHTTPRefConnections.IsConnDead(aConn: TObject; data: pointer
 begin
   with TWCHTTPRefConnection(aConn) do
   Result := (GetLifeTime(PWCLifeTimeChecker(data)^.CurTime) > PWCLifeTimeChecker(data)^.MaxLifeTime) or
-            (ConnectionState <> wcCONNECTED);
+            (not ConnectionAvaible);
 end;
 
 procedure TWCHTTPRefConnections.AfterConnExtracted(aObj: TObject);
@@ -2350,7 +2355,7 @@ begin
     while assigned(P) do
     begin
       if (TWCHTTPRefConnection(P.Value).Socket = aSocket) and
-         (TWCHTTPRefConnection(P.Value).ConnectionState = wcCONNECTED) then
+         (TWCHTTPRefConnection(P.Value).ConnectionAvaible) then
       begin
         Result := TWCHTTPRefConnection(P.Value);
         Result.IncReference;
@@ -2405,7 +2410,7 @@ begin
     i := 0;
     while assigned(P) do
     begin
-      if (TWCHTTPRefConnection(P.Value).ConnectionState = wcCONNECTED) then
+      if (TWCHTTPRefConnection(P.Value).ConnectionAvaible) then
       begin
         if TWCHTTPRefConnection(P.Value).FSocketRef.HasErrors then
           TWCHTTPRefConnection(P.Value).ConnectionState:= wcDROPPED else
@@ -2583,7 +2588,6 @@ begin
   FFramesToSend.Push_front(fr);
 end;
 
-
 procedure TWCHTTPRefConnection.SendFrames;
 var fr : TWCHTTPRefProtoFrame;
     it : TIteratorObject;
@@ -2665,6 +2669,12 @@ begin
     WrBuf.Free;
     FDataSending.Value := false;
   end;
+  if (FFramesToSend.Count = 0) and
+     (FWriteTailSize = 0) and
+     (ConnectionState = wcHALFCLOSED) then
+  begin
+    ConnectionState := wcDROPPED;
+  end;
 end;
 
 function TWCHTTPRefConnection.TryToIdleStep(const TS : Qword): Boolean;
@@ -2688,6 +2698,11 @@ begin
     TryToConsumeFrames(TS);
     Result := true;
   end;
+end;
+
+function TWCHTTPRefConnection.ConnectionAvaible: Boolean;
+begin
+  Result := ConnectionState in [wcCONNECTED, wcHALFCLOSED];
 end;
 
 procedure TWCHTTPRefConnection.TryToConsumeFrames(const TS: Qword);
@@ -2879,9 +2894,9 @@ begin
       aDecoder.Decode(readbuf);
       if (FrameHeader.FrameFlag and H2FL_END_HEADERS) > 0 then
       begin
-        if aDecoder.EndHeaderBlockTruncated then
-           Result := H2E_COMPRESSION_ERROR;
-        Strm.FinishHeaders(aDecoder);
+        if aDecoder.Malformed then
+           Result := H2E_COMPRESSION_ERROR else
+           Result := Strm.FinishHeaders(aDecoder);
       end;
     except
       on e : Exception do
@@ -2910,7 +2925,7 @@ var B : Byte;
     RemoteID, CV : Cardinal;
     WV: Word;
     SettFrame : THTTP2SettingsBlock;
-    CurStreamClosed : Boolean;
+    CurStreamClosed, Flag : Boolean;
 begin
   Str := nil; RemoteStr := nil;
   if assigned(Mem) then begin
@@ -2966,6 +2981,7 @@ begin
         Str := nil;
         RemoteStr := nil;
         CurStreamClosed := false;
+
         if FrameHeader.StreamID > 0 then
         begin
           if FOwner is TWCHTTPServerRefConnections then
@@ -3041,76 +3057,61 @@ begin
           err := H2E_PROTOCOL_ERROR; // sec.6.5, 6.7
           break;
         end;
-        if Assigned(Str) and
-           (Str.FStreamState = h2ssIDLE) and
-           not (FrameHeader.FrameType in [H2FT_HEADERS, H2FT_PRIORITY]) then
+
+        if Http2IsFrameKnown(FrameHeader.FrameType) then
         begin
-          err := H2E_PROTOCOL_ERROR; // sec.5.1
-          break;
-        end;
-        if ((Assigned(Str) and
-            (Str.FStreamState in [h2ssHLFCLOSEDRem])) or
-            CurStreamClosed) and
-           not (FrameHeader.FrameType in [H2FT_WINDOW_UPDATE,
-                                          H2FT_PRIORITY,
-                                          H2FT_RST_STREAM]) then
-        begin
-          err := H2E_STREAM_CLOSED; // sec.5.1
-          break;
+          if Assigned(Str) and
+             (Str.FStreamState = h2ssIDLE) and
+             not (FrameHeader.FrameType in [H2FT_HEADERS, H2FT_PRIORITY]) then
+          begin
+            err := H2E_PROTOCOL_ERROR; // sec.5.1
+            break;
+          end;
+          if ((Assigned(Str) and (Str.FStreamState in [h2ssHLFCLOSEDRem])) or
+              CurStreamClosed) and
+             not (FrameHeader.FrameType in [H2FT_WINDOW_UPDATE,
+                                            H2FT_PRIORITY,
+                                            H2FT_RST_STREAM]) then
+          begin
+            if (FrameHeader.FrameType = H2FT_CONTINUATION) then
+            begin
+              if not (Assigned(Str) and Str.WaitingForContinueFrame) then
+              begin
+                err := H2E_PROTOCOL_ERROR; // sec.6.10
+                break;
+              end;
+            end else
+            begin
+             err := H2E_STREAM_CLOSED; // sec.5.1
+             break;
+            end;
+          end;
         end;
 
         R := FConSettings[H2SET_MAX_FRAME_SIZE];
         case FrameHeader.FrameType of
           H2FT_PING :
-            if FrameHeader.PayloadLength <> H2P_PING_SIZE then
-            begin
-              err := H2E_FRAME_SIZE_ERROR;
-              break;
-            end;
+            Flag := FrameHeader.PayloadLength <> H2P_PING_SIZE;
           H2FT_WINDOW_UPDATE :
-            if FrameHeader.PayloadLength <> H2P_WINDOW_INC_SIZE then
-            begin
-              err := H2E_FRAME_SIZE_ERROR;
-              break;
-            end;
+            Flag := FrameHeader.PayloadLength <> H2P_WINDOW_INC_SIZE;
           H2FT_RST_STREAM :
-            if FrameHeader.PayloadLength <> H2P_RST_STREAM_FRAME_SIZE then
-            begin
-              err := H2E_FRAME_SIZE_ERROR;
-              break;
-            end;
+            Flag := FrameHeader.PayloadLength <> H2P_RST_STREAM_FRAME_SIZE;
           H2FT_PRIORITY :
-            if FrameHeader.PayloadLength <> H2P_PRIORITY_FRAME_SIZE then
-            begin
-              err := H2E_FRAME_SIZE_ERROR;
-              break;
-            end;
+            Flag := FrameHeader.PayloadLength <> H2P_PRIORITY_FRAME_SIZE;
           H2FT_SETTINGS :
             if (FrameHeader.FrameFlag and H2FL_ACK) > 0 then
-            begin
-              if FrameHeader.PayloadLength > 0 then
-              begin
-                err := H2E_FRAME_SIZE_ERROR;
-                break;
-              end;
-            end else
-              if (FrameHeader.PayloadLength mod H2P_SETTINGS_BLOCK_SIZE) > 0 then
-              begin
-                err := H2E_FRAME_SIZE_ERROR;
-                break;
-              end;
+              Flag := FrameHeader.PayloadLength > 0
+            else
+              Flag := (FrameHeader.PayloadLength mod H2P_SETTINGS_BLOCK_SIZE) > 0;
           H2FT_GOAWAY :
-            if FrameHeader.PayloadLength < H2P_GOAWAY_MIN_SIZE then
-            begin
-              err := H2E_FRAME_SIZE_ERROR;
-              break;
-            end;
-          else
-          if FrameHeader.PayloadLength > R then //bug fixed 27.02.2021
-          begin
-            err := H2E_FRAME_SIZE_ERROR;
-            break;
-          end;
+            Flag := FrameHeader.PayloadLength < H2P_GOAWAY_MIN_SIZE;
+        else
+          Flag := FrameHeader.PayloadLength > R; //bug fixed 27.02.2021
+        end;
+        if Flag then
+        begin
+          err := H2E_FRAME_SIZE_ERROR;
+          break;
         end;
 
         if (FrameHeader.PayloadLength > (S.Size - S.Position)) then
@@ -3148,7 +3149,7 @@ begin
                 DataSize := DataSize - B;
               end;
               if DataSize < 0 then begin
-                err := H2E_INTERNAL_ERROR;
+                err := H2E_PROTOCOL_ERROR; //bug 28.02.2021
                 break;
               end;
               //
@@ -3164,6 +3165,11 @@ begin
                 err := H2E_STREAM_CLOSED;
                 break;
               end;
+              if Str.FHeadersComplete then
+              begin
+                err := H2E_PROTOCOL_ERROR;//bug 28.02.2021
+                break;
+              end;
               DataSize := FrameHeader.PayloadLength;
               if FrameHeader.FrameFlag and H2FL_PADDED > 0 then
               begin
@@ -3177,11 +3183,16 @@ begin
                 S.Read(Str.FParentStream, H2P_STREAM_ID_SIZE);
                 Str.FParentStream := BETON(Str.FParentStream) and H2P_STREAM_ID_MASK;
                 S.Read(Str.FPriority, H2P_PRIORITY_WEIGHT_SIZE);
-                Str.ResetRecursivePriority;
                 DataSize := DataSize - H2P_PRIORITY_FRAME_SIZE;
+                if (Str.FParentStream = Str.ID) then
+                begin
+                  err := H2E_PROTOCOL_ERROR;
+                  break;
+                end;
+                Str.ResetRecursivePriority;
               end;
               if DataSize < 0 then begin
-                err := H2E_INTERNAL_ERROR;
+                err := H2E_PROTOCOL_ERROR; //buf 28.02.2021
                 break;
               end;
               err := ProceedHeadersPayload(Str, DataSize);
@@ -3285,6 +3296,11 @@ begin
               if Assigned(Str) then
               begin
                 Str.FParentStream := BETON(CV) and H2P_STREAM_ID_MASK;
+                if (Str.FParentStream = Str.ID) then
+                begin
+                  err := H2E_PROTOCOL_ERROR;
+                  break;
+                end;
               end;
               S.Read(B, H2P_PRIORITY_WEIGHT_SIZE);
               if Assigned(Str) then
@@ -3313,11 +3329,30 @@ begin
                 begin
                   if FConSettings[WV] <> SettFrame.Value then
                   begin
-                    FConSettings[WV] := SettFrame.Value;
                     case WV of
                       H2SET_HEADER_TABLE_SIZE,
                       H2SET_MAX_HEADER_LIST_SIZE: ResetHPack;
+                      H2SET_INITIAL_WINDOW_SIZE :
+                        if SettFrame.Value > H2P_MAX_WINDOW_UPDATE then
+                        begin
+                          err := H2E_FLOW_CONTROL_ERROR;
+                          break;
+                        end;
+                      H2SET_ENABLE_PUSH :
+                        if SettFrame.Value > H2P_MAX_ENABLE_PUSH then
+                        begin
+                          err := H2E_PROTOCOL_ERROR;
+                          break;
+                        end;
+                      H2SET_MAX_FRAME_SIZE :
+                        if (SettFrame.Value < H2P_MIN_MAX_FRAME_SIZE) or
+                           (SettFrame.Value > H2P_MAX_MAX_FRAME_SIZE) then
+                        begin
+                          err := H2E_PROTOCOL_ERROR;
+                          break;
+                        end;
                     end;
+                    FConSettings[WV] := SettFrame.Value;
                   end;
                 end;
                 Dec(DataSize, H2P_SETTINGS_BLOCK_SIZE);
@@ -3334,9 +3369,9 @@ begin
                    err := H2E_PROTOCOL_ERROR;
                    break;
               end else
-              if (DataSize > $ffff{?}) then begin
-                   //err := H2E_FLOW_CONTROL_ERROR;
-                   //break;
+              if (DataSize > H2P_MAX_WINDOW_UPDATE) then begin
+                err := H2E_FLOW_CONTROL_ERROR;
+                break;
               end else begin
                // do nothing for yet
                // realloc the readbuffer?
@@ -3370,8 +3405,6 @@ begin
             begin
               //Implementations MUST ignore and discard any frame that
               //has a type that is unknown. RFC 7540 4.1
-              err := H2E_PROTOCOL_ERROR;
-              break;
             end;
           end;
          if err = H2E_NO_ERROR then
@@ -3475,6 +3508,7 @@ begin
   Buffer^.ErrorCode    := aError;
   try
     PushFrame(H2FT_GOAWAY, 0, 0, Buffer, H2P_GOAWAY_MIN_SIZE);
+    ConnectionState := wcHALFCLOSED;
   except
     FreeMem(Buffer);
     raise;
@@ -3761,9 +3795,91 @@ begin
   FCurRequest.PushData(Data, sz);
 end;
 
-procedure TWCHTTPStream.FinishHeaders(aDecoder: TThreadSafeHPackDecoder);
+function TWCHTTPStream.FinishHeaders(aDecoder: TThreadSafeHPackDecoder) : Byte;
+var i : integer;
+    p : PHPackHeaderTextItem;
+    PseudoHeaders : Boolean;
+    h2 : THTTP2Header;
+    PHValues : Array [hh2Method..hh2Status] of String = ('', '', '', '');
 begin
+  Result := H2E_NO_ERROR;
   FHeadersComplete := true;
+  //check headers
+  //according RFC 7540 8.1. HTTP Request/Response Exchange
+  //sec.8.1.2
+  aDecoder.IncReference;
+  aDecoder.Lock;
+  try
+    PseudoHeaders := true;
+    for i := 0 to aDecoder.DecodedHeaders.Count-1 do
+    begin
+      P := aDecoder.DecodedHeaders[i];
+      if not SameStr(LowerCase(P^.HeaderName), P^.HeaderName) then
+      begin
+        Result := H2E_PROTOCOL_ERROR;
+        Exit;
+      end;
+      h2 := HTTP2HeaderType(P^.HeaderName);
+      if HTTP2HeaderIsPseudo(h2) then
+      begin
+        if PseudoHeaders then begin
+          if h2 in [hh2Method..hh2Status] then
+          begin
+            if Length(PHValues[h2]) > 0 then
+            begin
+              Result := H2E_PROTOCOL_ERROR;
+              Exit;
+            end else
+            begin
+              PHValues[h2] := P^.HeaderValue;
+            end;
+          end;
+        end else
+        begin
+          Result := H2E_PROTOCOL_ERROR;
+          Exit
+        end;
+      end else
+      begin
+        if P^.HeaderName[1] = ':' then
+        begin
+          Result := H2E_PROTOCOL_ERROR;
+          Exit;
+        end;
+        if SameStr(p^.HeaderName, 'te') and
+           (not SameStr(p^.HeaderValue, 'trailers')) then
+        begin
+          Result := H2E_PROTOCOL_ERROR;
+          Exit;
+        end;
+        if PseudoHeaders then PseudoHeaders:= not PseudoHeaders;
+      end;
+    end;
+    if (FConnection.FOwner is TWCHTTPServerRefConnections) then
+    begin
+      // server-specific check
+      if Length(PHValues[hh2Status]) > 0 then
+      begin
+        Result := H2E_PROTOCOL_ERROR;
+        Exit;
+      end;
+      if (Length(PHValues[hh2Path]) = 0) and
+          (SameStr(PHValues[hh2Scheme], 'http') or
+           SameStr(PHValues[hh2Scheme], 'https')) then
+      begin
+        Result := H2E_PROTOCOL_ERROR;
+        Exit;
+      end;
+      if (Length(PHValues[hh2Scheme]) = 0) then
+      begin
+        Result := H2E_PROTOCOL_ERROR;
+        Exit;
+      end;
+    end;
+  finally
+    aDecoder.UnLock;
+    aDecoder.DecReference;
+  end;
   FCurRequest.CopyHeaders(aDecoder);
 end;
 

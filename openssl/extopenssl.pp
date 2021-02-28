@@ -630,8 +630,13 @@ begin
   try
     Result := 1;
     if not FHasFatalError then
-     if (SslGetShutdown(fSSL) and (SSL_RECEIVED_SHUTDOWN or SSL_SENT_SHUTDOWN)) > 0 then
-      Result:=sslShutDown(fSSL);
+    begin
+     if (SslGetShutdown(fSSL) and (SSL_RECEIVED_SHUTDOWN or SSL_SENT_SHUTDOWN)) = 0 then
+     begin
+       SslSetShutdown(fSSL, SSL_SENT_SHUTDOWN);
+       Result:=sslShutDown(fSSL);
+     end;
+    end;
   except
     // Sometimes, SSL gives an error when the connection is lost
     Result := -1;

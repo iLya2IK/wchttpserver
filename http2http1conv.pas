@@ -85,6 +85,8 @@ HTTP2AddHeaderNames : THTTP2HeadersArray
 Function HTTP2HeaderName(AHeader : THTTP2Header) : String;
 Function HTTP2HeaderType(const AHeader : String) : THTTP2Header;
 function GetHTTPHeaderType(const AHeader: String): PHTTPHeader;
+function HTTP2HeaderIsPseudo(const AHeader: String): Boolean; overload;
+function HTTP2HeaderIsPseudo(AHeader: THTTP2Header): Boolean; overload;
 
 implementation
 
@@ -93,14 +95,26 @@ begin
   Result:=HTTP2AddHeaderNames[AHeader];
 end;
 
+var H2H1Headers : THeadersTree = nil;
+
 function HTTP2HeaderType(const AHeader: String): THTTP2Header;
+var
+  V : PHTTPHeader;
 begin
-  Result:=High(THTTP2Header);
-  While (Result>hh2Unknown) and (CompareText(HTTP2AddHeaderNames[Result],AHeader)<>0) do
-    Result:=Pred(Result);
+  V := H2H1Headers.Values[AHeader];
+  if Assigned(V) then Result := V^.h2 else Result := hh2Unknown;
 end;
 
-var H2H1Headers : THeadersTree = nil;
+function HTTP2HeaderIsPseudo(const AHeader: String): Boolean; overload;
+begin
+  Result:=HTTP2HeaderIsPseudo(HTTP2HeaderType(AHeader));
+end;
+
+function HTTP2HeaderIsPseudo(AHeader: THTTP2Header): Boolean; overload;
+begin
+  Result := AHeader in [hh2Authority, hh2Method, hh2Path,
+                        hh2Scheme, hh2Status, hh2Version];
+end;
 
 function GetHTTPHeaderType(const AHeader: String): PHTTPHeader;
 begin

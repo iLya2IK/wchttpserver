@@ -2495,7 +2495,7 @@ end;
 procedure SslSetShutdown(ssl: PSSL; mode : cint);
 begin
   if InitSSLInterface and Assigned(_SslSetShutdown) then
-    SslSetShutdown(ssl, mode);
+    _SslSetShutdown(ssl, mode);
 end;
 
 function SslRead(ssl: PSSL; buf: SslPtr; num: cInt):cInt;
