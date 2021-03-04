@@ -139,9 +139,8 @@ type
   TWCHTTP2Frame = class(TWCHTTPRefProtoFrame)
   public
     Header  : TWCHTTP2FrameHeader;
-    constructor Create(aFrameType : Byte;
-                       StrID : Cardinal;
-                       aFrameFlags : Byte);
+    Stream  : TWCHTTPStream;
+    constructor Create(aFrameType: Byte; aStr: TWCHTTPStream; aFrameFlags: Byte);
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
     function Size : Int64; override;
@@ -153,12 +152,9 @@ type
   public
     Payload : Pointer;
     OwnPayload : Boolean;
-    constructor Create(aFrameType : Byte; 
-                       StrID : Cardinal; 
-                       aFrameFlags : Byte; 
-                       aData : Pointer; 
-                       aDataSize : Cardinal;
-                       aOwnPayload : Boolean = True);
+    constructor Create(aFrameType: Byte;
+      aStream: TWCHTTPStream; aFrameFlags: Byte;
+      aData: Pointer; aDataSize: Cardinal; aOwnPayload: Boolean = true); overload;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
   end;
@@ -170,7 +166,7 @@ type
     FStrm : TReferencedStream;
     Fpos : Int64;
     constructor Create(aFrameType : Byte;
-                       StrID : Cardinal;
+                       aStream: TWCHTTPStream;
                        aFrameFlags : Byte;
                        aData : TReferencedStream;
                        aStrmPos : Int64;
@@ -223,7 +219,7 @@ type
   TWCHTTP2SerializeStream = class(TStream)
   private
     FConn  : TWCHTTP2Connection;
-    FStrmID  : Cardinal;
+    FStream  : TWCHTTPStream;
     FCurFrame : TWCHTTP2DataFrame;
     FFirstFrameType, FNextFramesType : Byte;
     FFlags, FFinalFlags : Byte;
@@ -231,7 +227,8 @@ type
     FChuncked : Boolean;
     FFirstFramePushed : Boolean;
   public
-    constructor Create(aConn: TWCHTTP2Connection; aStrm: Cardinal;
+    constructor Create(aConn: TWCHTTP2Connection;
+                       aStrm: TWCHTTPStream;
                        aFirstFrameType : Byte;
                        aNextFramesType : Byte;
                        aFlags, aFinalFlags: Byte);
@@ -353,6 +350,23 @@ type
     property  Complete : Boolean read FComplete write FComplete;
   end;
 
+  { TThreadSafeWindowSize }
+
+  TThreadSafeWindowSize = class(TThreadInteger)
+  private
+    FBlocked    : Boolean;
+    function GetBlocked: Boolean;
+    function GetSize: Int32;
+  public
+    constructor Create(InitialSendSize : Int32);
+    procedure Update(aValue : Int32);
+    function Send(aValue : Int32) : Boolean;
+    procedure Block;
+    procedure UnBlock;
+    property Size : Int32 read GetSize;
+    property Blocked : Boolean read GetBlocked;
+  end;
+
   { TWCHTTPStream }
 
   TWCHTTPStream = class(TNetReferencedObject)
@@ -361,6 +375,7 @@ type
     FConnection : TWCHTTP2Connection;
     FStreamState : THTTP2StreamState;
     FCurRequest : TWCHTTP2Request;
+    FSendWindow : TThreadSafeWindowSize; // no recv window for streams
     FPriority : Byte;
     FRecursedPriority : ShortInt;
     FParentStream : Cardinal;
@@ -394,6 +409,7 @@ type
     function RequestReady : Boolean;
     property Request : TWCHTTP2Request read FCurRequest;
     property ResponseProceed : Boolean read GetResponseProceed write SetResponseProceed;
+    property SendWindow : TThreadSafeWindowSize read FSendWindow;
   end;
 
   TSocketState = (ssCanRead, ssCanSend, ssReading, ssSending, ssError);
@@ -523,6 +539,8 @@ type
     function GetInitialWriteBufferSize : Cardinal; virtual; abstract;
     function CanExpandWriteBuffer(aCurSize, aNeedSize : Cardinal) : Boolean; virtual; abstract;
     function RequestsWaiting : Boolean; virtual; abstract;
+    function NextFrameToSend(it: TIteratorObject): TIteratorObject; virtual;
+    procedure AfterFrameSent({%H-}fr: TWCHTTPRefProtoFrame); virtual; abstract;
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference;
@@ -561,6 +579,7 @@ type
     function GetInitialWriteBufferSize : Cardinal; override;
     function CanExpandWriteBuffer({%H-}aCurSize, aNeedSize : Cardinal) : Boolean; override;
     function RequestsWaiting: Boolean; override;
+    procedure AfterFrameSent({%H-}fr: TWCHTTPRefProtoFrame); override;
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference;
@@ -579,6 +598,8 @@ type
     FErrorStream : Cardinal;
     FHPackDecoder : TThreadSafeHPackDecoder;
     FHPackEncoder : TThreadSafeHPackEncoder;
+    FSendWindow   : TThreadSafeWindowSize;
+    FDataConsumed : Cardinal;
 
     function AddNewStream(aStreamID: Cardinal): TWCHTTPStream;
     function GetConnSetting(id : Word): Cardinal;
@@ -591,6 +612,9 @@ type
     function GetInitialWriteBufferSize : Cardinal; override;
     function CanExpandWriteBuffer({%H-}aCurSize, {%H-}aNeedSize : Cardinal) : Boolean; override;
     function RequestsWaiting: Boolean; override;
+    function NextFrameToSend(it: TIteratorObject): TIteratorObject;override;
+    procedure AfterFrameSent(fr: TWCHTTPRefProtoFrame); override;
+    procedure SendUpdateWindow(Strm : TWCHTTPStream);
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference; aOpenningMode: THTTP2OpenMode;
@@ -599,19 +623,19 @@ type
     procedure ConsumeNextFrame(Mem : TBufferedStream); override;
     destructor Destroy; override;
     procedure PushFrame(aFrameType : Byte;
-                        StrID : Cardinal;
+                        aStream : TWCHTTPStream;
                         aFrameFlags : Byte;
                         aData : Pointer;
                         aDataSize : Cardinal;
                         aOwnPayload : Boolean = true); overload;
     procedure PushFrame(aFrameType : Byte;
-                        StrID : Cardinal;
+                        aStream : TWCHTTPStream;
                         aFrameFlags : Byte;
                         aData : TReferencedStream;
                         aStrmPos : Int64;
                         aDataSize : Cardinal); overload;
     procedure PushFrameFront(aFrameType : Byte;
-                        StrID : Cardinal;
+                        aStream : TWCHTTPStream;
                         aFrameFlags : Byte;
                         aData : Pointer;
                         aDataSize : Cardinal;
@@ -644,6 +668,7 @@ type
     function GetNextStreamWithRequest : TWCHTTPStream;
     function HasStreamWithRequest: Boolean;
     procedure CloseOldIdleStreams(aMaxId : Cardinal);
+    procedure AdjustWindowSize(Delta : Int32);
     procedure RemoveClosedStreams;
   end;
 
@@ -660,6 +685,7 @@ type
     destructor Destroy; override;
     procedure Reset;
     procedure Add(Id : Word; Value : Cardinal);
+    function GetByID(Id : Word; DefaultValue : Cardinal) : Cardinal;
     function CopySettingsToMem(var Mem : Pointer) : Integer;
     property Count : Integer read GetCount;
     property Setting[index : integer] : THTTP2SettingsBlock read GetSetting; default;
@@ -735,6 +761,75 @@ type
   end;
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
+
+{ TThreadSafeWindowSize }
+
+function TThreadSafeWindowSize.GetSize: Int32;
+begin
+  Result := Value;
+end;
+
+function TThreadSafeWindowSize.GetBlocked: Boolean;
+begin
+  Lock;
+  try
+    Result := FBlocked;
+  finally
+    UnLock;
+  end;
+end;
+
+constructor TThreadSafeWindowSize.Create(InitialSendSize: Int32);
+begin
+  inherited Create(InitialSendSize);
+  FBlocked := false;
+end;
+
+procedure TThreadSafeWindowSize.Update(aValue: Int32);
+begin
+  Lock;
+  try
+    IncValue(aValue);
+    if Value > 0 then FBlocked := false;
+  finally
+    UnLock;
+  end;
+end;
+
+function TThreadSafeWindowSize.Send(aValue: Int32): Boolean;
+begin
+  Lock;
+  try
+    if Value >= aValue then
+    begin
+      DecValue(aValue);
+      Result := true;
+    end else
+      Result := false;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeWindowSize.Block;
+begin
+  Lock;
+  try
+    FBlocked:=true;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeWindowSize.UnBlock;
+begin
+  Lock;
+  try
+    FBlocked:=false;
+  finally
+    UnLock;
+  end;
+end;
 
 { TWCHTTPRefStreamFrame }
 
@@ -864,6 +959,11 @@ begin
   Result := False;
 end;
 
+procedure TWCHTTP11Connection.AfterFrameSent({%H-}fr: TWCHTTPRefProtoFrame);
+begin
+ //
+end;
+
 procedure TWCHTTP11Connection.ConsumeNextFrame({%H-}Mem: TBufferedStream);
 begin
   // do nothing for now
@@ -952,6 +1052,28 @@ begin
       S^[Sz].Identifier := Id;
       S^[Sz].Value := Value;
       Inc(HTTP2ServerSettingsSize, H2P_SETTINGS_BLOCK_SIZE);
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTP2ServerSettings.GetByID(Id: Word; DefaultValue: Cardinal
+  ): Cardinal;
+var l, Sz : Integer;
+    S : PHTTP2SettingsPayload;
+begin
+  Result := DefaultValue;
+  Lock;
+  try
+    S := HTTP2ServerSettings;
+    Sz := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
+    for l := 0 to Sz - 1 do
+    begin
+      if S^[l].Identifier = Id then begin
+        Result := S^[l].Value;
+        Exit;
+      end;
     end;
   finally
     UnLock;
@@ -1590,11 +1712,12 @@ end;
 { TWCHTTP2SerializeStream }
 
 constructor TWCHTTP2SerializeStream.Create(aConn: TWCHTTP2Connection;
-  aStrm: Cardinal; aFirstFrameType: Byte; aNextFramesType: Byte; aFlags,
+  aStrm: TWCHTTPStream; aFirstFrameType: Byte; aNextFramesType: Byte; aFlags,
   aFinalFlags: Byte);
 begin
   Inherited Create;
-  FStrmID := aStrm;
+  FStream := aStrm;
+  if assigned(FStream) then FStream.IncReference;
   FConn := aConn;
   FConn.IncReference;
   FFlags := aFlags;
@@ -1615,6 +1738,17 @@ begin
   Result := Count;
   Sz := Count;
   MaxSize := FConn.ConnSettings[H2SET_MAX_FRAME_SIZE];
+  if FFirstFrameType = H2FT_DATA then
+  begin
+    if FConn.FSendWindow.Size < MaxSize then
+      MaxSize := FConn.FSendWindow.Size;
+    if Assigned(FStream) then
+    begin
+      if (FStream.FSendWindow.Size < MaxSize) then
+        MaxSize := FStream.FSendWindow.Size;
+    end;
+    if MaxSize < HTTP2_MIN_MAX_FRAME_SIZE then MaxSize := HTTP2_MIN_MAX_FRAME_SIZE;
+  end;
   if (Sz > MaxSize) and (FChuncked) then Exit(-1);
   while Sz > 0 do begin
     if Assigned(FCurFrame) and
@@ -1630,9 +1764,9 @@ begin
       if Sz > MaxSize then Bsz := MaxSize else Bsz := Sz;
       B := GetMem(MaxSize);
       if FFirstFramePushed then
-        FCurFrame := TWCHTTP2DataFrame.Create(FNextFramesType, FStrmID, FFlags, B, Bsz)
+        FCurFrame := TWCHTTP2DataFrame.Create(FNextFramesType, FStream, FFlags, B, Bsz)
       else begin
-        FCurFrame := TWCHTTP2DataFrame.Create(FFirstFrameType, FStrmID, FFlags, B, Bsz);
+        FCurFrame := TWCHTTP2DataFrame.Create(FFirstFrameType, FStream, FFlags, B, Bsz);
         FFirstFramePushed:= true;
       end;
       FRestFrameSz := MaxSize - Bsz;
@@ -1660,6 +1794,7 @@ begin
     FCurFrame.Header.FrameFlag := FFinalFlags;
     FConn.PushFrame(FCurFrame);
   end;
+  if Assigned(FStream) then FStream.DecReference;
   FConn.DecReference;
   inherited Destroy;
 end;
@@ -1703,7 +1838,7 @@ end;
 procedure TWCHTTP2Response.Close;
 //var er : PHTTP2RstStreamPayload;
 begin
-  FConnection.PushFrame(H2FT_DATA, FStream.ID, H2FL_END_STREAM, nil, 0);
+  FConnection.PushFrame(H2FT_DATA, FStream, H2FL_END_STREAM, nil, 0);
   {er := GetMem(H2P_RST_STREAM_FRAME_SIZE);
   er^.ErrorCode := H2E_NO_ERROR;
   FConnection.PushFrame(H2FT_RST_STREAM, FStream.ID, 0, er, H2P_RST_STREAM_FRAME_SIZE); }
@@ -1722,7 +1857,7 @@ var
 begin
   if Assigned(FCurHeadersBlock) then
   begin
-    sc := TWCHTTP2SerializeStream.Create(FConnection, FStream.Id,
+    sc := TWCHTTP2SerializeStream.Create(FConnection, FStream,
                                          H2FT_HEADERS,
                                          H2FT_CONTINUATION,
                                          0,
@@ -1749,7 +1884,7 @@ begin
   // then remove fdatablock
   if assigned(FCurDataBlock) and (FDataBlockSize > 0) then
   begin
-    sc := TWCHTTP2SerializeStream.Create(FConnection, FStream.Id,
+    sc := TWCHTTP2SerializeStream.Create(FConnection, FStream,
                                          H2FT_DATA,
                                          H2FT_DATA,
                                          0,
@@ -1775,7 +1910,7 @@ begin
   FHeadersBlockSize:=0;
 
   sc := TWCHTTP2SerializeStream.Create(FConnection,
-                                       FStream.ID,
+                                       FStream,
                                        H2FT_HEADERS,
                                        H2FT_CONTINUATION,
                                        0,
@@ -1805,7 +1940,7 @@ begin
 
   if R.ContentLength > 0 then
   begin
-    sc := TWCHTTP2SerializeStream.Create(FConnection, FStream.ID,
+    sc := TWCHTTP2SerializeStream.Create(FConnection, FStream,
                                          H2FT_DATA,
                                          H2FT_DATA,
                                          0,
@@ -1839,6 +1974,14 @@ begin
     Size := R.Stream.Size;
     CurFrame := nil;
     MaxSize := FConnection.ConnSettings[H2SET_MAX_FRAME_SIZE];
+    if FConnection.FSendWindow.Size < MaxSize then
+      MaxSize := FConnection.FSendWindow.Size;
+    if Assigned(FStream) then
+    begin
+      if (FStream.FSendWindow.Size < MaxSize) then
+        MaxSize := FStream.FSendWindow.Size;
+    end;
+    if MaxSize < HTTP2_MIN_MAX_FRAME_SIZE then MaxSize := HTTP2_MIN_MAX_FRAME_SIZE;
     while Size > 0 do begin
       if Assigned(CurFrame) then
       begin
@@ -1846,7 +1989,7 @@ begin
         CurFrame := nil;
       end;
       if Size > MaxSize then Bsz := MaxSize else Bsz := Size;
-      CurFrame := TWCHTTP2RefFrame.Create(H2FT_DATA, FStream.ID, 0, R, Pos, Bsz);
+      CurFrame := TWCHTTP2RefFrame.Create(H2FT_DATA, FStream, 0, R, Pos, Bsz);
       Inc(Pos, BSz);
       Dec(Size, BSz);
     end;
@@ -1968,19 +2111,27 @@ end;
   
 { TWCHTTP2Frame }
 
-constructor TWCHTTP2Frame.Create(aFrameType: Byte; StrID: Cardinal;
+constructor TWCHTTP2Frame.Create(aFrameType: Byte;
+  aStr: TWCHTTPStream;
   aFrameFlags: Byte);
 begin
   Header := TWCHTTP2FrameHeader.Create;
   Header.FrameType := aFrameType;
   Header.FrameFlag := aFrameFlags;
   Header.PayloadLength := 0;
-  Header.StreamID := StrID;
+  Stream := aStr;
+  if assigned(Stream) then
+  begin
+    Stream.IncReference;
+    Header.StreamID := Stream.ID;
+  end else
+    Header.StreamID := 0;
 end;
                      
 destructor TWCHTTP2Frame.Destroy;
 begin
   Header.Free;
+  if assigned(Stream) then Stream.DecReference;
   inherited Destroy;
 end;
                      
@@ -1996,10 +2147,10 @@ end;
 
 { TWCHTTP2DataFrame }
 
-constructor TWCHTTP2DataFrame.Create(aFrameType: Byte; StrID: Cardinal;
+constructor TWCHTTP2DataFrame.Create(aFrameType: Byte; aStream: TWCHTTPStream;
   aFrameFlags: Byte; aData: Pointer; aDataSize: Cardinal; aOwnPayload: Boolean);
 begin
-  inherited Create(aFrameType, StrID, aFrameFlags);
+  inherited Create(aFrameType, aStream, aFrameFlags);
   Header.PayloadLength := aDataSize;
   Payload:= aData;
   OwnPayload:= aOwnPayload;
@@ -2020,11 +2171,11 @@ end;
 
 { TWCHTTP2RefFrame }
 
-constructor TWCHTTP2RefFrame.Create(aFrameType: Byte; StrID: Cardinal;
+constructor TWCHTTP2RefFrame.Create(aFrameType: Byte; aStream: TWCHTTPStream;
   aFrameFlags: Byte; aData: TReferencedStream; aStrmPos: Int64;
   aDataSize: Cardinal);
 begin
-  inherited Create(aFrameType, StrID, aFrameFlags);
+  inherited Create(aFrameType, aStream, aFrameFlags);
   Header.PayloadLength := aDataSize;
   aData.IncReference;
   FStrm := aData;
@@ -2590,7 +2741,7 @@ end;
 
 procedure TWCHTTPRefConnection.SendFrames;
 var fr : TWCHTTPRefProtoFrame;
-    it : TIteratorObject;
+    it, itn : TIteratorObject;
     WrBuf : TBufferedStream;
     Sz : Integer;
     CurBuffer : Pointer;
@@ -2605,9 +2756,10 @@ begin
                                              FWriteBufferSize - FWriteTailSize);
       FFramesToSend.Lock;
       try
+        it := FFramesToSend.ListBegin;
         repeat
            fr := nil;
-           it := FFramesToSend.ListBegin;
+           it := NextFrameToSend(it);
            if Assigned(it) then begin
 
              FrameCanSend := true;
@@ -2626,16 +2778,18 @@ begin
                                              FWriteBufferSize - FWriteTailSize);
                  WrBuf.Position := Sz;
                end else
-                  FrameCanSend := false
+                 FrameCanSend := false
              end;
 
              if FrameCanSend then
              begin
-               fr := TWCHTTPRefProtoFrame(FFramesToSend.PopValue);
-               if Assigned(fr) then begin
-                 fr.SaveToStream(WrBuf);
-                 fr.Free;
-               end;
+               fr := TWCHTTPRefProtoFrame(it.Value);
+               itn := it.Next;
+               FFramesToSend.Extract(it);
+               it := itn;
+               fr.SaveToStream(WrBuf);
+               AfterFrameSent(fr);
+               fr.Free;
              end else
                Break;
            end;
@@ -2771,6 +2925,12 @@ begin
   end;
 end;
 
+function TWCHTTPRefConnection.NextFrameToSend(it: TIteratorObject
+  ): TIteratorObject;
+begin
+  Result := it;
+end;
+
 { TWCHTTP2Connection }
 
 function TWCHTTP2Connection.AddNewStream(aStreamID : Cardinal): TWCHTTPStream;
@@ -2816,12 +2976,13 @@ begin
     FOwner.HTTP2Settings.UnLock;
   end;
   InitializeBuffers;
-
+  FSendWindow := TThreadSafeWindowSize.Create(FConSettings[H2SET_INITIAL_WINDOW_SIZE]);
+  FDataConsumed := 0;
   // send initial settings frame
   if aOpenningMode in [h2oUpgradeToH2C, h2oUpgradeToH2] then
     PushFrame(TWCHTTP2UpgradeResponseFrame.Create(aOpenningMode));
   Sz := FOwner.HTTP2Settings.CopySettingsToMem(Cset);
-  PushFrame(TWCHTTP2DataFrame.Create(H2FT_SETTINGS, 0, 0, CSet,  Sz));
+  PushFrame(TWCHTTP2DataFrame.Create(H2FT_SETTINGS, nil, 0, CSet,  Sz));
 end;
 
 class function TWCHTTP2Connection.Protocol: TWCProtocolVersion;
@@ -3152,6 +3313,7 @@ begin
                 err := H2E_PROTOCOL_ERROR; //bug 28.02.2021
                 break;
               end;
+              Inc(FDataConsumed, FrameHeader.PayloadLength);
               //
               Str.PushData(Pointer(S.Memory + S.Position), DataSize);
               S.Position := S.Position + FrameHeader.PayloadLength;
@@ -3192,7 +3354,7 @@ begin
                 Str.ResetRecursivePriority;
               end;
               if DataSize < 0 then begin
-                err := H2E_PROTOCOL_ERROR; //buf 28.02.2021
+                err := H2E_PROTOCOL_ERROR; //bug 28.02.2021
                 break;
               end;
               err := ProceedHeadersPayload(Str, DataSize);
@@ -3332,21 +3494,24 @@ begin
                     case WV of
                       H2SET_HEADER_TABLE_SIZE,
                       H2SET_MAX_HEADER_LIST_SIZE: ResetHPack;
-                      H2SET_INITIAL_WINDOW_SIZE :
-                        if SettFrame.Value > H2P_MAX_WINDOW_UPDATE then
+                      H2SET_INITIAL_WINDOW_SIZE : begin
+                        if SettFrame.Value > Cardinal(HTTP2_MAX_WINDOW_UPDATE) then
                         begin
                           err := H2E_FLOW_CONTROL_ERROR;
                           break;
                         end;
+                        Streams.AdjustWindowSize(Int32(SettFrame.Value) -
+                                                  Int32(FConSettings[WV]));
+                      end;
                       H2SET_ENABLE_PUSH :
-                        if SettFrame.Value > H2P_MAX_ENABLE_PUSH then
+                        if SettFrame.Value > HTTP2_MAX_ENABLE_PUSH then
                         begin
                           err := H2E_PROTOCOL_ERROR;
                           break;
                         end;
                       H2SET_MAX_FRAME_SIZE :
-                        if (SettFrame.Value < H2P_MIN_MAX_FRAME_SIZE) or
-                           (SettFrame.Value > H2P_MAX_MAX_FRAME_SIZE) then
+                        if (SettFrame.Value < HTTP2_MIN_MAX_FRAME_SIZE) or
+                           (SettFrame.Value > HTTP2_MAX_MAX_FRAME_SIZE) then
                         begin
                           err := H2E_PROTOCOL_ERROR;
                           break;
@@ -3360,21 +3525,34 @@ begin
 
               // send ack settings frame
               if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then //bug fixed 27.02.21
-                PushFrame(H2FT_SETTINGS, 0, H2FL_ACK, nil, 0);
+                PushFrame(H2FT_SETTINGS, Str, H2FL_ACK, nil, 0);
             end;
             H2FT_WINDOW_UPDATE : begin
               S.Read(DataSize, H2P_WINDOW_INC_SIZE);
               DataSize := BETON(DataSize);
-              if DataSize <= 0 then begin
-                   err := H2E_PROTOCOL_ERROR;
-                   break;
+              if DataSize = 0 then begin
+                err := H2E_PROTOCOL_ERROR;
+                break;
               end else
-              if (DataSize > H2P_MAX_WINDOW_UPDATE) then begin
+              if (DataSize < 0) then begin
                 err := H2E_FLOW_CONTROL_ERROR;
                 break;
               end else begin
-               // do nothing for yet
-               // realloc the readbuffer?
+                if assigned(Str) then begin
+                  if (HTTP2_MAX_WINDOW_UPDATE - Str.SendWindow.Size) < DataSize then
+                  begin
+                    err := H2E_FLOW_CONTROL_ERROR;
+                    break;
+                  end else
+                    Str.SendWindow.Update(DataSize);
+                end else begin
+                  if (HTTP2_MAX_WINDOW_UPDATE - FSendWindow.Size) < DataSize then
+                  begin
+                    err := H2E_FLOW_CONTROL_ERROR;
+                    break;
+                  end else
+                    FSendWindow.Update(DataSize);
+                end;
               end;
             end;
             H2FT_GOAWAY : begin
@@ -3398,7 +3576,7 @@ begin
               //fill ping buffer
               S.Read(Buffer^, H2P_PING_SIZE);
               if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then //26.02.2021 bug fixed
-                PushFrame(H2FT_PING, 0, H2FL_ACK, Buffer, H2P_PING_SIZE) else
+                PushFrame(H2FT_PING, nil, H2FL_ACK, Buffer, H2P_PING_SIZE) else
                 FreeMem(Buffer);
             end;
             else
@@ -3407,30 +3585,42 @@ begin
               //has a type that is unknown. RFC 7540 4.1
             end;
           end;
-         if err = H2E_NO_ERROR then
-            S.Position := fallbackpos + H2P_FRAME_HEADER_SIZE + FrameHeader.PayloadLength;
         end;
-        if (err <> H2E_NO_ERROR) or (S.Position >= S.Size) then begin
+        if err in [H2E_NO_ERROR, H2E_FLOW_CONTROL_ERROR] then
+          S.Position := fallbackpos + H2P_FRAME_HEADER_SIZE + FrameHeader.PayloadLength;
+        if (err <> H2E_NO_ERROR) or (S.Position >= S.Size) then
           break;
-        end;
       end;
 
-      if (S.Position < S.Size) and (err = H2E_PARSE_ERROR) then
+      if S.Position < S.Size then
       begin
         FReadTailSize := S.Size - S.Position;
         TruncReadBuffer;
-        err := H2E_NO_ERROR;
-      end else
+      end else begin
         FReadTailSize := 0;
+        if FDataConsumed >
+           (FOwner.HTTP2Settings.GetByID(H2SET_INITIAL_WINDOW_SIZE,
+                                         HTTP2_INITIAL_WINDOW_SIZE) div 10) then
+        begin
+          SendUpdateWindow(Str);
+        end;
+      end;
     finally
       S.Free;
+      if (err in [H2E_FLOW_CONTROL_ERROR]) and
+         Assigned(Str) then
+      begin
+        Str.FFinishedCode := err;
+        Str.Release;
+        Str := nil;
+      end else
+      if not (err in [H2E_READ_BUFFER_OVERFLOW, H2E_PARSE_ERROR, H2E_NO_ERROR]) then
+      begin
+        GoAway(err);
+      end;
       if assigned(RemoteStr) then RemoteStr.DecReference;
       if assigned(Str) then Str.DecReference;
       if assigned(FrameHeader) then FrameHeader.Free;
-      if not (err in [H2E_READ_BUFFER_OVERFLOW, H2E_PARSE_ERROR, H2E_NO_ERROR]) then
-      begin
-       GoAway(err);
-      end;
     end;
   finally
     FReadBuffer.UnLock;
@@ -3443,28 +3633,30 @@ begin
   ResetHPack;
   FConSettings.Free;
   if assigned(FErrorData) then FreeMem(FErrorData);
+  FSendWindow.Free;
   inherited Destroy;
 end;
 
-procedure TWCHTTP2Connection.PushFrame(aFrameType: Byte; StrID: Cardinal;
+procedure TWCHTTP2Connection.PushFrame(aFrameType: Byte; aStream: TWCHTTPStream;
   aFrameFlags: Byte; aData: Pointer; aDataSize: Cardinal; aOwnPayload: Boolean);
 begin
-  PushFrame(TWCHTTP2DataFrame.Create(aFrameType, StrID, aFrameFlags, aData,
+  PushFrame(TWCHTTP2DataFrame.Create(aFrameType, aStream, aFrameFlags, aData,
                                              aDataSize, aOwnPayload));
 end;
 
-procedure TWCHTTP2Connection.PushFrame(aFrameType: Byte; StrID: Cardinal;
+procedure TWCHTTP2Connection.PushFrame(aFrameType: Byte; aStream: TWCHTTPStream;
   aFrameFlags: Byte; aData: TReferencedStream; aStrmPos: Int64;
   aDataSize: Cardinal);
 begin
-  PushFrame(TWCHTTP2RefFrame.Create(aFrameType, StrID, aFrameFlags, aData,
+  PushFrame(TWCHTTP2RefFrame.Create(aFrameType, aStream, aFrameFlags, aData,
                                              aStrmPos, aDataSize));
 end;
 
-procedure TWCHTTP2Connection.PushFrameFront(aFrameType: Byte; StrID: Cardinal;
-  aFrameFlags: Byte; aData: Pointer; aDataSize: Cardinal; aOwnPayload: Boolean);
+procedure TWCHTTP2Connection.PushFrameFront(aFrameType: Byte;
+  aStream: TWCHTTPStream; aFrameFlags: Byte; aData: Pointer;
+  aDataSize: Cardinal; aOwnPayload: Boolean);
 begin
-  PushFrameFront(TWCHTTP2DataFrame.Create(aFrameType, StrID, aFrameFlags, aData,
+  PushFrameFront(TWCHTTP2DataFrame.Create(aFrameType, aStream, aFrameFlags, aData,
                                              aDataSize, aOwnPayload));
 end;
 
@@ -3507,7 +3699,7 @@ begin
   Buffer^.LastStreamID := FLastStreamID;
   Buffer^.ErrorCode    := aError;
   try
-    PushFrame(H2FT_GOAWAY, 0, 0, Buffer, H2P_GOAWAY_MIN_SIZE);
+    PushFrame(H2FT_GOAWAY, nil, 0, Buffer, H2P_GOAWAY_MIN_SIZE);
     ConnectionState := wcHALFCLOSED;
   except
     FreeMem(Buffer);
@@ -3560,6 +3752,73 @@ end;
 function TWCHTTP2Connection.RequestsWaiting: Boolean;
 begin
   Result :=  FStreams.HasStreamWithRequest;
+end;
+
+function TWCHTTP2Connection.NextFrameToSend(it : TIteratorObject): TIteratorObject;
+var AvaibleSendWindow : Int32;
+
+function CanSend(fr : TWCHTTP2Frame) : Boolean;
+begin
+  if fr.Header.FrameType in [H2FT_DATA] then
+  begin
+    if fr.Stream.FSendWindow.Blocked then Exit(false);
+    AvaibleSendWindow := fr.Stream.FSendWindow.Size;
+    if FSendWindow.Size < AvaibleSendWindow then
+      AvaibleSendWindow := FSendWindow.Size;
+    Result := (AvaibleSendWindow >= fr.Header.PayloadLength);
+    if not Result then
+      fr.Stream.FSendWindow.Block;
+  end else Result := true;
+end;
+
+var Str : TWCHTTPStream;
+begin
+  Result := it;
+  while Assigned(Result) do
+  begin
+    if not CanSend(TWCHTTP2Frame(Result.Value)) then
+    begin
+      Str := TWCHTTP2Frame(Result.Value).Stream;
+      repeat
+        Result := Result.Next;
+        if Assigned(Result) and (TWCHTTP2Frame(Result.Value).Stream <> Str) then
+        begin
+          break;
+        end;
+      until not Assigned(Result);
+    end else
+      Break;
+  end;
+end;
+
+procedure TWCHTTP2Connection.AfterFrameSent(fr: TWCHTTPRefProtoFrame);
+begin
+  if fr is TWCHTTP2Frame then
+  begin
+    if TWCHTTP2Frame(fr).Header.FrameType in [H2FT_DATA] then
+    begin
+      if Assigned(TWCHTTP2Frame(fr).Stream) then
+        TWCHTTP2Frame(fr).Stream.FSendWindow.Send(TWCHTTP2Frame(fr).Header.PayloadLength);
+      FSendWindow.Send(TWCHTTP2Frame(fr).Header.PayloadLength);
+    end;
+  end;
+end;
+
+procedure TWCHTTP2Connection.SendUpdateWindow(Strm: TWCHTTPStream);
+var pv : PInt32;
+begin
+  if FDataConsumed > 0 then
+  begin
+    pv := GetMem(H2P_WINDOW_INC_SIZE);
+    pv^ := FDataConsumed;
+    PushFrame(H2FT_WINDOW_UPDATE, nil, 0, pv, H2P_WINDOW_INC_SIZE);
+    if Assigned(Strm) then begin
+      pv := GetMem(H2P_WINDOW_INC_SIZE);
+      pv^ := FDataConsumed;
+      PushFrame(H2FT_WINDOW_UPDATE, Strm, 0, pv, H2P_WINDOW_INC_SIZE);
+    end;
+    FDataConsumed := 0;
+  end;
 end;
 
 { TWCHTTPStreams }
@@ -3717,6 +3976,23 @@ begin
         Extract(P);
       end;
       P := NP;
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCHTTPStreams.AdjustWindowSize(Delta: Int32);
+var P : TIteratorObject;
+begin
+  Lock;
+  try
+    P := ListBegin;
+    while assigned(P) do
+    begin
+      if not (TWCHTTPStream(P.Value).StreamState in [h2ssCLOSED]) then
+        TWCHTTPStream(P.Value).FSendWindow.Update(Delta);
+      P := P.Next;
     end;
   finally
     UnLock;
@@ -3895,6 +4171,7 @@ begin
   FWaitingForContinueFrame := false;
   FWaitingRemoteStream := aStreamID;
   FHeadersComplete := false;
+  FSendWindow := TThreadSafeWindowSize.Create(aConnection.ConnSettings[H2SET_INITIAL_WINDOW_SIZE]);
   FCurRequest := TWCHTTP2Request.Create(FConnection, Self);
   FResponseProceed := false;
 end;
@@ -3902,16 +4179,20 @@ end;
 destructor TWCHTTPStream.Destroy;
 begin
   if assigned(FCurRequest) then FreeAndNil(FCurRequest);
+  FSendWindow.Free;
   inherited Destroy;
 end;
 
 procedure TWCHTTPStream.Release;
 var er : PHTTP2RstStreamPayload;
 begin
-  if FStreamState <> h2ssCLOSED then begin
-    er := GetMem(H2P_RST_STREAM_FRAME_SIZE);
-    er^.ErrorCode := FFinishedCode;
-    FConnection.PushFrame(H2FT_RST_STREAM, FID, 0, er, H2P_RST_STREAM_FRAME_SIZE);
+  if (FStreamState <> h2ssCLOSED) then begin
+    if FFinishedCode <> H2E_NO_ERROR then
+    begin
+      er := GetMem(H2P_RST_STREAM_FRAME_SIZE);
+      er^.ErrorCode := FFinishedCode;
+      FConnection.PushFrame(H2FT_RST_STREAM, Self, 0, er, H2P_RST_STREAM_FRAME_SIZE);
+    end;
     FStreamState := h2ssCLOSED;
   end;
   DecReference;

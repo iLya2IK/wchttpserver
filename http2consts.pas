@@ -143,10 +143,10 @@ const
   H2P_GOAWAY_MIN_SIZE = 8;
   H2P_PING_SIZE = 8;
 
-  H2P_MAX_WINDOW_UPDATE  = Integer($7FFFFFFF);
-  H2P_MAX_ENABLE_PUSH    = 1;
-  H2P_MAX_MAX_FRAME_SIZE = Integer($FFFFFF);
-  H2P_MIN_MAX_FRAME_SIZE = Integer($4000);
+  HTTP2_MAX_WINDOW_UPDATE  = Integer($7FFFFFFF);
+  HTTP2_MAX_ENABLE_PUSH    = 1;
+  HTTP2_MAX_MAX_FRAME_SIZE = Integer($FFFFFF);
+  HTTP2_MIN_MAX_FRAME_SIZE = Integer($4000);
 
 
   H2FT_DATA                    = Byte($00);
@@ -167,11 +167,14 @@ const
   H2SET_INITIAL_WINDOW_SIZE    = Byte($04);
   H2SET_MAX_FRAME_SIZE         = Byte($05);
   H2SET_MAX_HEADER_LIST_SIZE   = Byte($06);
+  //
   HTTP2_SETTINGS_MAX           = H2SET_MAX_HEADER_LIST_SIZE;
   HTTP2_SETTINGS_MAX_SIZE      = HTTP2_SETTINGS_MAX * H2P_SETTINGS_BLOCK_SIZE;
+  HTTP2_INITIAL_WINDOW_SIZE    = $ffff;
 
   HTTP2_SET_INITIAL_VALUES : Array [1..HTTP2_SETTINGS_MAX] of Cardinal =
-                             (4096, 1, $ffffffff, $ffff, H2P_MIN_MAX_FRAME_SIZE, HPACK_MAX_HEADER_SIZE);
+                             (4096, 1, $ffffffff, HTTP2_INITIAL_WINDOW_SIZE,
+                              HTTP2_MIN_MAX_FRAME_SIZE, HPACK_MAX_HEADER_SIZE);
 							 
   H2FL_END_STREAM              = Byte($01);
   H2FL_ACK                     = Byte($01);

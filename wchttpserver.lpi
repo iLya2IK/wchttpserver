@@ -137,6 +137,7 @@
       <Unit15>
         <Filename Value="../CommonUtils/bufferedstream.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="BufferedStream"/>
       </Unit15>
       <Unit16>
         <Filename Value="../CommonUtils/ecommonobjs.pas"/>
