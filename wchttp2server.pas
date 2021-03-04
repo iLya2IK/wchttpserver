@@ -663,10 +663,10 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    function IsStreamInClosedArch(SID : Cardinal) : Boolean;
-    function GetByID(aID : Cardinal) : TWCHTTPStream;
-    function GetNextStreamWithRequest : TWCHTTPStream;
-    function HasStreamWithRequest: Boolean;
+    function  IsStreamInClosedArch(SID : Cardinal) : Boolean;
+    function  GetByID(aID : Cardinal) : TWCHTTPStream;
+    function  GetNextStreamWithRequest : TWCHTTPStream;
+    function  HasStreamWithRequest: Boolean;
     procedure CloseOldIdleStreams(aMaxId : Cardinal);
     procedure AdjustWindowSize(Delta : Int32);
     procedure RemoveClosedStreams;
@@ -704,7 +704,6 @@ type
   private
     FLastUsedConnection : TIteratorObject;
     FMaintainStamp : QWord;
-    FSettings : TWCHTTP2ServerSettings;
     FGarbageCollector : TNetReferenceList;
     FNeedToRemoveDeadConnections : TThreadBoolean;
     {$ifdef socket_epoll_mode}
@@ -725,21 +724,47 @@ type
     procedure AfterConnExtracted(aObj : TObject);
   public
     constructor Create(aGarbageCollector : TNetReferenceList);
-    destructor Destroy; override;
-    procedure  AddConnection(FConn : TWCHTTPRefConnection);
-    function   GetByHandle(aSocket : Cardinal) : TWCHTTPRefConnection;
-    procedure RemoveDeadConnections(const TS: QWord; MaxLifeTime: Cardinal);
-    procedure Idle(const TS: QWord);
-    procedure  PushSocketError;
-    property HTTP2Settings : TWCHTTP2ServerSettings read FSettings;
-    property GarbageCollector : TNetReferenceList read FGarbageCollector write
+    destructor  Destroy; override;
+    procedure   AddConnection(FConn : TWCHTTPRefConnection);
+    function    GetByHandle(aSocket : Cardinal) : TWCHTTPRefConnection;
+    procedure   RemoveDeadConnections(const TS: QWord; MaxLifeTime: Cardinal);
+    procedure   Idle(const TS: QWord);
+    procedure   PushSocketError;
+    property    GarbageCollector : TNetReferenceList read FGarbageCollector write
                                          FGarbageCollector;
   end;
 
-  TWCHTTPServerRefConnections = class(TWCHTTPRefConnections)
+  { TWCHTTP2RefConnections }
+
+  TWCHTTP2RefConnections = class(TWCHTTPRefConnections)
+  private
+    FSettings : TWCHTTP2ServerSettings;
+  protected
+    function CheckStreamID(SID : Cardinal) : Boolean; virtual; abstract;
+    function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
+                          const {%H-}PseudoHeaders : THTTP2PseudoHeaders) : Cardinal; virtual; abstract;
+  public
+    constructor Create(aGarbageCollector : TNetReferenceList);
+    destructor Destroy; override;
+    property HTTP2Settings : TWCHTTP2ServerSettings read FSettings;
   end;
 
-  TWCHTTPClientRefConnections = class(TWCHTTPRefConnections)
+  { TWCHTTP2ServerRefConnections }
+
+  TWCHTTP2ServerRefConnections = class(TWCHTTP2RefConnections)
+  protected
+    function CheckStreamID(SID : Cardinal) : Boolean; override;
+    function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
+                          const PseudoHeaders : THTTP2PseudoHeaders) : Cardinal; override;
+  end;
+
+  { TWCHTTP2ClientRefConnections }
+
+  TWCHTTP2ClientRefConnections = class(TWCHTTP2RefConnections)
+  protected
+    function CheckStreamID(SID : Cardinal) : Boolean; override;
+    function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
+                          const {%H-}PseudoHeaders : THTTP2PseudoHeaders) : Cardinal; override;
   end;
 
 implementation
@@ -761,6 +786,57 @@ type
   end;
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
+
+{ TWCHTTP2ClientRefConnections }
+
+function TWCHTTP2ClientRefConnections.CheckStreamID(SID: Cardinal): Boolean;
+begin
+  Result := (SID and $00000001) = 0;
+end;
+
+function TWCHTTP2ClientRefConnections.CheckHeaders(
+  Decoder: TThreadSafeHPackDecoder; const PseudoHeaders: THTTP2PseudoHeaders
+  ): Cardinal;
+begin
+  Result := H2E_NO_ERROR;
+end;
+
+{ TWCHTTP2ServerRefConnections }
+
+function TWCHTTP2ServerRefConnections.CheckStreamID(SID: Cardinal): Boolean;
+begin
+  Result := (SID and $00000001) > 0;
+end;
+
+function TWCHTTP2ServerRefConnections.CheckHeaders(
+  {%H-}Decoder: TThreadSafeHPackDecoder; const PseudoHeaders: THTTP2PseudoHeaders
+  ): Cardinal;
+begin
+  // server-specific check
+  if Length(PseudoHeaders[hh2Status]) > 0 then
+    Exit(H2E_PROTOCOL_ERROR);
+  if (Length(PseudoHeaders[hh2Path]) = 0) and
+      (SameStr(PseudoHeaders[hh2Scheme], 'http') or
+       SameStr(PseudoHeaders[hh2Scheme], 'https')) then
+    Exit(H2E_PROTOCOL_ERROR);
+  if (Length(PseudoHeaders[hh2Scheme]) = 0) then
+    Exit(H2E_PROTOCOL_ERROR);
+  Exit(H2E_NO_ERROR);
+end;
+
+{ TWCHTTP2RefConnections }
+
+constructor TWCHTTP2RefConnections.Create(aGarbageCollector: TNetReferenceList);
+begin
+  inherited Create(aGarbageCollector);
+  FSettings := TWCHTTP2ServerSettings.Create;
+end;
+
+destructor TWCHTTP2RefConnections.Destroy;
+begin
+  FSettings.Free;
+  inherited Destroy;
+end;
 
 { TThreadSafeWindowSize }
 
@@ -2444,7 +2520,6 @@ begin
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
   FGarbageCollector := aGarbageCollector;
-  FSettings := TWCHTTP2ServerSettings.Create;
   {$ifdef SOCKET_EPOLL_MODE}
   FEpollLocker := TNetCustomLockedObject.Create;
   Inflate;
@@ -2483,7 +2558,6 @@ begin
   fpClose(FEpollFD);
   FEpollLocker.Free;
   {$endif}
-  FSettings.Free;
   FNeedToRemoveDeadConnections.Free;
   inherited Destroy;
 end;
@@ -2965,15 +3039,15 @@ begin
   FConSettings := TThreadSafeConnSettings.Create;
   for i := 1 to HTTP2_SETTINGS_MAX do
     FConSettings[i] := HTTP2_SET_INITIAL_VALUES[i];
-  FOwner.HTTP2Settings.Lock;
+  TWCHTTP2RefConnections(FOwner).HTTP2Settings.Lock;
   try
-    with FOwner.HTTP2Settings do
+    with TWCHTTP2RefConnections(FOwner).HTTP2Settings do
     for i := 0 to Count-1 do
     begin
       FConSettings[Setting[i].Identifier] := Setting[i].Value;
     end;
   finally
-    FOwner.HTTP2Settings.UnLock;
+    TWCHTTP2RefConnections(FOwner).HTTP2Settings.UnLock;
   end;
   InitializeBuffers;
   FSendWindow := TThreadSafeWindowSize.Create(FConSettings[H2SET_INITIAL_WINDOW_SIZE]);
@@ -2981,7 +3055,7 @@ begin
   // send initial settings frame
   if aOpenningMode in [h2oUpgradeToH2C, h2oUpgradeToH2] then
     PushFrame(TWCHTTP2UpgradeResponseFrame.Create(aOpenningMode));
-  Sz := FOwner.HTTP2Settings.CopySettingsToMem(Cset);
+  Sz := TWCHTTP2RefConnections(FOwner).HTTP2Settings.CopySettingsToMem(Cset);
   PushFrame(TWCHTTP2DataFrame.Create(H2FT_SETTINGS, nil, 0, CSet,  Sz));
 end;
 
@@ -3145,21 +3219,10 @@ begin
 
         if FrameHeader.StreamID > 0 then
         begin
-          if FOwner is TWCHTTPServerRefConnections then
+          if not TWCHTTP2RefConnections(FOwner).CheckStreamID(FrameHeader.StreamID) then
           begin
-            if (FrameHeader.StreamID and $00000001) = 0 then
-            begin
-              err := H2E_PROTOCOL_ERROR;
-              break;
-            end;
-          end else
-          if FOwner is TWCHTTPClientRefConnections then
-          begin
-            if (FrameHeader.StreamID and $00000001) > 0 then
-            begin
-              err := H2E_PROTOCOL_ERROR;
-              break;
-            end;
+            err := H2E_PROTOCOL_ERROR;
+            break;
           end;
           if FrameHeader.StreamID <= FLastStreamID then
           begin
@@ -3599,8 +3662,8 @@ begin
       end else begin
         FReadTailSize := 0;
         if FDataConsumed >
-           (FOwner.HTTP2Settings.GetByID(H2SET_INITIAL_WINDOW_SIZE,
-                                         HTTP2_INITIAL_WINDOW_SIZE) div 10) then
+           (TWCHTTP2RefConnections(FOwner).HTTP2Settings.GetByID(H2SET_INITIAL_WINDOW_SIZE,
+                                           HTTP2_INITIAL_WINDOW_SIZE) div 10) then
         begin
           SendUpdateWindow(Str);
         end;
@@ -4076,7 +4139,7 @@ var i : integer;
     p : PHPackHeaderTextItem;
     PseudoHeaders : Boolean;
     h2 : THTTP2Header;
-    PHValues : Array [hh2Method..hh2Status] of String = ('', '', '', '');
+    PHValues : THTTP2PseudoHeaders = ('', '', '', '', '');
 begin
   Result := H2E_NO_ERROR;
   FHeadersComplete := true;
@@ -4131,27 +4194,9 @@ begin
         if PseudoHeaders then PseudoHeaders:= not PseudoHeaders;
       end;
     end;
-    if (FConnection.FOwner is TWCHTTPServerRefConnections) then
-    begin
-      // server-specific check
-      if Length(PHValues[hh2Status]) > 0 then
-      begin
-        Result := H2E_PROTOCOL_ERROR;
-        Exit;
-      end;
-      if (Length(PHValues[hh2Path]) = 0) and
-          (SameStr(PHValues[hh2Scheme], 'http') or
-           SameStr(PHValues[hh2Scheme], 'https')) then
-      begin
-        Result := H2E_PROTOCOL_ERROR;
-        Exit;
-      end;
-      if (Length(PHValues[hh2Scheme]) = 0) then
-      begin
-        Result := H2E_PROTOCOL_ERROR;
-        Exit;
-      end;
-    end;
+
+    //specific checks
+    Result := TWCHTTP2RefConnections(FConnection.FOwner).CheckHeaders(aDecoder, PHValues);
   finally
     aDecoder.UnLock;
     aDecoder.DecReference;

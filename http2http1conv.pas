@@ -46,6 +46,7 @@ type
                   hh2ExtRefresh,
                   hh2ExtStrictTransportSec);
   THTTP2HeadersArray = Array [THTTP2Header] of String;
+  THTTP2PseudoHeaders = Array [hh2Authority..hh2Status] of String;
 
   THTTPHeader = record
     h1 : THeader;

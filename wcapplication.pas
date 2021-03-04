@@ -144,7 +144,7 @@ type
     FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
-    FHTTPRefConnections : TWCHTTPServerRefConnections;
+    FHTTPRefConnections : TWCHTTP2ServerRefConnections;
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
@@ -180,7 +180,7 @@ type
     procedure DoSendData(aConnection : TWCHTTPRefConnection);
     destructor Destroy; override;
 
-    property  HTTPRefConnections : TWCHTTPServerRefConnections read FHTTPRefConnections;
+    property  HTTPRefConnections : TWCHTTP2ServerRefConnections read FHTTPRefConnections;
   end;
 
   { TWCHttpServerHandler }
@@ -1918,7 +1918,7 @@ begin
   FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
-  FHTTPRefConnections := TWCHTTPServerRefConnections.Create(nil);
+  FHTTPRefConnections := TWCHTTP2ServerRefConnections.Create(nil);
 end;
 
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;
