@@ -78,6 +78,18 @@ public
 end;
 PHTTP2RstStreamPayload = ^THTTP2RstStreamPayload;
 
+{ THTTP2WindowUpdatePayload }
+
+THTTP2WindowUpdatePayload = packed record
+private
+  field1  : Cardinal; // Window Increment Value
+  function GetWindowSize: Cardinal;
+  procedure SetWindowSize(AValue: Cardinal);
+public
+  property WindowSize : Cardinal read GetWindowSize write SetWindowSize;
+end;
+PHTTP2WindowUpdatePayload = ^THTTP2WindowUpdatePayload;
+
 { THTTP2PriorityPayload }
 
 THTTP2PriorityPayload = packed record
@@ -143,11 +155,11 @@ const
   H2P_GOAWAY_MIN_SIZE = 8;
   H2P_PING_SIZE = 8;
 
-  HTTP2_MAX_WINDOW_UPDATE  = Integer($7FFFFFFF);
-  HTTP2_MAX_ENABLE_PUSH    = 1;
-  HTTP2_MAX_MAX_FRAME_SIZE = Integer($FFFFFF);
-  HTTP2_MIN_MAX_FRAME_SIZE = Integer($4000);
-
+  HTTP2_MAX_WINDOW_UPDATE   = Cardinal($7fffffff);
+  HTTP2_MAX_ENABLE_PUSH     = 1;
+  HTTP2_MAX_MAX_FRAME_SIZE  = Cardinal($ffffff);
+  HTTP2_MIN_MAX_FRAME_SIZE  = Cardinal($4000);
+  HTTP2_INITIAL_WINDOW_SIZE = Cardinal($ffff);
 
   H2FT_DATA                    = Byte($00);
   H2FT_HEADERS                 = Byte($01);
@@ -160,6 +172,7 @@ const
   H2FT_WINDOW_UPDATE           = Byte($08);
   H2FT_CONTINUATION            = Byte($09);
   H2FT_MAX_KNOWN               = H2FT_CONTINUATION;
+  HTTP2_FLOW_CONTROL_FRAME_TYPES : Set of Byte = [H2FT_DATA];
 
   H2SET_HEADER_TABLE_SIZE      = Byte($01);
   H2SET_ENABLE_PUSH            = Byte($02);
@@ -170,7 +183,6 @@ const
   //
   HTTP2_SETTINGS_MAX           = H2SET_MAX_HEADER_LIST_SIZE;
   HTTP2_SETTINGS_MAX_SIZE      = HTTP2_SETTINGS_MAX * H2P_SETTINGS_BLOCK_SIZE;
-  HTTP2_INITIAL_WINDOW_SIZE    = $ffff;
 
   HTTP2_SET_INITIAL_VALUES : Array [1..HTTP2_SETTINGS_MAX] of Cardinal =
                              (4096, 1, $ffffffff, HTTP2_INITIAL_WINDOW_SIZE,
@@ -206,6 +218,18 @@ Implementation
 function Http2IsFrameKnown(aFrameType: Byte): Boolean;
 begin
   Result := aFrameType <= H2FT_MAX_KNOWN;
+end;
+
+{ THTTP2WindowUpdatePayload }
+
+function THTTP2WindowUpdatePayload.GetWindowSize : Cardinal;
+begin
+  Result := BEtoN(field1);
+end;
+
+procedure THTTP2WindowUpdatePayload.SetWindowSize(AValue : Cardinal);
+begin
+  field1 := NtoBE(AValue);
 end;
 
 { THTTP2RstStreamPayload }
