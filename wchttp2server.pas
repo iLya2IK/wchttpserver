@@ -659,12 +659,24 @@ type
     property ConnSettings[id : Word] : Cardinal read GetConnSetting;
   end;
 
+  { TWCClosedStreams }
+
+  TWCClosedStreams = class
+  private
+    FStartFrom, FEndAt : Cardinal;
+  public
+    constructor Create(SID : Cardinal);
+    function Expand(SID : Cardinal) : Boolean;
+    function MergeRight(n : TWCClosedStreams) : Boolean;
+    function Contain(SID : Cardinal) : Boolean;
+    property StartFrom : Cardinal read FStartFrom;
+  end;
+
   { TWCHTTPStreams }
 
   TWCHTTPStreams = class(TThreadSafeFastSeq)
   private
-    FClosedStreams : PIntegerArray;
-    FClosedStreamsCount, FClosedStreamsCapacity : Integer;
+    FClosedStreams : TThreadSafeFastSeq;
     procedure AddClosedStream(SID : Cardinal);
     function IsStreamClosed(aStrm: TObject; {%H-}data: pointer): Boolean;
     procedure AfterStrmExtracted(aObj : TObject);
@@ -794,6 +806,42 @@ type
   end;
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
+
+{ TWCClosedStreams }
+
+constructor TWCClosedStreams.Create(SID : Cardinal);
+begin
+  FStartFrom := SID;
+  FEndAt := SID;
+end;
+
+function TWCClosedStreams.Expand(SID : Cardinal) : Boolean;
+begin
+  if (SID - FEndAt) <= 2 then begin
+    FEndAt := SID;
+    Result := true;
+  end else
+  if (FStartFrom - SID) <= 2 then begin
+    FStartFrom := SID;
+    Result := true;
+  end
+  else
+    Result := false;
+end;
+
+function TWCClosedStreams.MergeRight(n : TWCClosedStreams) : Boolean;
+begin
+  if (n.FStartFrom - FEndAt) <= 2 then begin
+    FEndAt := n.FEndAt;
+    Result := true;
+  end else
+    Result := false;
+end;
+
+function TWCClosedStreams.Contain(SID : Cardinal) : Boolean;
+begin
+  Result := (SID >= FStartFrom) and (SID <= FEndAt);
+end;
 
 { TWCHTTP2ClientRefConnections }
 
@@ -3353,7 +3401,7 @@ begin
           H2FT_GOAWAY :
             Flag := FrameHeader.PayloadLength < H2P_GOAWAY_MIN_SIZE;
         else
-          Flag := FrameHeader.PayloadLength > R; //bug fixed 27.02.2021
+          Flag := FrameHeader.PayloadLength > R;
         end;
         if Flag then
         begin
@@ -3396,7 +3444,7 @@ begin
                 DataSize := DataSize - B;
               end;
               if DataSize < 0 then begin
-                err := H2E_PROTOCOL_ERROR; //bug 28.02.2021
+                err := H2E_PROTOCOL_ERROR;
                 break;
               end;
               Inc(FDataConsumed, FrameHeader.PayloadLength);
@@ -3415,7 +3463,7 @@ begin
               end;
               if Str.FHeadersComplete then
               begin
-                err := H2E_PROTOCOL_ERROR;//bug 28.02.2021
+                err := H2E_PROTOCOL_ERROR;
                 break;
               end;
               DataSize := FrameHeader.PayloadLength;
@@ -3440,7 +3488,7 @@ begin
                 Str.ResetRecursivePriority;
               end;
               if DataSize < 0 then begin
-                err := H2E_PROTOCOL_ERROR; //bug 28.02.2021
+                err := H2E_PROTOCOL_ERROR;
                 break;
               end;
               err := ProceedHeadersPayload(Str, DataSize);
@@ -3610,7 +3658,7 @@ begin
               end;
 
               // send ack settings frame
-              if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then //bug fixed 27.02.21
+              if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then
                 PushFrame(H2FT_SETTINGS, Str, H2FL_ACK, nil, 0);
             end;
             H2FT_WINDOW_UPDATE : begin
@@ -3661,7 +3709,7 @@ begin
               Buffer := GetMem(H2P_PING_SIZE);
               //fill ping buffer
               S.Read(Buffer^, H2P_PING_SIZE);
-              if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then //26.02.2021 bug fixed
+              if (FrameHeader.FrameFlag and H2FL_ACK) = 0 then
                 PushFrame(H2FT_PING, nil, H2FL_ACK, Buffer, H2P_PING_SIZE) else
                 FreeMem(Buffer);
             end;
@@ -3938,18 +3986,51 @@ end;
 { TWCHTTPStreams }
 
 procedure TWCHTTPStreams.AddClosedStream(SID: Cardinal);
+var it, added : TIteratorObject;
 begin
-  Lock;
+  FClosedStreams.Lock;
   try
-    if FClosedStreamsCapacity = FClosedStreamsCount then
+    added := nil;
+    it := FClosedStreams.ListBegin;
+    while Assigned(it) do
     begin
-      Inc(FClosedStreamsCapacity, 8);
-      FClosedStreams := ReAllocMem(FClosedStreams,FClosedStreamsCapacity * Sizeof(Integer));
+      if TWCClosedStreams(it.Value).Contain(SID) then
+      begin
+        Break;
+      end;
+      if TWCClosedStreams(it.Value).Expand(SID) then
+      begin
+        added := it;
+        Break;
+      end;
+      if TWCClosedStreams(it.Value).StartFrom > SID then
+      begin
+        added := FClosedStreams.InsertBefore(it, TWCClosedStreams.Create(SID));
+        break;
+      end;
+      it := it.Next;
     end;
-    FClosedStreams^[FClosedStreamsCount] := SID and H2P_STREAM_ID_MASK;
-    Inc(FClosedStreamsCount);
+    if Assigned(added) then
+    begin
+      //one-direction merging pass
+      it := FClosedStreams.ListBegin;
+      while Assigned(it) do
+      begin
+        added := it.Next;
+        if Assigned(added) then
+        begin
+          if TWCClosedStreams(it.Value).MergeRight(TWCClosedStreams(added.Value)) then
+          begin
+            FClosedStreams.Erase(added);
+          end else
+            it := added;
+        end else
+          it := nil;
+      end;
+    end else
+      FClosedStreams.Push_back(TWCClosedStreams.Create(SID));
   finally
-    UnLock;
+    FClosedStreams.UnLock;
   end;
 end;
 
@@ -3967,9 +4048,7 @@ end;
 constructor TWCHTTPStreams.Create;
 begin
   inherited Create;
-  FClosedStreamsCount:= 0;
-  FClosedStreamsCapacity := 64;
-  FClosedStreams := GetMem(Sizeof(Integer) * FClosedStreamsCapacity);
+  FClosedStreams := TThreadSafeFastSeq.Create;
 end;
 
 destructor TWCHTTPStreams.Destroy;
@@ -3987,29 +4066,33 @@ begin
   finally
     UnLock;
   end;
-  FreeMem(FClosedStreams);
+  FClosedStreams.Free;
   inherited Destroy;
 end;
 
 function TWCHTTPStreams.IsStreamInClosedArch(SID: Cardinal): Boolean;
-var i : integer;
+var it : TIteratorObject;
 begin
   Result := false;
-  Lock;
+  FClosedStreams.Lock;
   try
-    for i := 0 to FClosedStreamsCount-1 do
+    it := FClosedStreams.ListBegin;
+    while Assigned(it) do
     begin
-      if FClosedStreams^[i] = Integer(SID) then Exit(true);
+      if TWCClosedStreams(it.Value).Contain(SID) then
+        Exit(True);
+
+      it := it.Next;
     end;
   finally
-    UnLock;
+    FClosedStreams.UnLock;
   end;
 end;
 
 function TWCHTTPStreams.GetByID(aID: Cardinal): TWCHTTPStream;
 var P : TIteratorObject;
 begin
-  Result := nil; // bug fixed. 24.02.2021
+  Result := nil;
   Lock;
   try
     P := ListBegin;
@@ -4241,7 +4324,7 @@ begin
           Result := H2E_PROTOCOL_ERROR;
           Exit;
         end;
-        if PseudoHeaders then PseudoHeaders:= not PseudoHeaders;
+        if PseudoHeaders then PseudoHeaders := false;
       end;
     end;
 
