@@ -1,7 +1,7 @@
 ![alt text](https://github.com/iLya2IK/wchttpserver/blob/main/wclogo_c.svg?raw=true)
 
 # wchttpserver
-HTTP/2+1.1 server on Lazarus (Free Pascal)
+HTTP/2+1.1 server written with Lazarus (Free Pascal)
 
 The project builds on fpWeb modules and extends them to increase functionality:
 1. Client management using cookies (saving and maintaining sessions).
