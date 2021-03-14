@@ -817,11 +817,11 @@ end;
 
 function TWCClosedStreams.Expand(SID : Cardinal) : Boolean;
 begin
-  if (SID - FEndAt) <= 2 then begin
+  if (Int32(SID) - Int32(FEndAt)) <= 2 then begin
     FEndAt := SID;
     Result := true;
   end else
-  if (FStartFrom - SID) <= 2 then begin
+  if (Int32(FStartFrom) - Int32(SID)) <= 2 then begin
     FStartFrom := SID;
     Result := true;
   end
@@ -831,7 +831,7 @@ end;
 
 function TWCClosedStreams.MergeRight(n : TWCClosedStreams) : Boolean;
 begin
-  if (n.FStartFrom - FEndAt) <= 2 then begin
+  if (Int32(n.FStartFrom) - Int32(FEndAt)) <= 2 then begin
     FEndAt := n.FEndAt;
     Result := true;
   end else
@@ -2668,6 +2668,7 @@ begin
   FNeedToRemoveDeadConnections.Value := false;
   LifeTime.CurTime := TS;
   LifeTime.MaxLifeTime := MaxLifeTime;
+  FMaintainStamp := TS;
   ExtractObjectsByCriteria(@IsConnDead, @AfterConnExtracted, @LifeTime);
 end;
 
@@ -2677,10 +2678,8 @@ var P :TIteratorObject;
 begin
   if ((TS - FMaintainStamp) div 1000 > 10) or
      (FNeedToRemoveDeadConnections.Value) then
-  begin
     RemoveDeadConnections(TS, 120);
-    FMaintainStamp := TS;
-  end;
+
   {$ifdef SOCKET_EPOLL_MODE}
   CallActionEpoll(Count);
   {$endif}
@@ -2930,8 +2929,7 @@ begin
                fr.SaveToStream(WrBuf);
                AfterFrameSent(fr);
                fr.Free;
-             end else
-               Break;
+             end;
            end;
         until not assigned(fr);
       finally
@@ -3958,7 +3956,6 @@ begin
         TWCHTTP2Frame(fr).Stream.FSendWindow.Send(TWCHTTP2Frame(fr).Header.PayloadLength);
       FSendWindow.Send(TWCHTTP2Frame(fr).Header.PayloadLength);
     end;
-
   end;
 end;
 
@@ -3986,11 +3983,11 @@ end;
 { TWCHTTPStreams }
 
 procedure TWCHTTPStreams.AddClosedStream(SID: Cardinal);
-var it, added : TIteratorObject;
+var it, nit : TIteratorObject;
 begin
   FClosedStreams.Lock;
   try
-    added := nil;
+    nit := nil;
     it := FClosedStreams.ListBegin;
     while Assigned(it) do
     begin
@@ -4000,30 +3997,30 @@ begin
       end;
       if TWCClosedStreams(it.Value).Expand(SID) then
       begin
-        added := it;
+        nit := it;
         Break;
       end;
       if TWCClosedStreams(it.Value).StartFrom > SID then
       begin
-        added := FClosedStreams.InsertBefore(it, TWCClosedStreams.Create(SID));
+        nit := FClosedStreams.InsertBefore(it, TWCClosedStreams.Create(SID));
         break;
       end;
       it := it.Next;
     end;
-    if Assigned(added) then
+    if Assigned(nit) then
     begin
       //one-direction merging pass
       it := FClosedStreams.ListBegin;
       while Assigned(it) do
       begin
-        added := it.Next;
-        if Assigned(added) then
+        nit := it.Next;
+        if Assigned(nit) then
         begin
-          if TWCClosedStreams(it.Value).MergeRight(TWCClosedStreams(added.Value)) then
+          if TWCClosedStreams(it.Value).MergeRight(TWCClosedStreams(nit.Value)) then
           begin
-            FClosedStreams.Erase(added);
+            FClosedStreams.Erase(nit);
           end else
-            it := added;
+            it := nit;
         end else
           it := nil;
       end;
