@@ -51,6 +51,9 @@ uses
 
 type
 
+  TParamsVariantArray = Array [0..99] of Variant;
+  PParamsVariantArray = ^TParamsVariantArray;
+
   TWebClient = class;
   TWebClients = class;
   TWCResponse = class;
@@ -491,6 +494,8 @@ type
     function SaveNewState(aState: TWebClientState; const aNewState: String;
       oldHash: Cardinal; ignoreHash: boolean=false): Boolean;
     procedure ResponseString(AResponse : TResponse; const S : String); virtual;
+    procedure ResponseStream(AResponse : TResponse; Str : TStream; StrSize : Int64;
+      OwnStream : Boolean); virtual;
     property CUID : String read FCUID;
     property StateHash[index : TWebClientState] : Cardinal read GetStateHash;
     property AcceptGzip : Boolean read GetAcceptGZip write SetAcceptGZip;
@@ -640,11 +645,15 @@ Var
   ShowCleanUpErrors : Boolean = False;
 
 function ESWGetHeaderContent(H : THTTPHeader; const P1S, P2S : String;
-                              out Par1, Par2 : Variant;
-                              const Def1, Def2 : Variant) : Boolean; overload;
+                             out Par1, Par2 : Variant;
+                             const Def1, Def2 : Variant) : Boolean; overload;
 function ESWGetHeaderContent(H : THTTPHeader; const PS : String;
-                              out Par : Variant;
-                              const Def : Variant) : Boolean; overload;
+                             out Par : Variant;
+                             const Def : Variant) : Boolean; overload;
+function ESWGetHeaderContent(H : THTTPHeader;
+                             const PARS : Array of String;
+                             VALS : PParamsVariantArray;
+                             const Def : Array of Variant) : Boolean; overload;
 function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
 function DecodeSIDToInt(const value : String) : Cardinal;
@@ -778,6 +787,40 @@ begin
         if VarIsNull(Par) then Par := Def;
         Result := ((VarIsNumeric(Par) and VarIsNumeric(Def)) or
                    (VarIsStr(Par) and VarIsStr(Def)));
+      end;
+    end;
+  finally
+    if assigned(jsonObj) then FreeAndNil(jsonObj);
+  end;
+end;
+
+function ESWGetHeaderContent(H : THTTPHeader; const PARS : array of String;
+  VALS : PParamsVariantArray; const Def : array of Variant) : Boolean;
+var jsonObj: TJSONObject;
+    jsonData : Array of TJSONData;
+    i : integer;
+begin
+  Result := false;
+  if Length(PARS) <> Length(Def) then Exit;
+  try
+    jsonObj:= TJSONObject(GetJSON(H.Content));
+    if assigned(jsonObj) then
+    begin
+      SetLength(jsonData, Length(PARS));
+      for i := 0 to High(Pars) do
+      begin
+        jsonData[i] := jsonObj.Find(PARS[i]);
+        if not Assigned(jsonData[i]) then Exit;
+      end;
+      Result := true;
+      for i := 0 to High(Pars) do
+      begin
+        If jsonData[i].JSONType = jtObject then
+          VALS^[i] := TJSONObject(jsonData[i]).AsJSON else
+          VALS^[i] := jsonData[i].Value;
+        if VarIsNull(VALS^[i]) then VALS^[i] := Def[i];
+        Result := Result and (((VarIsNumeric(VALS^[i]) and VarIsNumeric(Def[i])) or
+                               (VarIsStr(VALS^[i]) and VarIsStr(Def[i]))));
       end;
     end;
   finally
@@ -2307,22 +2350,38 @@ end;
 
 procedure TWebClient.ResponseString(AResponse: TResponse; const S: String);
 var
-  deflateStream : TDefcompressionstream;
+  StrBuffer : TBufferedStream;
   L : Longint;
+begin
+  L := Length(S);
+  if (L > Application.CompressLimit) and
+     ({$IFDEF ALLOW_STREAM_GZIP} AcceptGzip or {$ENDIF}AcceptDeflate) then
+  begin
+    StrBuffer := TBufferedStream.Create;
+    StrBuffer.SetPointer(@(S[1]), L);
+    ResponseStream(AResponse, StrBuffer, L, true);
+  end  else
+    AResponse.Content:=S;
+end;
+
+procedure TWebClient.ResponseStream(AResponse : TResponse; Str : TStream;
+  StrSize : Int64;
+  OwnStream : Boolean);
+var
+  deflateStream : TDefcompressionstream;
   NeedCompress : Boolean;
   {$IFDEF ALLOW_STREAM_GZIP}
   gzStream : TGzCompressionstream;
   {$ENDIF}
 begin
-  L := Length(S);
-  NeedCompress:= L > Application.CompressLimit;
+  NeedCompress:= StrSize > Application.CompressLimit;
   {$IFDEF ALLOW_STREAM_GZIP}
   if AcceptGzip and NeedCompress then
   begin
     AResponse.ContentStream := TMemoryStream.Create;
     gzStream := Tgzcompressionstream.create(cldefault, AResponse.ContentStream);
     try
-      gzStream.WriteBuffer(S[1], L);
+      gzStream.CopyFrom(Str, StrSize);
     finally
       gzStream.Free;
     end;
@@ -2337,7 +2396,7 @@ begin
     AResponse.ContentStream := TMemoryStream.Create;
     deflateStream := Tdefcompressionstream.create(cldefault, AResponse.ContentStream);
     try
-      deflateStream.WriteBuffer(S[1], L);
+      deflateStream.CopyFrom(Str, StrSize);
     finally
       deflateStream.Free;
     end;
@@ -2346,7 +2405,12 @@ begin
     AResponse.ContentLength := AResponse.ContentStream.Size;
     AResponse.SetHeader(hhContentEncoding, cSdeflate);
   end else
-    AResponse.Content:=S;
+  begin
+    AResponse.ContentStream := Str;
+    AResponse.FreeContentStream := OwnStream;
+    Str := nil;
+  end;
+  if OwnStream and Assigned(Str) then Str.Free;
 end;
 
 { TWebClients }
