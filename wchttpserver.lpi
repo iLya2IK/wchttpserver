@@ -46,6 +46,9 @@
             <LinkSmart Value="True"/>
           </Linking>
           <Other>
+            <Verbosity>
+              <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
+            </Verbosity>
             <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP"/>
           </Other>
         </CompilerOptions>
@@ -70,7 +73,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="24">
+    <Units Count="25">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -174,6 +177,10 @@
         <Filename Value="../CommonUtils/extsqlite3/sqlitewebsession.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit23>
+      <Unit24>
+        <Filename Value="wcutils.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit24>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -209,6 +216,9 @@
       </Debugging>
     </Linking>
     <Other>
+      <Verbosity>
+        <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
+      </Verbosity>
       <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dDEBUG -dDEBUG_STAT"/>
     </Other>
   </CompilerOptions>

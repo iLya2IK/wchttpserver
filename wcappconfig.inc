@@ -68,7 +68,7 @@ const
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_TLSKEY_LOG     ; Name:'TLSKeyLog'      ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_ALPN_USE_HTTP2 ; Name:'UseHTTP2'       ),
     (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_COOKIE_MAX_AGE; Name:'CookieMaxAgeSec'),
-    (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_TIMEOUT       ; Name:'TimeoutSec'     ),
+    (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_TIMEOUT       ; Name:'TimeoutMin'     ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_HEADER_TABLE_SIZE      ; Name:'HEADER_TABLE_SIZE'     ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_ENABLE_PUSH            ; Name:'ENABLE_PUSH'           ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_CONCURRENT_STREAMS ; Name:'MAX_CONCURRENT_STREAMS'),

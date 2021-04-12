@@ -67,6 +67,8 @@ const
 
 implementation
 
+uses wcutils;
+
 { TWCStop }
 
 procedure TWCStop.Execute;

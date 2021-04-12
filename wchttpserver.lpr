@@ -150,7 +150,7 @@ begin
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MAX, DefaultJobToJobWait.AdaptMax);
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MIN, DefaultJobToJobWait.AdaptMin);
   Conf.SetDefaultValue(CFG_CLIENT_COOKIE_MAX_AGE, 86400);
-  Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 10);
+  Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 20);
 
   with Application.ESServer.HTTPRefConnections.HTTP2Settings do
   if Count = 0 then begin
