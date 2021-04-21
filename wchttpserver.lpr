@@ -123,7 +123,7 @@ begin
   // SSLLoc - location of openssl keys, certificates and logs
   // then openssl location will be home/folder/CFG_SSL_LOC
   Conf.SetDefaultValue(CFG_SSL_LOC, 'openssl');
-  Conf.SetDefaultValue(CFG_SSL_CIPHER1_2,
+  Conf.SetDefaultValue(CFG_SSL_CIPHER,
                 'ECDHE-RSA-AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-CHACHA20-POLY1305:'+
@@ -131,11 +131,6 @@ begin
                 'AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-AES256-GCM-SHA384:'+
                 'ECDHE-ECDSA-AES256-SHA384'+
-                '');
-  Conf.SetDefaultValue(CFG_SSL_CIPHER1_3,
-                'TLS_AES_128_GCM_SHA256:'+
-                'TLS_AES_256_GCM_SHA384:'+
-                'TLS_CHACHA20_POLY1305_SHA256'+
                 '');
   // PrivateKey - location of openssl keys
   // then keys location will be home/folder/CFG_SSL_LOC/CFG_PRIVATE_KEY

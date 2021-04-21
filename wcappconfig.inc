@@ -21,8 +21,7 @@ const
   CFG_CERTIFICATE      = $62;
   CFG_TLSKEY_LOG       = $72;
   CFG_ALPN_USE_HTTP2   = $82;
-  CFG_SSL_CIPHER1_2    = $92;
-  CFG_SSL_CIPHER1_3    = $A2;
+  CFG_SSL_CIPHER       = $92;
   CFG_CLIENTS_SEC           = $03;
   CFG_CLIENT_COOKIE_MAX_AGE = $13;
   CFG_CLIENT_TIMEOUT        = $23;
@@ -65,8 +64,7 @@ const
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_HOST_NAME      ; Name:'HostName'        ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_LOC        ; Name:'SSLLoc'          ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_VER        ; Name:'SSLVer'          ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_CIPHER1_2  ; Name:'SSLCipherList1_2'),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_CIPHER1_3  ; Name:'SSLCipherList1_3'),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_CIPHER     ; Name:'SSLCipherList'   ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_PRIVATE_KEY    ; Name:'PrivateKeyLoc'   ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_CERTIFICATE    ; Name:'CertificateLoc'  ),
     (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_TLSKEY_LOG     ; Name:'TLSKeyLog'       ),

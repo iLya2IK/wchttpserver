@@ -940,8 +940,7 @@ begin
   SSLSec.AddValue(CFG_HOST_NAME, wccrString);
   SSLSec.AddValue(CFG_SSL_LOC, wccrString);
   SSLSec.AddValue(CFG_SSL_VER, wccrString);
-  SSLSec.AddValue(CFG_SSL_CIPHER1_2, wccrString);
-  SSLSec.AddValue(CFG_SSL_CIPHER1_3, wccrString);
+  SSLSec.AddValue(CFG_SSL_CIPHER, wccrString);
   SSLSec.AddValue(CFG_PRIVATE_KEY, wccrString);
   SSLSec.AddValue(CFG_CERTIFICATE, wccrString);
   SSLSec.AddValue(CFG_TLSKEY_LOG, wccrString);
@@ -2483,22 +2482,13 @@ begin
         end;
       end;
     end;
-    CFG_SSL_CIPHER1_2 : begin
+    CFG_SSL_CIPHER : begin
       ESServer.FSSLLocker.Lock;
       try
-        case ESServer.SSLType of
+{        case ESServer.SSLType of
           estTLSv1_2:  ESServer.CertificateData.CipherList := Sender.Value;
-        end;
-      finally
-        ESServer.FSSLLocker.UnLock;
-      end;
-    end;
-    CFG_SSL_CIPHER1_3 : begin
-      ESServer.FSSLLocker.Lock;
-      try
-        case ESServer.SSLType of
-          estTLSv1_3:  ESServer.CertificateData.CipherList := Sender.Value;
-        end;
+        end; }
+        ESServer.CertificateData.CipherList := Sender.Value;
       finally
         ESServer.FSSLLocker.UnLock;
       end;
