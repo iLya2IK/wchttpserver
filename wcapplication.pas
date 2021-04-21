@@ -85,7 +85,7 @@ type
   public
     Constructor Create(AServer : TAbsCustomHTTPServer; ASocket : TSocketStream); override;
     Constructor CreateRefered(AServer : TAbsCustomHTTPServer; ASocketRef : TWCHTTPSocketReference); override;
-    function ConsumeSocketData : Boolean;
+    function ConsumeSocketData : Cardinal;
     procedure SetSessionParams(aClient : TWebClient; aSession : TSqliteWebSession);
     destructor Destroy; override;
     property Response : TWCResponse read FResponse;
@@ -651,6 +651,12 @@ const
 
   WC_MAX_MAIN_THREADS = 32;
   WC_MAX_PREP_THREADS = 32;
+
+  WC_CONSUME_OK              = 0;
+  WC_CONSUME_PROTOCOL_ERROR  = 1;
+  WC_CONSUME_NO_DATA         = 2;
+  WC_CONSUME_WRONG_PROTOCOL  = 3;
+  WC_CONSUME_SOCKET_ERROR    = 4;
 
 {$I wcappconfig.inc}
 
@@ -1485,12 +1491,12 @@ begin
   DoInitialize;
 end;
 
-function TWCConnection.ConsumeSocketData: Boolean;
+function TWCConnection.ConsumeSocketData: Cardinal;
 var r : integer;
     aHTTPRefCon : TWCHTTPRefConnection;
     h2openmode : THTTP2OpenMode;
 begin
-  Result := true;
+  Result := WC_CONSUME_OK;
   try
     aHTTPRefCon := TWCHttpServer(Server).HTTPRefConnections.GetByHandle(Socket.Handle);
     // if HTTPRefCon not nil, then reference to httprefcon automatically incremented
@@ -1504,7 +1510,7 @@ begin
     try
       r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
       If r < 0 then begin
-        Result := false;
+        Result := WC_CONSUME_SOCKET_ERROR;
         Raise ESocketError.Create(WCSocketReadError);
       end;
       FInput.SetPointer(FInputBuf, r);  //resize buffered stream
@@ -1549,20 +1555,20 @@ begin
               end;
             end;
             if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
-              Result := true else
-              Result := false;
+              Result := WC_CONSUME_OK else
+              Result := WC_CONSUME_WRONG_PROTOCOL;
           end else begin
             FProtocolVersion:= wcUNK;
-            Result := false;
+            Result := WC_CONSUME_WRONG_PROTOCOL;
           end;
-        end else Result := false;
-      end else Result := false;
+        end else Result := WC_CONSUME_WRONG_PROTOCOL;
+      end else Result := WC_CONSUME_NO_DATA;
       if FProtocolVersion = wcHTTP2 then
       begin
         // read http/2 frames
         // RFC 7540
         // consume socket data, pop new request
-        Result := True;
+        Result := WC_CONSUME_OK;
         if not Assigned(HTTPRefCon) then
         begin
           HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
@@ -1582,16 +1588,18 @@ begin
             TWCHTTP2Connection(HTTPRefCon).ResetStream(HTTP2Str.ID,
                                                        H2E_PROTOCOL_ERROR);
             TWCHTTP2Connection(HTTPRefCon).GoAway(H2E_PROTOCOL_ERROR);
-            Result := false;
+            Result := WC_CONSUME_PROTOCOL_ERROR;
           end;
         end else
-          Result := false;
+          Result := WC_CONSUME_NO_DATA;
       end;
     finally
       if Assigned(HTTPRefCon) then
-         HTTPRefCon.ReleaseRead(Result);
+         HTTPRefCon.ReleaseRead(not (Result in [WC_CONSUME_PROTOCOL_ERROR,
+                                                WC_CONSUME_WRONG_PROTOCOL,
+                                                WC_CONSUME_SOCKET_ERROR]));
     end;
-    if Result then
+    if Result = WC_CONSUME_OK then
     begin
       // Create Response
       FResponse:= TWCResponse(TWCHttpServer(Server).CreateResponse(FRequest));
@@ -1600,7 +1608,8 @@ begin
     end;
   Except
     On E : Exception do begin
-      Result := false;
+      if Result in [WC_CONSUME_NO_DATA, WC_CONSUME_OK] then
+        Result := WC_CONSUME_PROTOCOL_ERROR;
       if Assigned(HTTPRefCon) then HTTPRefCon.ConnectionState:=wcDROPPED;
       if Assigned(FRequest) then FreeAndNil(FRequest);
       if Assigned(FResponse) then FreeAndNil(FResponse);
@@ -1683,58 +1692,63 @@ procedure TWCPreAnalizeClientJob.Execute;
 var ASynThread : TWCMainClientJob;
     aClient : TWebClient;
     aSession : TSqliteWebSession;
+    aConsumeResult : Cardinal;
 begin
   try
-   {$ifdef DEBUG_STAT}
-   FConn.FDWaitStamp := GetTickCount64;
-   {$endif}
-   if Assigned(FConn) and FConn.ConsumeSocketData and
-      TWCHttpServer(FConn.Server).ServerActive then begin
-     aSession := WebContainer.CreateSession(Request);
-     if Assigned(aSession) then
-     begin
-       aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
-       if ssNew in aSession.SessionState then
-         aSession.InitResponse(Response); // fill cookies
-       if ssExpired in aSession.SessionState then
+     {$ifdef DEBUG_STAT}
+     FConn.FDWaitStamp := GetTickCount64;
+     {$endif}
+     if not (Assigned(FConn) and TWCHttpServer(FConn.Server).ServerActive) then
+       Exit;
+     aConsumeResult := FConn.ConsumeSocketData;
+     if aConsumeResult = WC_CONSUME_OK then begin
+       aSession := WebContainer.CreateSession(Request);
+       if Assigned(aSession) then
        begin
-         Application.SendError(Response, 205);
-         Exit;
-       end else
-       begin
-         //try to find client
-         //or
-         //if new session then try to create client in clients pool
-         //using ARequest to deteminate some additional data
-         aClient := WebContainer.AddClient(Request, aSession.SessionID);
-         if not assigned(aClient) then begin
-           Application.SendError(Response, 405);
+         aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
+         if ssNew in aSession.SessionState then
+           aSession.InitResponse(Response); // fill cookies
+         if ssExpired in aSession.SessionState then
+         begin
+           Application.SendError(Response, 205);
            Exit;
-         end else begin
-           aClient.Initialize;
+         end else
+         begin
+           //try to find client
+           //or
+           //if new session then try to create client in clients pool
+           //using ARequest to deteminate some additional data
+           aClient := WebContainer.AddClient(Request, aSession.SessionID);
+           if not assigned(aClient) then begin
+             Application.SendError(Response, 405);
+             Exit;
+           end else begin
+             aClient.Initialize;
+           end;
+         end;
+         FConn.SetSessionParams(aClient, aSession);
+       end else aClient := nil;
+       {$ifdef DEBUG_STAT}
+       FConn.FDReadStamp := GetTickCount64;
+       {$endif}
+       //
+       if assigned(aClient) then begin
+         ASynThread := GenerateClientJob;
+         if Assigned(ASynThread) then
+         begin
+           FConn := nil; //now fconn is part of ASynThread job
+           Application.ESServer.AddToMainPool(ASynThread);
          end;
        end;
-       FConn.SetSessionParams(aClient, aSession);
-     end else aClient := nil;
-     {$ifdef DEBUG_STAT}
-     FConn.FDReadStamp := GetTickCount64;
-     {$endif}
-     //
-     if assigned(aClient) then begin
-       ASynThread := GenerateClientJob;
-       if Assigned(ASynThread) then
-       begin
-         FConn := nil; //now fconn is part of ASynThread job
-         Application.ESServer.AddToMainPool(ASynThread);
+     end
+     else
+     begin
+       {$ifdef DEBUG_STAT}
+       if aConsumeResult <> WC_CONSUME_NO_DATA then begin
+         Inc(DEBUG_GLOBALS_LONGWORD[DG_FAILED_PREP_CNT]);
        end;
+       {$endif}
      end;
-   end
-   {$ifdef DEBUG_STAT}
-   else
-   begin
-     Inc(DEBUG_GLOBALS_LONGWORD[DG_FAILED_PREP_CNT]);
-   end;
-   {$endif}
   except
     on E: Exception do ; // catch errors. jail them in thread
   end;

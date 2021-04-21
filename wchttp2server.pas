@@ -3057,6 +3057,7 @@ procedure TWCHTTPRefConnection.RelaxDelayValue(aDelay: TThreadInteger);
 begin
   aDelay.Lock;
   try
+    if (aDelay.Value > 16) then aDelay.Value := 16 else
     aDelay.Value := aDelay.Value div 2;
   finally
     aDelay.UnLock;
