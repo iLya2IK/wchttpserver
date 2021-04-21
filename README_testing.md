@@ -45,11 +45,11 @@ Benchmark program - [h2load](https://nghttp2.org/documentation/h2load.1.html). T
 ********************************************************
 | protocol |  cookie  | num connections | speed, req/s |
 ***********+**********+*****************+***************
-| http/1.1 | unset    |     one         |    7.94      |
-| http/2   | unset    |     one         |    14.66     |
-| http/1.1 | set      |     one         |    18.60     |
-| http/2   | set      |     one         |    95.69     |
-| http/1.1 | set      |     six         |    179.88    |
+| http/1.1 | unset    |     one         |    10.08     |
+| http/2   | unset    |     one         |    22.59     |
+| http/1.1 | set      |     one         |    54.49     |
+| http/2   | set      |     one         |    140.34    |
+| http/1.1 | set      |     six         |    332.54    |
 ********************************************************
 ```
 
