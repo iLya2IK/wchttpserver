@@ -19,7 +19,9 @@ unit abstracthttpserver;
 interface
 
 uses
-  Classes, SysUtils, sockets, sslbase, sslsockets, ssockets, resolve, httpdefs;
+  Classes, SysUtils, sockets,
+  sslbase, extopenssl,
+  sslsockets, ssockets, resolve, httpdefs;
 
 Type
   TAbsHTTPConnection = Class;
@@ -108,10 +110,10 @@ Type
     FLoadActivate : Boolean;
     FServerBanner: string;
     FLookupHostNames,
-    FThreaded: Boolean;
+    FThreaded : Boolean;
     FConnectionCount : Integer;
-    FUseSSL: Boolean;
-    FSSLType : TSSLType;
+    FUseSSL   : Boolean;
+    FSSLType  : TExSSLType;
     FAlpnList : TStringList;
     FSSLLoc, FSSLMasterKeyLog : String;
     procedure DoCreateClientHandler(Sender: TObject; out AHandler: TSocketHandler);
@@ -207,7 +209,7 @@ Type
     Property CertificateData  : TCertificateData Read FCertificateData Write SetCertificateData;
     // Set to true if you want to use SSL
     Property UseSSL : Boolean Read FUseSSL Write FUseSSL;
-    Property SSLType : TSSLType read FSSLType Write FSSLType;
+    Property SSLType : TExSSLType read FSSLType Write FSSLType;
     Property Certificate : String read GetCertificate write SetCertificate;
     Property PrivateKey : String read GetPrivateKey write SetPrivateKey;
     Property SSLMasterKeyLog : String read GetSSLMasterKeyLog write SetSSLMasterKeyLog;
@@ -649,7 +651,9 @@ Var
 begin
   S:=TSSLSocketHandler.GetDefaultHandler;
   try
-    S.SSLType:= SSLType;
+    if S is TExtSSLSocketHandler then
+      TExtSSLSocketHandler(S).ExSSLType:= SSLType else
+      S.SSLType := ExSSLTypeToSSLType(SSLType);
     // We must create the certificate once in our global copy of CertificateData !
     if CertificateData.NeedCertificateData then
     begin

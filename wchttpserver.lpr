@@ -57,8 +57,7 @@ uses
   SysUtils,
   Interfaces,
   { you can add units after this }
-  extopensslsockets,
-  sslbase,
+  extopenssl,
   {$IFDEF LOAD_DYNAMICALLY}
   SQLite3Dyn,
   {$ENDIF}
@@ -124,7 +123,7 @@ begin
   // SSLLoc - location of openssl keys, certificates and logs
   // then openssl location will be home/folder/CFG_SSL_LOC
   Conf.SetDefaultValue(CFG_SSL_LOC, 'openssl');
-  Conf.SetDefaultValue(CFG_SSL_CIPHER,
+  Conf.SetDefaultValue(CFG_SSL_CIPHER1_2,
                 'ECDHE-RSA-AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-CHACHA20-POLY1305:'+
@@ -132,6 +131,11 @@ begin
                 'AES128-GCM-SHA256:'+
                 'ECDHE-ECDSA-AES256-GCM-SHA384:'+
                 'ECDHE-ECDSA-AES256-SHA384'+
+                '');
+  Conf.SetDefaultValue(CFG_SSL_CIPHER1_3,
+                'TLS_AES_128_GCM_SHA256:'+
+                'TLS_AES_256_GCM_SHA384:'+
+                'TLS_CHACHA20_POLY1305_SHA256'+
                 '');
   // PrivateKey - location of openssl keys
   // then keys location will be home/folder/CFG_SSL_LOC/CFG_PRIVATE_KEY
@@ -142,7 +146,7 @@ begin
   // SSLMasterKeyLog - location of openssl keys log
   // then tls keys log location will be home/folder/CFG_SSL_LOC/CFG_TLSKEY_LOG
   Conf.SetDefaultValue(CFG_TLSKEY_LOG, ''); // tlskey.log
-  Application.ESServer.SSLType:= stTLSv1_2;
+  Conf.SetDefaultValue(CFG_SSL_VER, 'TLSv1.2');
   Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2, True);
   Conf.SetDefaultValue(CFG_MAIN_THREAD_CNT, 6);
   Conf.SetDefaultValue(CFG_PRE_THREAD_CNT, 5);

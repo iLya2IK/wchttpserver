@@ -821,6 +821,7 @@ const
   SSL_OP_NO_SSLv3                               = $02000000;
   SSL_OP_NO_TLSv1                               = $04000000;
   SSL_OP_NO_TLSv1_2                             = $08000000;
+  SSL_OP_NO_TLSv1_3                             = $20000000;
   SSL_OP_NO_TLSv1_1                             = $10000000;
   SSL_OP_NETSCAPE_CA_DN_BUG                     = $20000000;
   SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG        = $40000000;
@@ -1098,6 +1099,7 @@ var
   function SslMethodTLSV1:PSSL_METHOD;
   function SslMethodTLSV1_1:PSSL_METHOD;
   function SslMethodTLSV1_2:PSSL_METHOD;
+  function SslMethodTLSV1_3:PSSL_METHOD;
   function SslMethodV23:PSSL_METHOD;
   function SslTLSMethod:PSSL_METHOD;
   function SslCtxUsePrivateKey(ctx: PSSL_CTX; pkey: SslPtr):cInt;
@@ -1594,6 +1596,7 @@ type
   TSslMethodTLSV1 = function:PSSL_METHOD; cdecl;
   TSslMethodTLSV1_1 = function:PSSL_METHOD; cdecl;
   TSslMethodTLSV1_2 = function:PSSL_METHOD; cdecl;
+  TSslMethodTLSV1_3 = function:PSSL_METHOD; cdecl;
   TSslMethodV23 = function:PSSL_METHOD; cdecl;
   TSslTLSMethod = function:PSSL_METHOD; cdecl;
   TSslCtxUsePrivateKey = function(ctx: PSSL_CTX; pkey: sslptr):cInt; cdecl;
@@ -1833,6 +1836,7 @@ var
   _SslMethodTLSV1: TSslMethodTLSV1 = nil;
   _SslMethodTLSV1_1: TSslMethodTLSV1_1 = nil;
   _SslMethodTLSV1_2: TSslMethodTLSV1_2 = nil;
+  _SSlMethodTLSV1_3: TSslMethodTLSV1_3 = nil;
   _SslMethodV23: TSslMethodV23 = nil;
   _SslTLSMethod: TSslTLSMethod = nil;
   _SslCtxUsePrivateKey: TSslCtxUsePrivateKey = nil;
@@ -2326,6 +2330,14 @@ function SslMethodTLSV1_2:PSSL_METHOD;
 begin
   if InitSSLInterface and Assigned(_SslMethodTLSV1_2) then
     Result := _SslMethodTLSV1_2
+  else
+    Result := nil;
+end;
+
+function SslMethodTLSV1_3:PSSL_METHOD;
+begin
+  if InitSSLInterface and Assigned(_SslMethodTLSV1_3) then
+    Result := _SslMethodTLSV1_3
   else
     Result := nil;
 end;
@@ -5015,6 +5027,7 @@ begin
   _SslMethodTLSV1 := GetProcAddr(SSLLibHandle, 'TLSv1_method');
   _SslMethodTLSV1_1 := GetProcAddr(SSLLibHandle, 'TLSv1_1_method');
   _SslMethodTLSV1_2 := GetProcAddr(SSLLibHandle, 'TLSv1_2_method');
+  _SslMethodTLSV1_3 := GetProcAddr(SSLLibHandle, 'TLSv1_3_method');
   _SslMethodV23 := GetProcAddr(SSLLibHandle, 'SSLv23_method');
   _SslTLSMethod := GetProcAddr(SSLLibHandle, 'TLS_method');
   _SslCtxUsePrivateKey := GetProcAddr(SSLLibHandle, 'SSL_CTX_use_PrivateKey');

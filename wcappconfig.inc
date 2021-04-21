@@ -16,11 +16,13 @@ const
   CFG_USE_SSL          = $12;
   CFG_HOST_NAME        = $22;
   CFG_SSL_LOC          = $32;
-  CFG_SSL_CIPHER       = $42;
+  CFG_SSL_VER          = $42;
   CFG_PRIVATE_KEY      = $52;
   CFG_CERTIFICATE      = $62;
   CFG_TLSKEY_LOG       = $72;
   CFG_ALPN_USE_HTTP2   = $82;
+  CFG_SSL_CIPHER1_2    = $92;
+  CFG_SSL_CIPHER1_3    = $A2;
   CFG_CLIENTS_SEC           = $03;
   CFG_CLIENT_COOKIE_MAX_AGE = $13;
   CFG_CLIENT_TIMEOUT        = $23;
@@ -59,14 +61,16 @@ const
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT ;Name:'ThreadJobToJobWaitMs' ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT_ADAPT_MIN ;Name:'AdaptThreadJobToJobMinWaitMs' ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT_ADAPT_MAX ;Name:'AdaptThreadJobToJobMaxWaitMs' ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_USE_SSL        ; Name:'UseSSL'         ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_HOST_NAME      ; Name:'HostName'       ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_LOC        ; Name:'SSLLoc'         ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_CIPHER     ; Name:'SSLCipherList'  ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_PRIVATE_KEY    ; Name:'PrivateKeyLoc'  ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_CERTIFICATE    ; Name:'CertificateLoc' ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_TLSKEY_LOG     ; Name:'TLSKeyLog'      ),
-    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_ALPN_USE_HTTP2 ; Name:'UseHTTP2'       ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_USE_SSL        ; Name:'UseSSL'          ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_HOST_NAME      ; Name:'HostName'        ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_LOC        ; Name:'SSLLoc'          ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_VER        ; Name:'SSLVer'          ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_CIPHER1_2  ; Name:'SSLCipherList1_2'),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_SSL_CIPHER1_3  ; Name:'SSLCipherList1_3'),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_PRIVATE_KEY    ; Name:'PrivateKeyLoc'   ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_CERTIFICATE    ; Name:'CertificateLoc'  ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_TLSKEY_LOG     ; Name:'TLSKeyLog'       ),
+    (ParentHash:CFG_OPENSSL_SEC; Hash:CFG_ALPN_USE_HTTP2 ; Name:'UseHTTP2'        ),
     (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_COOKIE_MAX_AGE; Name:'CookieMaxAgeSec'),
     (ParentHash:CFG_CLIENTS_SEC; Hash:CFG_CLIENT_TIMEOUT       ; Name:'TimeoutMin'     ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_HEADER_TABLE_SIZE      ; Name:'HEADER_TABLE_SIZE'     ),

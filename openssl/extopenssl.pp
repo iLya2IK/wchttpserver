@@ -20,7 +20,8 @@ unit extopenssl;
 interface
 
 uses
-  Classes, SysUtils, sslbase, openssl, ctypes;
+  Classes, SysUtils, sslbase, openssl, ctypes,
+  sslsockets;
 
 {$IFDEF DUMPCERT}
 Const
@@ -32,6 +33,15 @@ Const
 {$ENDIF}
 
 Type
+  TExSSLType = (estAny,estSSLv2,estSSLv3,estTLSv1,estTLSv1_1,estTLSv1_2,estTLSv1_3);
+
+  TExtSSLSocketHandler = class(TSSLSocketHandler)
+  private
+    FExSSLType : TExSSLType;
+  public
+    property ExSSLType : TExSSLType read FExSSLType write FExSSLType;
+  end;
+
   { TExtSSLContext }
 
   TExtSSLContext = Class;
@@ -54,7 +64,7 @@ Type
     function UsePrivateKeyFile(const Afile: String; Atype: cInt): cInt;
   Public
     Constructor Create(AContext : PSSL_CTX = Nil); overload;
-    Constructor Create(AType : TSSLType); overload;
+    Constructor Create(AType : TExSSLType); overload;
     Destructor Destroy; override;
     Function SetCipherList(Var ACipherList : String) : Integer;
     procedure SetVerify(mode: Integer; arg2: TSSLCTXVerifyCallback);
@@ -129,6 +139,11 @@ Type
   ESSL = Class(Exception);
 
 Function BioToString(B : PBIO; FreeBIO : Boolean = False) : AnsiString;
+function ExSSLTypeToString(aType : TExSSLType) : String;
+function ExSSLStringToType(const aType : String) : TExSSLType;
+function ExSSLTypeToSSLType(aType : TExSSLType) : TSSLType;
+function SSLTypeToExSSLType(aType : TSSLType) : TExSSLType;
+
 
 implementation
 
@@ -137,6 +152,10 @@ uses dateutils;
 Resourcestring
   SErrCountNotGetContext = 'Failed to create SSL Context';
   SErrFailedToCreateSSL = 'Failed to create SSL';
+
+const ESSL_TYPE_STRINGS : Array [TExSSLType] of String =
+                                              ('Any','SSLv2','SSLv3','TLSv1',
+                                               'TLSv1.1','TLSv1.2','TLSv1.3');
 
 
 Function BioToString(B : PBIO; FreeBIO : Boolean = False) : AnsiString;
@@ -155,8 +174,39 @@ begin
     BioFreeAll(B);
 end;
 
-Function BioToTBytes(B : PBIO; FreeBIO : Boolean = False) : TBytes;
+function ExSSLTypeToString(aType : TExSSLType) : String;
+begin
+  Result := ESSL_TYPE_STRINGS[aType];
+end;
 
+function ExSSLStringToType(const aType : String) : TExSSLType;
+var i : TExSSLType;
+begin
+  for i := Low(ESSL_TYPE_STRINGS) to High(ESSL_TYPE_STRINGS) do
+  begin
+    if SameStr(aType, ESSL_TYPE_STRINGS[i]) then
+    begin
+      Result := i;
+      Exit;
+    end;
+  end;
+  Result := estAny;
+end;
+
+function ExSSLTypeToSSLType(aType : TExSSLType) : TSSLType;
+begin
+  if aType < estTLSv1_3 then
+    Result := TSSLType(aType)
+  else
+    Result := stAny;
+end;
+
+function SSLTypeToExSSLType(aType : TSSLType) : TExSSLType;
+begin
+  Result := TExSSLType(aType);
+end;
+
+Function BioToTBytes(B : PBIO; FreeBIO : Boolean = False) : TBytes;
 Var
   L,RL : Integer;
 begin
@@ -211,9 +261,7 @@ end;
 
 { TExtOpenSSLX509Certificate }
 
-
 procedure TExtOpenSSLX509Certificate.SetNameData(x: PX509);
-
 Var
   ND : PX509_NAME;
   S : AnsiString;
@@ -325,7 +373,7 @@ begin
   FAlpnSelect := nil;
 end;
 
-constructor TExtSSLContext.Create(AType: TSSLType);
+constructor TExtSSLContext.Create(AType : TExSSLType);
 
 Var
   C : PSSL_CTX;
@@ -333,18 +381,21 @@ Var
 begin
   C := nil;
   Case AType of
-    stAny:
+    estAny:
       begin
         if Assigned(SslTLSMethod) then
           C := SslCtxNew(SslTLSMethod)
         else
           C := SslCtxNew(SslMethodV23);
       end;
-    stSSLv2: C := SslCtxNew(SslMethodV2);
-    stSSLv3: C := SslCtxNew(SslMethodV3);
-    stTLSv1: C := SslCtxNew(SslMethodTLSV1);
-    stTLSv1_1: C := SslCtxNew(SslMethodTLSV1_1);
-    stTLSv1_2: C := SslCtxNew(SslMethodTLSV1_2);
+    estSSLv2: C := SslCtxNew(SslMethodV2);
+    estSSLv3: C := SslCtxNew(SslMethodV3);
+    estTLSv1: C := SslCtxNew(SslMethodTLSV1);
+    estTLSv1_1: C := SslCtxNew(SslMethodTLSV1_1);
+    estTLSv1_2: C := SslCtxNew(SslMethodTLSV1_2);
+    estTLSv1_3: C := SslCtxNew(SslTLSMethod); //not SslMethodTLSV1_3 cause all
+                                              //version-specific methods were
+                                              //deprecated in OpenSSL 1.1.0.
   end;
   if (C=Nil) then
      Raise ESSL.Create(SErrCountNotGetContext);

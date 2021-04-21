@@ -25,6 +25,7 @@ uses
   fpwebfile, fpmimetypes,
   fphttp, HTTPDefs, httpprotocol, http2consts,
   abstracthttpserver, wchttp2server,
+  extopenssl,
   custweb, custabshttpapp,
   sqlitewebsession,
   sqlitelogger,
@@ -201,16 +202,17 @@ type
 
   TWCHTTPTemplate = class
   private
-    FRegExp   : TRegExpr;
-    FComplete : Boolean;
-    FCompress : PBoolean;
-    FCache    : PChar;
-    FPriority : Integer;
+    FMimeRegExp : TRegExpr;
+    FFileRegExp : TRegExpr;
+    FComplete   : Boolean;
+    FCompress   : PBoolean;
+    FCache      : PChar;
+    FPriority   : Integer;
   public
     constructor Create(obj : TJSONObject);
     procedure   Rebuild(obj : TJSONObject);
     destructor  Destroy; override;
-    function Check(const aVal : String) : Boolean;
+    function Check(const aMime, aFile : String) : Boolean;
     function GetCompress(lV : Boolean) : Boolean;
     procedure GetCache(var lV: String);
     procedure GetStatus(var R : TWCHTTPTemplateRecord);
@@ -226,7 +228,7 @@ type
   public
     procedure SortTemplates;
     procedure Rebuild(aTemplates : TJSONArray);
-    function  GetTemplate(const aMime : String) : TWCHTTPTemplateRecord;
+    function  GetTemplate(const aMime, aFile : String) : TWCHTTPTemplateRecord;
     property Template[index : Integer] : TWCHTTPTemplate read
                                                  GetTemplateInd; default;
   end;
@@ -768,7 +770,7 @@ begin
   end;
 end;
 
-function TWCHTTPMimeTemplates.GetTemplate(const aMime: String
+function TWCHTTPMimeTemplates.GetTemplate(const aMime, aFile: String
   ): TWCHTTPTemplateRecord;
 var i : integer;
     T : TWCHTTPTemplate;
@@ -780,7 +782,7 @@ begin
     for i := 0 to Count-1 do
     begin
       T := Template[i];
-      if T.Check(aMime) then
+      if T.Check(aMime, aFile) then
       begin
         T.GetStatus(Result);
       end;
@@ -798,7 +800,8 @@ begin
   FPriority := 0;
   FCache:= nil;
   FCompress:=nil;
-  FRegExp := nil;
+  FMimeRegExp := nil;
+  FFileRegExp := nil;
   Rebuild(obj);
 end;
 
@@ -808,15 +811,23 @@ var d : TJSONData;
 begin
   if assigned(FCache) then begin StrDispose(FCache); FCache := nil; end;
   if assigned(FCompress) then FreeMemAndNil(FCompress);
-  if assigned(FRegExp) then FreeAndNil(FRegExp);
+  if assigned(FMimeRegExp) then FreeAndNil(FMimeRegExp);
+  if assigned(FFileRegExp) then FreeAndNil(FFileRegExp);
 
   try
     FComplete := true;
     d := obj.Find('mime');
     if assigned(d) and (d is TJSONString) then
     begin
-      FRegExp := TRegExpr.Create(d.AsString);
-    end else FComplete := false;
+      FMimeRegExp := TRegExpr.Create(d.AsString);
+    end;
+    d := obj.Find('file');
+    if assigned(d) and (d is TJSONString) then
+    begin
+      FFileRegExp := TRegExpr.Create(d.AsString);
+    end;
+    if not (assigned(FMimeRegExp) or assigned(FFileRegExp)) then
+      FComplete := false;
     if FComplete then
     begin
       d := obj.Find('prior');
@@ -845,16 +856,20 @@ destructor TWCHTTPTemplate.Destroy;
 begin
   if assigned(FCache) then begin StrDispose(FCache); FCache := nil; end;
   if assigned(FCompress) then FreeMem(FCompress);
-  if assigned(FRegExp) then FRegExp.Free;
+  if assigned(FMimeRegExp) then FMimeRegExp.Free;
+  if assigned(FFileRegExp) then FFileRegExp.Free;
   inherited Destroy;
 end;
 
-function TWCHTTPTemplate.Check(const aVal: String): Boolean;
+function TWCHTTPTemplate.Check(const aMime, aFile : String) : Boolean;
 begin
   if Complete then
   begin
     try
-      Result := FRegExp.Exec(aVal);
+      Result := true;
+      if assigned(FMimeRegExp) then Result := FMimeRegExp.Exec(aMime);
+      if Result and assigned(FFileRegExp) then
+        Result :=  FFileRegExp.Exec(aFile);
     except
       Result := false;
     end;
@@ -924,7 +939,9 @@ begin
   SSLSec.AddValue(CFG_USE_SSL, wccrBoolean);
   SSLSec.AddValue(CFG_HOST_NAME, wccrString);
   SSLSec.AddValue(CFG_SSL_LOC, wccrString);
-  SSLSec.AddValue(CFG_SSL_CIPHER, wccrString);
+  SSLSec.AddValue(CFG_SSL_VER, wccrString);
+  SSLSec.AddValue(CFG_SSL_CIPHER1_2, wccrString);
+  SSLSec.AddValue(CFG_SSL_CIPHER1_3, wccrString);
   SSLSec.AddValue(CFG_PRIVATE_KEY, wccrString);
   SSLSec.AddValue(CFG_CERTIFICATE, wccrString);
   SSLSec.AddValue(CFG_TLSKEY_LOG, wccrString);
@@ -2455,10 +2472,33 @@ begin
     CFG_PRE_THREAD_CNT :
       MaxPrepareThreads:= Sender.Value;
     //openssl
-    CFG_SSL_CIPHER : begin
+    CFG_SSL_VER : begin
+      if ConfigChangeHalt then
+      begin
+        ESServer.FSSLLocker.Lock;
+        try
+          ESServer.SSLType := ExSSLStringToType(Sender.Value);
+        finally
+          ESServer.FSSLLocker.UnLock;
+        end;
+      end;
+    end;
+    CFG_SSL_CIPHER1_2 : begin
       ESServer.FSSLLocker.Lock;
       try
-        ESServer.CertificateData.CipherList := Sender.Value;
+        case ESServer.SSLType of
+          estTLSv1_2:  ESServer.CertificateData.CipherList := Sender.Value;
+        end;
+      finally
+        ESServer.FSSLLocker.UnLock;
+      end;
+    end;
+    CFG_SSL_CIPHER1_3 : begin
+      ESServer.FSSLLocker.Lock;
+      try
+        case ESServer.SSLType of
+          estTLSv1_3:  ESServer.CertificateData.CipherList := Sender.Value;
+        end;
       finally
         ESServer.FSSLLocker.UnLock;
       end;
@@ -3188,7 +3228,7 @@ begin
 
   FDeflateCache := nil;
 
-  T := Application.MimeTemplates.GetTemplate(FMimeType);
+  T := Application.MimeTemplates.GetTemplate(FMimeType, aLoc);
   if (Application.NetDebugMode) then FCacheControl:='no-cache' else
                                      FCacheControl:= T.Cache;
   FNeedToCompress:= T.Compress;

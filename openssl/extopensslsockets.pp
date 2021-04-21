@@ -28,7 +28,7 @@ Type
 
   { TExtOpenSSLSocketHandler }
 
-  TExtOpenSSLSocketHandler = Class(TSSLSocketHandler)
+  TExtOpenSSLSocketHandler = Class(TExtSSLSocketHandler)
   Private
     FSSL: TExtSSL;
     FCTX : TExtSSLContext;
@@ -391,7 +391,7 @@ begin
   if Not Result then
     Exit;
   try
-    FCTX:=TExtSSLContext.Create(SSLType);
+    FCTX:=TExtSSLContext.Create(ExSSLType);
   Except
     CheckSSL(Nil);
     Result:=False;
