@@ -37,7 +37,8 @@ Free Pascal (v3.2.0) + Lazarus (v2.0.10)
 # Necessary libraries
 1. SQLite
 2. OpenSSL (v1.1.0 or higher)
-3. CommonUtils - you can download sources [here](https://github.com/iLya2IK/commonutils). 
+3. Zlib
+4. CommonUtils - you can download sources [here](https://github.com/iLya2IK/commonutils). 
 ```
 Note: unpack the CommonUtils archive into the same directory as the server directory:
 example: 
