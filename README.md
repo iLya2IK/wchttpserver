@@ -9,7 +9,7 @@ The project builds on fpWeb modules and extends them to increase functionality:
 3. Saving information about the latest requests and saving logs in SQLite database.
 4. Multithreading preparation and execution of requests based on threads pools e.g. helpful classes to work with EventSources.
 6. Clients ranking based on clients frequency of requests.
-7. Built-in support for gzip and deflate compression methods.
+7. Built-in support for gzip and deflate compression methods including decompression of client-side requests.
 7. Ability to start the server both in HTTP/2 mode and in HTTP 1.1 mode.
 8. Modified OpenSSL modules (added necessary TLS extensions) to create and maintain HTTP/2 connections.
 9. Added the ability to save the master key and a random set of client data on the server-side (necessary for debugging TLS dumps using WireShark).
@@ -49,5 +49,6 @@ then your commonutils dir: /home/projects/commonutils
 # Copyrights
 * [fcl-web (fpWeb) - part of Free Pascal's Free Component Library (FCL), focusing on web (related) application development](https://wiki.lazarus.freepascal.org/fcl-web)
 * [Ararat Synapse - SSL support by OpenSSL - Copyright (c) 1999-2005, Lukas Gebauer](http://www.ararat.cz/synapse/doku.php/start)
+* [Compact zlib, deflate, inflate, zip library in JavaScript](https://github.com/imaya/zlib.js)
 * [CommonUtils - lightweight lists, collections, seqs and hashes, helping classes for sqlite3 extension, gz compression, data streams - Copyright (c) 2018-2021, Ilya Medvedkov](https://github.com/iLya2IK/commonutils)
 * WCHTTPServer - Copyright (c) 2020-2021, Ilya Medvedkov

@@ -73,7 +73,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="28">
+    <Units Count="27">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -186,13 +186,9 @@
         <IsPartOfProject Value="True"/>
       </Unit25>
       <Unit26>
-        <Filename Value="wclzwdecoder.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit26>
-      <Unit27>
         <Filename Value="wcdeflatedecoder.pas"/>
         <IsPartOfProject Value="True"/>
-      </Unit27>
+      </Unit26>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
