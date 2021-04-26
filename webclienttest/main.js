@@ -10,13 +10,44 @@ const CLS_RUN = 1;
 
 var esc = {src : null, config : null, username : ""}
 
+function toUTF8Array(str) {
+    var utf8 = [];
+    for (var i=0; i < str.length; i++) {
+        var charcode = str.charCodeAt(i);
+        if (charcode < 0x80) utf8.push(charcode);
+        else if (charcode < 0x800) {
+            utf8.push(0xc0 | (charcode >> 6), 
+                      0x80 | (charcode & 0x3f));
+        }
+        else if (charcode < 0xd800 || charcode >= 0xe000) {
+            utf8.push(0xe0 | (charcode >> 12), 
+                      0x80 | ((charcode>>6) & 0x3f), 
+                      0x80 | (charcode & 0x3f));
+        }
+        else {
+            i++;
+            charcode = 0x10000 + (((charcode & 0x3ff)<<10)
+                      | (str.charCodeAt(i) & 0x3ff))
+            utf8.push(0xf0 | (charcode >>18), 
+                      0x80 | ((charcode>>12) & 0x3f), 
+                      0x80 | ((charcode>>6) & 0x3f), 
+                      0x80 | (charcode & 0x3f));
+        }
+    }
+    return utf8;
+}
 
 /* fetch replacement */
 function fastpost(method, params, successfunc) {
     var xhr = new XMLHttpRequest();
     xhr.open("POST", method, true);
-    xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
     let content = JSON.stringify(params);
+    xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');    
+    if (content.length > 200) {
+        var plain = new Uint8Array(toUTF8Array(content));
+        content = new Zlib.Deflate(plain, {compressionType: Zlib.Deflate.CompressionType.DYNAMIC}).compress();            
+        xhr.setRequestHeader('Content-Encoding', 'deflate');        
+    }
     xhr.onreadystatechange = () => {
         if(xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) 
           successfunc(xhr.responseText);      
@@ -136,7 +167,8 @@ form_auth.onsubmit = event => {
   
   let request = {
       VAL_USERNAME : inputs["login"].value,
-      VAL_USERPSW : inputs["password"].value
+      VAL_USERPSW : inputs["password"].value,
+      content : "some long string to test client-side compression. here is some important message for user. i think 200 chars is anough. here is additional utf8 symbols: бабушка, балалайка"
   }
       
   fastpost("./wcConnectToServer.json", request, text => {

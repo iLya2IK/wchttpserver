@@ -36,6 +36,7 @@ uses
   sockets,
   ssockets,
   gzstream,
+  wcdecoders,
   BufferedStream,
   SortedThreadPool,
   RegExpr,
@@ -198,23 +199,26 @@ type
   TWCHTTPTemplateRecord = record
     Compress : Boolean;
     Cache    : String;
+    Charset  : String;
   end;
 
   TWCHTTPTemplate = class
   private
     FMimeRegExp : TRegExpr;
-    FFileRegExp : TRegExpr;
+    FURIRegExp : TRegExpr;
     FComplete   : Boolean;
     FCompress   : PBoolean;
     FCache      : PChar;
+    FCharset    : PChar;
     FPriority   : Integer;
   public
     constructor Create(obj : TJSONObject);
     procedure   Rebuild(obj : TJSONObject);
     destructor  Destroy; override;
-    function Check(const aMime, aFile : String) : Boolean;
+    function Check(const aMime, aURI : String) : Boolean;
     function GetCompress(lV : Boolean) : Boolean;
     procedure GetCache(var lV: String);
+    procedure GetCharset(var lV: String);
     procedure GetStatus(var R : TWCHTTPTemplateRecord);
     property Priority : Integer read FPriority;
     property Complete : Boolean read FComplete;
@@ -228,7 +232,7 @@ type
   public
     procedure SortTemplates;
     procedure Rebuild(aTemplates : TJSONArray);
-    function  GetTemplate(const aMime, aFile : String) : TWCHTTPTemplateRecord;
+    function  GetTemplate(const aMime, aURI : String) : TWCHTTPTemplateRecord;
     property Template[index : Integer] : TWCHTTPTemplate read
                                                  GetTemplateInd; default;
   end;
@@ -264,6 +268,7 @@ type
     FCompressLimit: TThreadInteger;
     FClientCookieMaxAge : TThreadInteger;
     FClientTimeOut : TThreadInteger;
+    FClientDecoders : TThreadSafeDecoders;
     FVPath, FMainHTTP, FSessionsLoc,
     FSessionsDb, FLogDbLoc,
     FWebFilesLoc, FSSLLoc, FMimeLoc : TThreadUtf8String;
@@ -272,14 +277,14 @@ type
 
     FNeedShutdown : TThreadBoolean;
 
-    function GetMimeTemplates: TWCHTTPMimeTemplates;
-    procedure StopThreads;
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
     procedure DoOnException(Sender : TObject; E : Exception);
     Procedure DoGetModule(Sender : TObject; {%H-}ARequest : TRequest;
                                Var ModuleClass : TCustomHTTPModuleClass);
     procedure DoOnIdle({%H-}sender : TObject);
+    function GetMimeTemplates: TWCHTTPMimeTemplates;
+    function GetClientAllowEncode : String;
     function GetClientCookieMaxAge: Integer;
     function GetClientTimeOut: Integer;
     function GetCompressLimit: Cardinal;
@@ -316,6 +321,8 @@ type
     procedure SetWebFilesExcludeIgnore(AValue: String);
     procedure SetWebFilesIgnore(AValue: String);
     procedure SetWebFilesLoc(AValue: String);
+    procedure SetClientAllowEncode(AValue : String);
+    procedure StopThreads;
     function  Initialized : Boolean;
     function ConfigChangeHalt : Boolean;
   protected
@@ -361,6 +368,8 @@ type
     //clients
     property ClientTimeOut : Integer read GetClientTimeOut write SetClientTimeOut;
     property ClientCookieMaxAge : Integer read GetClientCookieMaxAge write SetClientCookieMaxAge;
+    property ClientAllowEncode : String read GetClientAllowEncode write SetClientAllowEncode;
+    property ClientDecoders : TThreadSafeDecoders read FClientDecoders;
     //openssl
     property SSLLoc : String read GetSSLLoc write SetSSLLoc;
     //main config
@@ -376,17 +385,20 @@ type
   private
     FDataTime : TDateTime;
     FCache, FDeflateCache : TRefMemoryStream;
-    FNeedToCompress : Boolean;
+    FNeedToCompress : TThreadBoolean;
     FDeflateSize: QWord;
     {$IFDEF ALLOW_STREAM_GZIP}
     FGzipSize: QWord;
     FGzipCache : TRefMemoryStream;
     {$ENDIF}
     FSize : QWord;
-    FLoc : String;
+    FLoc, FURI : String;
     FMimeType : String;
-    FCacheControl : String;
+    FCharset :  TThreadUtf8String;
+    FCacheControl : TThreadUtf8String;
     function GetCache: TRefMemoryStream;
+    function GetCacheControl : String;
+    function GetCharset : String;
     function GetDeflateCache: TRefMemoryStream;
     function GetDeflateReady: Boolean;
     function GetDeflateSize: QWord;
@@ -397,8 +409,9 @@ type
     {$ENDIF}
     function GetMimeType: String;
     function GetSize: QWord;
+    procedure UpdateFromTemplate;
   public
-    constructor Create(const aLoc : String);
+    constructor Create(const aLoc, aURI : String);
     destructor Destroy; override;
     procedure Clear;
     procedure Refresh;
@@ -413,7 +426,8 @@ type
     property GzipReady : Boolean read GetGzipReady;
     {$ENDIF}
     property MimeType : String read GetMimeType;
-    property CacheControl : String read FCacheControl;
+    property Charset : String read GetCharset;
+    property CacheControl : String read GetCacheControl;
   end;
 
 
@@ -563,7 +577,8 @@ type
     procedure ClearDeadClients;
     procedure DoMaintainingStep;
     //
-    function  GetWebCachedItem(const aLoc : String) : TWebCachedItem;
+    function GetWebCachedItem(const aURI : String) : TWebCachedItem;
+    procedure UpdateCachedWebItemsWithTemplates;
     //
     property  Sessions : TSqliteSessionFactory read FSessions;
     property  Clients  : TWebClients read FConnectedClients;
@@ -596,6 +611,8 @@ type
   private
     function GetSocket: TSocketStream;
     function GetConnection : TWCConnection;
+  protected
+    procedure DecodeContent;
   public
     procedure CollectHeaders(Headers : TStringList);
     property  WCConn : TWCConnection read GetConnection;
@@ -776,19 +793,20 @@ begin
   end;
 end;
 
-function TWCHTTPMimeTemplates.GetTemplate(const aMime, aFile: String
+function TWCHTTPMimeTemplates.GetTemplate(const aMime, aURI: String
   ): TWCHTTPTemplateRecord;
 var i : integer;
     T : TWCHTTPTemplate;
 begin
   Result.Cache := 'no-cache';
   Result.Compress := false;
+  Result.Charset := '';
   Lock;
   try
     for i := 0 to Count-1 do
     begin
       T := Template[i];
-      if T.Check(aMime, aFile) then
+      if T.Check(aMime, aURI) then
       begin
         T.GetStatus(Result);
       end;
@@ -805,9 +823,10 @@ begin
   FComplete := false;
   FPriority := 0;
   FCache:= nil;
+  FCharset := nil;
   FCompress:=nil;
   FMimeRegExp := nil;
-  FFileRegExp := nil;
+  FURIRegExp := nil;
   Rebuild(obj);
 end;
 
@@ -816,9 +835,10 @@ var d : TJSONData;
     S : String;
 begin
   if assigned(FCache) then begin StrDispose(FCache); FCache := nil; end;
+  if assigned(FCharset) then begin StrDispose(FCharset); FCharset := nil; end;
   if assigned(FCompress) then FreeMemAndNil(FCompress);
   if assigned(FMimeRegExp) then FreeAndNil(FMimeRegExp);
-  if assigned(FFileRegExp) then FreeAndNil(FFileRegExp);
+  if assigned(FURIRegExp) then FreeAndNil(FURIRegExp);
 
   try
     FComplete := true;
@@ -827,12 +847,12 @@ begin
     begin
       FMimeRegExp := TRegExpr.Create(d.AsString);
     end;
-    d := obj.Find('file');
+    d := obj.Find('uri');
     if assigned(d) and (d is TJSONString) then
     begin
-      FFileRegExp := TRegExpr.Create(d.AsString);
+      FURIRegExp := TRegExpr.Create(d.AsString);
     end;
-    if not (assigned(FMimeRegExp) or assigned(FFileRegExp)) then
+    if not (assigned(FMimeRegExp) or assigned(FURIRegExp)) then
       FComplete := false;
     if FComplete then
     begin
@@ -845,6 +865,13 @@ begin
         S := UTF8Encode(d.AsString);
         FCache := StrAlloc(Length(S) + 1);
         StrPCopy(FCache, S);
+      end;
+      d := obj.Find('charset');
+      if assigned(d) and (d is TJSONString) then
+      begin
+        S := UTF8Encode(d.AsString);
+        FCharset := StrAlloc(Length(S) + 1);
+        StrPCopy(FCharset, S);
       end;
       d := obj.Find('compress');
       if assigned(d) and (d is TJSONBoolean) then
@@ -861,21 +888,23 @@ end;
 destructor TWCHTTPTemplate.Destroy;
 begin
   if assigned(FCache) then begin StrDispose(FCache); FCache := nil; end;
+  if assigned(FCharset) then begin StrDispose(FCharset); FCharset := nil; end;
   if assigned(FCompress) then FreeMem(FCompress);
   if assigned(FMimeRegExp) then FMimeRegExp.Free;
-  if assigned(FFileRegExp) then FFileRegExp.Free;
+  if assigned(FURIRegExp) then FURIRegExp.Free;
   inherited Destroy;
 end;
 
-function TWCHTTPTemplate.Check(const aMime, aFile : String) : Boolean;
+function TWCHTTPTemplate.Check(const aMime, aURI : String) : Boolean;
 begin
   if Complete then
   begin
     try
       Result := true;
-      if assigned(FMimeRegExp) then Result := FMimeRegExp.Exec(aMime);
-      if Result and assigned(FFileRegExp) then
-        Result :=  FFileRegExp.Exec(aFile);
+      if assigned(FMimeRegExp) then
+        Result := FMimeRegExp.Exec(aMime);
+      if Result and assigned(FURIRegExp) then
+        Result := FURIRegExp.Exec(aURI);
     except
       Result := false;
     end;
@@ -893,10 +922,16 @@ begin
   if assigned(FCache) then lV := StrPas(FCache);
 end;
 
+procedure TWCHTTPTemplate.GetCharset(var lV : String);
+begin
+  if assigned(FCharset) then lV := StrPas(FCharset);
+end;
+
 procedure TWCHTTPTemplate.GetStatus(var R: TWCHTTPTemplateRecord);
 begin
   if assigned(FCompress) then R.Compress := FCompress^;
   if assigned(FCache) then    R.Cache := StrPas(FCache);
+  if assigned(FCharset) then  R.Charset := StrPas(FCharset);
 end;
 
 { TWCHTTPConfig }
@@ -906,8 +941,11 @@ var d : TJSONData;
 begin
   d := aConfig.FindPath(HashToConfig(CFG_WEBFILES_SEC)^.NAME_STR + '.' +
                         HashToConfig(CFG_MIME_TEMPLATES)^.NAME_STR);
-  if assigned(d) and (d is TJSONArray) then
+  if assigned(d) and (d is TJSONArray) then begin
     FMimeTemplates.Rebuild(TJSONArray(d));
+    if assigned(WebContainer) then
+      WebContainer.UpdateCachedWebItemsWithTemplates;
+  end;
 end;
 
 destructor TWCHTTPConfig.Destroy;
@@ -955,6 +993,7 @@ begin
   ClientsSec := Root.AddSection(HashToConfig(CFG_CLIENTS_SEC)^.NAME_STR);
   ClientsSec.AddValue(CFG_CLIENT_TIMEOUT, wccrInteger);
   ClientsSec.AddValue(CFG_CLIENT_COOKIE_MAX_AGE, wccrInteger);
+  ClientsSec.AddValue(CFG_CLIENT_ALLOW_ENCODE, wccrString);
 
   Http2Sec := Root.AddSection(HashToConfig(CFG_HTTP2_SEC)^.NAME_STR);
   Http2Sec.AddValue(CFG_H2SET_HEADER_TABLE_SIZE     , wccrInteger);
@@ -1009,7 +1048,7 @@ end;
 { TWCSendServerFile }
 
 procedure TWCSendServerFile.Execute;
-var FN, FE, aURI : String;
+var FE, aURI : String;
   aCachedFile : TWebCachedItem;
 begin
   ResponseReadyToSend := false; // prevent to send response
@@ -1019,29 +1058,25 @@ begin
   begin
     aURI := Application.MainURI;
   end;
-  FN := StringReplace(aURI, cNonSysDelimiter, cSysDelimiter, [rfReplaceAll]);
-  if (Pos(FN, '..') = 0) and (Length(FN) > 0) and
-     Application.IsAcceptedWebFile(FN) then
+  if (Pos(aURI, '..') = 0) and (Length(aURI) > 0) and
+     Application.IsAcceptedWebFile(aURI) then
   begin
-    if FN[1] = cSysDelimiter then
-      Delete(FN, 1, 1);
-
-    FN := Application.SitePath + FN;
-
-    FE := ExtractFileExt(FN);
+    FE := ExtractFileExt(aURI);
     if SameText(FE, '.svgz') then begin
       if Client.AcceptGzip then
         Response.SetHeader(hhContentEncoding, cSgzip) else
-        FN := ChangeFileExt(FN, '.svg');
+        aURI := ChangeFileExt(aURI, '.svg');
     end;
 
-    aCachedFile := WebContainer.GetWebCachedItem(FN);
+    aCachedFile := WebContainer.GetWebCachedItem(aURI);
     if assigned(aCachedFile) and
        (aCachedFile.Size > 0) then
     begin
       aCachedFile.Lock;
       try
         Response.ContentType := aCachedFile.MimeType;
+        if Length(aCachedFile.Charset) > 0 then
+          Response.ContentType := Response.ContentType + '; charset='+aCachedFile.Charset;
         Response.CacheControl:= aCachedFile.CacheControl;
 
         {$IFDEF ALLOW_STREAM_GZIP}
@@ -1089,6 +1124,25 @@ end;
 function TWCRequest.GetConnection: TWCConnection;
 begin
   Result := TWCConnection(Connection);
+end;
+
+procedure TWCRequest.DecodeContent;
+var aDecoder : TWCClientDecoderClass;
+begin
+  // check if compression applyed
+  if Length(ContentEncoding) > 0 then
+  begin
+    aDecoder := Application.ClientDecoders[ContentEncoding];
+    if assigned(aDecoder) then
+    begin
+      // maybe not best solution for large content blocks
+      // Initial Content -> DecodedBytes -> Output Content
+      // utf8 charset means as default on then client-side
+      // need to parse Content-Type string to determinate
+      // initial client-side charset and convert result string to utf8
+      Content := aDecoder.DecodeString(Content);
+    end;
+  end;
 end;
 
 procedure TWCRequest.CollectHeaders(Headers: TStringList);
@@ -1535,8 +1589,10 @@ begin
           if Assigned(FRequest) then
           begin
             // Read content, if any
-            If FRequest.ContentLength>0 then
+            If FRequest.ContentLength>0 then begin
               ReadReqContent(FRequest);
+              FRequest.DecodeContent;
+            end;
             FRequest.InitRequestVars;
             //check here if http1.1 upgrade to http2
             //here can be implemented simple mechanism for transitioning
@@ -1590,6 +1646,7 @@ begin
             TWCHTTP2Connection(HTTPRefCon).GoAway(H2E_PROTOCOL_ERROR);
             Result := WC_CONSUME_PROTOCOL_ERROR;
           end;
+          FRequest.DecodeContent;
         end else
           Result := WC_CONSUME_NO_DATA;
       end;
@@ -2441,6 +2498,16 @@ begin
   Result := FConfig.FMimeTemplates;
 end;
 
+function TWCHTTPApplication.GetClientAllowEncode : String;
+begin
+  Result := FClientDecoders.GetListOfDecoders;
+end;
+
+procedure TWCHTTPApplication.SetClientAllowEncode(AValue : String);
+begin
+  FClientDecoders.RebuildListOfDecoders(AValue);
+end;
+
 procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
 var JTJ : TJobToJobWait;
 begin
@@ -2499,9 +2566,6 @@ begin
     CFG_SSL_CIPHER : begin
       ESServer.FSSLLocker.Lock;
       try
-{        case ESServer.SSLType of
-          estTLSv1_2:  ESServer.CertificateData.CipherList := Sender.Value;
-        end; }
         ESServer.CertificateData.CipherList := Sender.Value;
       finally
         ESServer.FSSLLocker.UnLock;
@@ -2528,6 +2592,8 @@ begin
        ClientCookieMaxAge := Sender.Value;
     CFG_CLIENT_TIMEOUT :
        ClientTimeOut := Sender.Value;
+    CFG_CLIENT_ALLOW_ENCODE :
+       ClientAllowEncode := Sender.Value;
     //http2
     CFG_H2SET_HEADER_TABLE_SIZE,
     CFG_H2SET_MAX_CONCURRENT_STREAMS,
@@ -2583,6 +2649,7 @@ begin
   FWebFilesExceptIgnore := TThreadUtf8String.Create('');
   FSSLLoc := TThreadUtf8String.Create('');
   FMimeLoc := TThreadUtf8String.Create('');
+  FClientDecoders := TThreadSafeDecoders.Create;
   FThreadJobToJobWait := TThreadJobToJobWait.Create(DefaultJobToJobWait);
   FNeedShutdown := TThreadBoolean.Create(False);
   OnException:=@DoOnException;
@@ -2651,6 +2718,7 @@ begin
   FClientCookieMaxAge.Free;
   FClientTimeOut.Free;
   FThreadJobToJobWait.Free;
+  FClientDecoders.Free;
   if Assigned(FWebFilesIgnoreRx) then  FWebFilesIgnoreRx.Free;
   if Assigned(FWebFilesExceptIgnoreRx) then FWebFilesExceptIgnoreRx.Free;
   FNeedShutdown.Free;
@@ -3142,6 +3210,16 @@ begin
   Result := FCache;
 end;
 
+function TWebCachedItem.GetCacheControl : String;
+begin
+  Result := FCacheControl.Value;
+end;
+
+function TWebCachedItem.GetCharset : String;
+begin
+  Result := FCharset.Value;
+end;
+
 function TWebCachedItem.GetDeflateCache: TRefMemoryStream;
 begin
   Result := FDeflateCache;
@@ -3214,10 +3292,12 @@ begin
   end;
 end;
 
-constructor TWebCachedItem.Create(const aLoc: String);
-var T : TWCHTTPTemplateRecord;
+constructor TWebCachedItem.Create(const aLoc, aURI : String);
 begin
   inherited Create;
+  FCacheControl := TThreadUtf8String.Create('');
+  FCharset := TThreadUtf8String.Create('');
+  FNeedToCompress := TThreadBoolean.Create(false);
   FCache := nil;
   FDeflateCache := nil;
   {$IFDEF ALLOW_STREAM_GZIP}
@@ -3225,17 +3305,13 @@ begin
   {$ENDIF}
   Clear;
   FLoc := aLoc;
+  FURI := aURI;
   FDataTime := EncodeDate(1990, 1, 1);
   FMimeType := MimeTypes.GetMimeType(ExtractFileExt(aLoc));
   If Length(FMimeType) = 0 then
     FMimeType:='application/octet-stream';
 
-  FDeflateCache := nil;
-
-  T := Application.MimeTemplates.GetTemplate(FMimeType, aLoc);
-  if (Application.NetDebugMode) then FCacheControl:='no-cache' else
-                                     FCacheControl:= T.Cache;
-  FNeedToCompress:= T.Compress;
+  UpdateFromTemplate;
 end;
 
 destructor TWebCachedItem.Destroy;
@@ -3245,7 +3321,20 @@ begin
   {$IFDEF ALLOW_STREAM_GZIP}
   if assigned(FGzipCache) then FGzipCache.DecReference;
   {$ENDIF}
+  FCharset.Free;
+  FCacheControl.Free;
+  FNeedToCompress.Free;
   inherited Destroy;
+end;
+
+procedure TWebCachedItem.UpdateFromTemplate;
+var T : TWCHTTPTemplateRecord;
+begin
+  T := Application.MimeTemplates.GetTemplate(FMimeType, FURI);
+  if (Application.NetDebugMode) then FCacheControl.Value:='no-cache' else
+                                     FCacheControl.Value:= T.Cache;
+  FNeedToCompress.Value:= T.Compress;
+  FCharset.Value := T.Charset;
 end;
 
 procedure TWebCachedItem.Clear;
@@ -3289,7 +3378,7 @@ begin
         finally
           F.Free;
         end;
-        if FNeedToCompress then
+        if FNeedToCompress.Value then
         begin
           FCache.Lock;
           try
@@ -3361,7 +3450,7 @@ begin
   FCachedPages := TWebCacheCollection.Create;
   FConnectedClients := TWebClients.Create(Self);
 
-  GetWebCachedItem(Application.SitePath + Application.MainURI);
+  GetWebCachedItem(Application.MainURI);
 
   FClientsDB := TExtSqlite3Dataset.Create(nil);
   FClientsDB.FileName := Application.SitePath +
@@ -3579,16 +3668,41 @@ begin
 //  SeqSheduleStep;   // shedule clients seq
 end;
 
-function TWebClientsContainer.GetWebCachedItem(const aLoc: String
-  ): TWebCachedItem;
+function TWebClientsContainer.GetWebCachedItem(const aURI : String
+  ) : TWebCachedItem;
+var aLoc: String;
 begin
+  if Length(aURI) = 0 then raise Exception.Create('trying to cache empty uri');
+  aLoc := StringReplace(aURI, cNonSysDelimiter, cSysDelimiter, [rfReplaceAll]);
+  if aLoc[1] = cSysDelimiter then
+    Delete(aLoc, 1, 1);
+  aLoc := Application.SitePath + aLoc;
   Result := FCachedPages[aLoc];
   if not Assigned(Result) then
   begin
-    Result := TWebCachedItem.Create(aLoc);
+    Result := TWebCachedItem.Create(aLoc, aURI);
     FCachedPages.AddNew(aLoc, Result);
   end;
   Result.Refresh;
+end;
+
+procedure TWebClientsContainer.UpdateCachedWebItemsWithTemplates;
+var i : integer;
+  It : TWebCachedItem;
+begin
+  if assigned(FCachedPages) then
+  begin
+    FCachedPages.Lock;
+    try
+      for i := 0 to FCachedPages.Count-1 do
+      begin
+        It := TWebCachedItem(FCachedPages.Item[i]);
+        It.UpdateFromTemplate;
+      end;
+    finally
+      FCachedPages.UnLock;
+    end;
+  end;
 end;
 
 Initialization

@@ -2244,7 +2244,7 @@ begin
       if FDataBlockSize > 0 then begin
         SetLength(S, FDataBlockSize);
         Move(FCurDataBlock^, S[1], FDataBlockSize);
-        ARequest.Content:=S;
+        ARequest.Content := S;
       end;
     finally
       //

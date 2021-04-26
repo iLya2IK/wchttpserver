@@ -67,7 +67,10 @@ uses
   http2consts,
   WCTestClient,
   wcconfig,
-  SortedThreadPool;
+  SortedThreadPool,
+  {avaible decoders}
+  wcdecoders,
+  wcdeflatedecoder;
 
 var Conf : TWCConfig;
 {$IFDEF LOAD_DYNAMICALLY}
@@ -141,7 +144,7 @@ begin
   // SSLMasterKeyLog - location of openssl keys log
   // then tls keys log location will be home/folder/CFG_SSL_LOC/CFG_TLSKEY_LOG
   Conf.SetDefaultValue(CFG_TLSKEY_LOG, ''); // tlskey.log
-  Conf.SetDefaultValue(CFG_SSL_VER, 'TLSv1.2');
+  Conf.SetDefaultValue(CFG_SSL_VER, 'TLSv1.2'); //if TLSv1.3 - do not forget to change cipher list
   Conf.SetDefaultValue(CFG_ALPN_USE_HTTP2, True);
   Conf.SetDefaultValue(CFG_MAIN_THREAD_CNT, 6);
   Conf.SetDefaultValue(CFG_PRE_THREAD_CNT, 5);
@@ -150,6 +153,7 @@ begin
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MIN, DefaultJobToJobWait.AdaptMin);
   Conf.SetDefaultValue(CFG_CLIENT_COOKIE_MAX_AGE, 86400);
   Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 20);
+  Conf.SetDefaultValue(CFG_CLIENT_ALLOW_ENCODE, 'deflate');
 
   with Application.ESServer.HTTPRefConnections.HTTP2Settings do
   if Count = 0 then begin

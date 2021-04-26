@@ -29,7 +29,7 @@ type
     constructor Create(AOwner : TWebClients; const aCUID : String); override;
     procedure DoIdle; override;
     procedure Initialize; override;
-    procedure ConnectToServer(const UN, PWD : String);
+    procedure ConnectToServer(const UN, PWD, aContent : String);
     procedure Disconnect;
     function  GetClientInt(pos : Integer) : QWord;
     function  Launch : Boolean;
@@ -73,7 +73,7 @@ begin
   //do nothing
 end;
 
-procedure TWCTestWebClient.ConnectToServer(const UN, PWD: String);
+procedure TWCTestWebClient.ConnectToServer(const UN, PWD, aContent : String);
 begin
   Lock;
   try

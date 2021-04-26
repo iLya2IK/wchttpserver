@@ -134,7 +134,8 @@ begin
     if assigned(jsonObj) then
     begin
       TWCTestWebClient(Client).ConnectToServer(jsonObj.Get('VAL_USERNAME', ''),
-                                               jsonObj.Get('VAL_USERPSW', ''));
+                                               jsonObj.Get('VAL_USERPSW', ''),
+                                               jsonObj.Get('content', ''));
       Response.Content := cSStatusOKJSON;
     end else
       Response.Content := cSStatusBADJSON;
