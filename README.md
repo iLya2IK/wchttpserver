@@ -1,7 +1,7 @@
 ![alt text](https://github.com/iLya2IK/wchttpserver/blob/main/wclogo_c.svg?raw=true)
 
 # wchttpserver
-HTTP/2+1.1 server written with Lazarus (Free Pascal)
+HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)
 
 The project builds on fpWeb modules and extends them to increase functionality:
 1. Client management using cookies (saving and maintaining sessions).
@@ -10,10 +10,11 @@ The project builds on fpWeb modules and extends them to increase functionality:
 4. Multithreading preparation and execution of requests based on threads pools e.g. helpful classes to work with EventSources.
 6. Clients ranking based on clients frequency of requests.
 7. Built-in support for gzip and deflate compression methods including decompression of client-side requests.
-7. Ability to start the server both in HTTP/2 mode and in HTTP 1.1 mode.
-8. Modified OpenSSL modules (added necessary TLS extensions) to create and maintain HTTP/2 connections.
-9. Added the ability to save the master key and a random set of client data on the server-side (necessary for debugging TLS dumps using WireShark).
-10. Working both under Windows and Linux.
+8. WebSocket protocol supported.
+9. Ability to start the server both in HTTP/2 mode and in HTTP 1.1 mode.
+10. Modified OpenSSL modules (added necessary TLS extensions) to create and maintain HTTP/2 connections.
+11. Added the ability to save the master key and a random set of client data on the server-side (necessary for debugging TLS dumps using WireShark).
+12. Working both under Windows and Linux.
 
 # What project contains?
 * Source files with abstract classes, structures, and commonly used utils. 
