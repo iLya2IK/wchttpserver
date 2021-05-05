@@ -49,7 +49,7 @@
             <Verbosity>
               <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
             </Verbosity>
-            <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP"/>
+            <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP  -dWC_WEB_SOCKETS"/>
           </Other>
         </CompilerOptions>
       </Item2>
@@ -73,7 +73,7 @@
         <PackageName Value="weblaz"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="27">
+    <Units Count="29">
       <Unit0>
         <Filename Value="wchttpserver.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -189,6 +189,14 @@
         <Filename Value="wcdeflatedecoder.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit26>
+      <Unit27>
+        <Filename Value="wcwebsockets.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit27>
+      <Unit28>
+        <Filename Value="websocketconsts.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit28>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -227,7 +235,7 @@
       <Verbosity>
         <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
       </Verbosity>
-      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dDEBUG -dDEBUG_STAT"/>
+      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dWC_WEB_SOCKETS -dDEBUG -dDEBUG_STAT"/>
     </Other>
   </CompilerOptions>
   <Debugging>

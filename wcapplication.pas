@@ -49,7 +49,12 @@ uses
   {$ifdef NOGUI}
   , gwidgetsethelper
   {$endif}
-  {$endif}    ;
+  {$endif}
+  {$ifdef WC_WEB_SOCKETS}
+  , wcwebsockets
+  , websocketconsts
+  {$endif}
+  ;
 
 type
   TWebClient = class;
@@ -157,6 +162,7 @@ type
     procedure SetHostName(AValue: string); override;
     procedure SetCertificate(AValue: String); override;
     procedure SetPrivateKey(AValue: String); override;
+    function AttachRefCon(aRefCon : TWCHTTPRefConnection) : TWCHTTPRefConnection;
   public
     constructor Create(AOwner: TComponent); override;
     function  CreateSSLSocketHandler: TSocketHandler; override;
@@ -172,6 +178,12 @@ type
     function AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
       aServerDoConsume: THttpRefSocketConsume;
       aSendData: THttpRefSendData): TWCHTTP11Connection;
+    {$IFDEF WC_WEB_SOCKETS}
+    function AttachNewWebSocketCon(aSocket: TWCHTTPSocketReference;
+      aOpenMode : TWebSocketUpgradeOptions;
+      aServerDoConsume: THttpRefSocketConsume;
+      aSendData: THttpRefSendData): TWCWebSocketConnection;
+    {$ENDIF}
     property  MaxPreClientsThreads : Integer read GetMaxPreClientsThreads;
     property  MaxMainClientsThreads : Integer read GetMaxMainClientsThreads;
     procedure AddLinearJob(AJob : TLinearJob);
@@ -1240,8 +1252,8 @@ begin
   begin
     if WCConn.HTTPVersion = wcHTTP2 then
     begin
-      WCConn.HTTP2Str.Request.Response.PushData(Pointer(@(S[1])), L);
-      WCConn.HTTP2Str.Request.Response.SerializeData(not KeepStreamAlive);
+      TWCHTTPStream(WCConn.RefRequest).Response.PushData(Pointer(@(S[1])), L);
+      TWCHTTPStream(WCConn.RefRequest).Response.SerializeData(not KeepStreamAlive);
     end else
     begin
       if Assigned(WCConn.HTTPRefCon) then
@@ -1262,9 +1274,15 @@ end;
 
 procedure TWCResponse.CloseStream;
 begin
+  {$IFDEF WC_WEB_SOCKETS}
+  if WCConn.HTTPVersion = wcWebSocket then
+  begin
+    WCConn.RefRequest := nil;
+  end else
+  {$ENDIF}
   if WCConn.HTTPVersion = wcHTTP2 then
   begin
-    WCConn.HTTP2Str.Request.Response.Close;
+    TWCHTTPStream(WCConn.RefRequest).Request.Response.Close;
   end else
   begin
     // do nothing
@@ -1284,59 +1302,65 @@ Var
   S : String;
   I : Integer;
 begin
-  if Assigned(WCConn.HTTP2Str) then
-  begin
-    WCConn.HTTP2Str.Request.
-               Response.SerializeResponseHeaders(Self,
-                                                       (ContentLength = 0) and
-                                                       (not FKeepAlive));
-  end else
-  begin
-    S:=Format('HTTP/1.1 %3d %s'#13#10,[Code,GetStatusCode(Code)]);
-    For I:=0 to Headers.Count-1 do
-      S:=S+Headers[i]+#13#10;
-    // Last line in headers is empty.
-    if Assigned(WCConn.HTTPRefCon) then
+  case WCConn.HTTPVersion of
+    wcHTTP2 :
     begin
-      WCConn.HTTPRefCon.PushFrame(S);
-    end else begin
-      WCConn.Socket.WriteBuffer(S[1],Length(S));
+      TWCHTTPStream(WCConn.RefRequest).Request.
+                 Response.SerializeResponseHeaders(Self,
+                                                         (ContentLength = 0) and
+                                                         (not FKeepAlive));
+    end;
+    wcHTTP1_1, wcHTTP1 :
+    begin
+      S:=Format('HTTP/1.1 %3d %s'#13#10,[Code,GetStatusCode(Code)]);
+      For I:=0 to Headers.Count-1 do
+        S:=S+Headers[i]+#13#10;
+      // Last line in headers is empty.
+      if Assigned(WCConn.HTTPRefCon) then
+      begin
+        WCConn.HTTPRefCon.PushFrame(S);
+      end else begin
+        WCConn.Socket.WriteBuffer(S[1],Length(S));
+      end;
     end;
   end;
 end;
 
 procedure TWCResponse.DoSendContent;
 begin
-  if Assigned(WCConn.HTTP2Str) then
-  begin
-    if Assigned(FRefStream) then begin
-      WCConn.HTTP2Str.Request.Response.SerializeRefStream(FRefStream, true); //close stream
-      ReleaseRefStream;
-    end
-    else
-      WCConn.HTTP2Str.Request.Response.SerializeResponseData(Self, true); //close stream
-  end else
-  begin
-    if Assigned(WCConn.HTTPRefCon) then
+  case WCConn.HTTPVersion of
+    wcHTTP2 :
     begin
-      if Assigned(FRefStream) then
-      begin
-        WCConn.HTTPRefCon.PushFrame(FRefStream);
+      if Assigned(FRefStream) then begin
+        TWCHTTPStream(WCConn.RefRequest).Response.SerializeRefStream(FRefStream, true); //close stream
         ReleaseRefStream;
-      end else
-      begin
-        If Assigned(ContentStream) then begin
-          WCConn.HTTPRefCon.PushFrame(ContentStream, 0, FreeContentStream);
-          FreeContentStream := false;
-        end
-        else
-          WCConn.HTTPRefCon.PushFrame(Contents);
-      end;
-    end else begin
-      If Assigned(ContentStream) then
-        WCConn.Socket.CopyFrom(ContentStream,0)
+      end
       else
-        Contents.SaveToStream(WCConn.Socket);
+        TWCHTTPStream(WCConn.RefRequest).Response.SerializeResponseData(Self, true); //close stream
+    end;
+    wcHTTP1_1, wcHTTP1{$IFDEF WC_WEB_SOCKETS}, wcWebSocket {$ENDIF} :
+    begin
+      if Assigned(WCConn.HTTPRefCon) then
+      begin
+        if Assigned(FRefStream) then
+        begin
+          WCConn.HTTPRefCon.PushFrame(FRefStream);
+          ReleaseRefStream;
+        end else
+        begin
+          If Assigned(ContentStream) then begin
+            WCConn.HTTPRefCon.PushFrame(ContentStream, 0, FreeContentStream);
+            FreeContentStream := false;
+          end
+          else
+            WCConn.HTTPRefCon.PushFrame(Contents);
+        end;
+      end else begin
+        If Assigned(ContentStream) then
+          WCConn.Socket.CopyFrom(ContentStream,0)
+        else
+          Contents.SaveToStream(WCConn.Socket);
+      end;
     end;
   end;
 end;
@@ -1549,6 +1573,9 @@ function TWCConnection.ConsumeSocketData: Cardinal;
 var r : integer;
     aHTTPRefCon : TWCHTTPRefConnection;
     h2openmode : THTTP2OpenMode;
+    {$IFDEF WC_WEB_SOCKETS}
+    wsopenmode : TWebSocketUpgradeOptions;
+    {$ENDIF}
 begin
   Result := WC_CONSUME_OK;
   try
@@ -1588,31 +1615,54 @@ begin
           FRequest:= ReadReqHeaders;
           if Assigned(FRequest) then
           begin
-            // Read content, if any
-            If FRequest.ContentLength>0 then begin
-              ReadReqContent(FRequest);
-              FRequest.DecodeContent;
-            end;
             FRequest.InitRequestVars;
-            //check here if http1.1 upgrade to http2
-            //here can be implemented simple mechanism for transitioning
-            //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
-            //
-            //this mechanism is not implemented due to its rare use
-            if not Assigned(HTTPRefCon) then
+            //check here if http1.1 upgrade to other protocol
+            if SameText(FRequest.ProtocolVersion, '1.1') then
             begin
-              if SameText(FRequest.ProtocolVersion, '1.1') and
-                 SameText(FRequest.GetHeader(hhConnection), 'keep-alive') then
+              if Pos('upgrade', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
               begin
-                HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
-                                                                       @(TWCHttpServer(Server).DoConnectToSocketRef),
-                                                                       @(TWCHttpServer(Server).DoSendData));
-                HTTPRefCon.IncReference; // reference not incremented here, need to increment
+                {$IFDEF WC_WEB_SOCKETS}
+                wsopenmode := TWCWebSocketConnection.TryToUpgradeFromHTTP(FRequest);
+                if assigned(wsopenmode) then
+                begin
+                  FProtocolVersion := wcWebSocket;
+                  HTTPRefCon := TWCHttpServer(Server).AttachNewWebSocketCon(SocketReference,
+                                                                            wsopenmode,
+                                                                            @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                            @(TWCHttpServer(Server).DoSendData));
+                  HTTPRefCon.IncReference; // reference not incremented here, need to increment
+                end;
+                {$ENDIF}
+                //here can be implemented simple mechanism for transitioning
+                //from HTTP/1.1 to HTTP/2 according RFC 7540 (Section 3.2)
+                //
+                //this mechanism is not implemented due to its rare use
+              end else
+              if not Assigned(HTTPRefCon) then
+              begin
+                if Pos('keep-alive', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
+                begin
+                  HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
+                                                                         @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                         @(TWCHttpServer(Server).DoSendData));
+                  HTTPRefCon.IncReference; // reference not incremented here, need to increment
+                end;
               end;
             end;
-            if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
-              Result := WC_CONSUME_OK else
-              Result := WC_CONSUME_WRONG_PROTOCOL;
+
+            if FProtocolVersion = wcUNK then
+              Result := WC_CONSUME_WRONG_PROTOCOL else
+            begin
+              if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
+              begin
+                // Read content, if any
+                If FRequest.ContentLength>0 then begin
+                  ReadReqContent(FRequest);
+                  FRequest.DecodeContent;
+                end;
+              end;
+              Result := WC_CONSUME_OK;
+            end;
           end else begin
             FProtocolVersion:= wcUNK;
             Result := WC_CONSUME_WRONG_PROTOCOL;
@@ -1633,15 +1683,15 @@ begin
                                                                 @(TWCHttpServer(Server).DoSendData));
           HTTPRefCon.IncReference; // reference not incremented here, need to increment
         end;
-        if FInput.Size > 0 then
+        if (FInput.Size - FInput.Position) > 0 then
            HTTPRefCon.ConsumeNextFrame(FInput);
-        HTTP2Str := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
-        if Assigned(HTTP2Str) then begin
-          FRequest := ConvertFromHTTP2Req(HTTP2Str.Request);
+        RefRequest := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
+        if Assigned(RefRequest) then begin
+          FRequest := ConvertFromHTTP2Req(TWCHTTPStream(RefRequest).Request);
           // check Malformed Requests
-          if FRequest.ContentLength <> HTTP2Str.Request.DataBlockSize then
+          if FRequest.ContentLength <> TWCHTTPStream(RefRequest).Request.DataBlockSize then
           begin
-            TWCHTTP2Connection(HTTPRefCon).ResetStream(HTTP2Str.ID,
+            TWCHTTP2Connection(HTTPRefCon).ResetStream(TWCHTTPStream(RefRequest).ID,
                                                        H2E_PROTOCOL_ERROR);
             TWCHTTP2Connection(HTTPRefCon).GoAway(H2E_PROTOCOL_ERROR);
             Result := WC_CONSUME_PROTOCOL_ERROR;
@@ -1650,6 +1700,28 @@ begin
         end else
           Result := WC_CONSUME_NO_DATA;
       end;
+      {$IFDEF WC_WEB_SOCKETS}
+      if FProtocolVersion = wcWebSocket then
+      begin
+        Result := WC_CONSUME_OK;
+        if (FInput.Size - FInput.Position) > 0 then
+           HTTPRefCon.ConsumeNextFrame(FInput);
+        RefRequest := TWCWebSocketConnection(HTTPRefCon).PopReadyChunck;
+        if Assigned(RefRequest) then
+        begin
+          if not assigned(FRequest) then begin
+            FRequest := TWCRequest(TWCHttpServer(Server).CreateRequest);
+            TWCWebSocketConnection(HTTPRefCon).Options.Lock;
+            try
+              CopyHTTPRequest(FRequest, TWCWebSocketConnection(HTTPRefCon).Options.Request);
+            finally
+              TWCWebSocketConnection(HTTPRefCon).Options.UnLock;
+            end;
+          end;
+        end else
+          Result := WC_CONSUME_NO_DATA;
+      end;
+      {$ENDIF}
     finally
       if Assigned(HTTPRefCon) then
          HTTPRefCon.ReleaseRead(not (Result in [WC_CONSUME_PROTOCOL_ERROR,
@@ -1936,30 +2008,51 @@ begin
   inherited InitResponse(AResponse);
 end;
 
+function TWCHttpServer.AttachRefCon(aRefCon : TWCHTTPRefConnection
+  ) : TWCHTTPRefConnection;
+begin
+  Result := aRefCon;
+  Application.GarbageCollector.Add(Result);
+  FHTTPRefConnections.AddConnection(Result);
+end;
+
 function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
   aOpenMode: THTTP2OpenMode; aServerDoConsume: THttpRefSocketConsume;
   aSendData: THttpRefSendData): TWCHTTP2Connection;
 begin
-  Result := TWCHTTP2Connection.Create(FHTTPRefConnections,
+  Result := TWCHTTP2Connection(AttachRefCon(
+            TWCHTTP2Connection.Create(FHTTPRefConnections,
                                       aSocket,
                                       aOpenMode,
                                       aServerDoConsume,
-                                      aSendData);
-  Application.GarbageCollector.Add(Result);
-  FHTTPRefConnections.AddConnection(Result);
+                                      aSendData)));
 end;
 
 function TWCHttpServer.AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
   aServerDoConsume: THttpRefSocketConsume; aSendData: THttpRefSendData
   ): TWCHTTP11Connection;
 begin
- Result := TWCHTTP11Connection.Create(FHTTPRefConnections,
-                                     aSocket,
-                                     aServerDoConsume,
-                                     aSendData);
- Application.GarbageCollector.Add(Result);
- FHTTPRefConnections.AddConnection(Result);
+  Result := TWCHTTP11Connection(AttachRefCon(
+            TWCHTTP11Connection.Create(FHTTPRefConnections,
+                                       aSocket,
+                                       aServerDoConsume,
+                                       aSendData)));
 end;
+
+{$IFDEF WC_WEB_SOCKETS}
+function TWCHttpServer.AttachNewWebSocketCon(aSocket : TWCHTTPSocketReference;
+  aOpenMode : TWebSocketUpgradeOptions;
+  aServerDoConsume : THttpRefSocketConsume; aSendData : THttpRefSendData
+  ) : TWCWebSocketConnection;
+begin
+  Result := TWCWebSocketConnection(AttachRefCon(
+            TWCWebSocketConnection.Create(FHTTPRefConnections,
+                                          aOpenMode,
+                                          aSocket,
+                                          aServerDoConsume,
+                                          aSendData)));
+end;
+{$ENDIF}
 
 procedure TWCHttpServer.AddToMainPool(AJob: TWCMainClientJob);
 var SC, LC : Integer;
@@ -2689,8 +2782,10 @@ begin
   // dec references to all clients
   WebContainer.ClearDeadClients;
   // dec references to all connections
-  if assigned(ESServer) then
+  if assigned(ESServer) then begin
+    ESServer.HTTPRefConnections.CloseAll;
     ESServer.HTTPRefConnections.RemoveDeadConnections(GetTickCount64, 0);
+  end;
   // clear cache (referenced streams)
   WebContainer.ClearCache;
   // finally clean lists of references

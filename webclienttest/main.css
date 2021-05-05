@@ -56,6 +56,22 @@ menu > li{
   background-position: center;
   cursor: pointer;
   border: 1px solid transparent;
+  vertical-align: top;  
+}
+
+.iconButtonText {
+  width: 108px;
+  margin-top: 0px;
+  padding-top: 0px;
+  background-position: left;
+  vertical-align: top;
+}
+
+.iconButtonText > div {
+  display: block;    
+  font-size: 12px; 
+  margin-left: 28px;
+  margin-top: 7px;  
 }
 
 menu > li.selected{
@@ -94,14 +110,34 @@ menu li:active{
   background-image: url("images/connect.png");
 }
 
+#button_connect_ws{
+  background-image: url("images/connect.svgz");
+}
+
+#button_connect_ws.no_svg{
+  background-image: url("images/connect.png");
+}
+
+#button_disconnect{
+  background-image: url("images/disconnect.svgz");  
+  display: none;
+}
+
+#button_disconnect.no_svg{
+  background-image: url("images/disconnect.png");  
+}
+
+.authorized #button_disconnect{
+  display: inline-block;
+}
+
 .authorized #button_connect{
-  background-image: url("images/disconnect.svgz");
+  display: none;
 }
 
-.authorized #button_connect.no_svg{
-  background-image: url("images/disconnect.png");
+.authorized #button_connect_ws{
+  display: none;
 }
-
 
 #button_run{
   background-image: url("images/run.svgz");

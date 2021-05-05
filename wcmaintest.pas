@@ -12,6 +12,7 @@ interface
 uses
   SysUtils, Classes,
   wcapplication,
+  wchttp2server,
   SortedThreadPool,
   httpdefs, fpHTTP, httpprotocol,
   WCTestClient;
@@ -32,6 +33,9 @@ type
     lastEventID: Cardinal;
     curEventID : Cardinal;
     FStage : Byte;
+    {$IFDEF WC_WEB_SOCKETS}
+    FRID : cardinal;
+    {$ENDIF}
   public
     constructor Create(aConnection : TWCConnection;
       aLastEventID: Cardinal); overload;
@@ -39,12 +43,34 @@ type
     procedure UpdateScore; override;
   end;
 
+  {$IFDEF WC_WEB_SOCKETS}
+
+  { TJSONRPCHolderJob }
+
+  TJSONRPCHolderJob = class(TWCMainClientJob)
+  private
+    FMainJob : TWCMainClientJob;
+    FRID : Cardinal;
+  public
+    constructor Create(aConnection : TWCConnection; aRID: Cardinal;
+      aJob: TWCMainClientJob); overload;
+    destructor Destroy; override;
+    procedure Execute; override;
+  end;
+  {$ENDIF}
+
 procedure InitializeJobsTree;
 procedure DisposeJobsTree;
 
 implementation
 
-uses WCServerTestJobs, AvgLvlTree;
+uses WCServerTestJobs,
+  {$IFDEF WC_WEB_SOCKETS}
+  wcwebsockets,
+  websocketconsts,
+  jsonscanner, jsonparser, fpjson, Variants,
+  {$ENDIF}
+  AvgLvlTree;
 
 var WCJobsTree : TStringToPointerTree;
 
@@ -63,12 +89,111 @@ begin
   FreeAndNil(WCJobsTree);
 end;
 
+
+{$IFDEF WC_WEB_SOCKETS}
+{ TJSONRPCHolderJob }
+
+constructor TJSONRPCHolderJob.Create(aConnection : TWCConnection;
+  aRID : Cardinal; aJob : TWCMainClientJob);
+begin
+  inherited Create(aConnection);
+  FRID := aRID;
+  FMainJob := aJob;
+end;
+
+destructor TJSONRPCHolderJob.Destroy;
+begin
+  FMainJob.Free;
+  inherited Destroy;
+end;
+
+procedure TJSONRPCHolderJob.Execute;
+var j : TJSONObject;
+begin
+  FMainJob.ResponseReadyToSend := false;
+  FMainJob.Execute;
+  J := TJSONObject.Create(['rid', FRID, 'data', FMainJob.Response.Content]);
+  try
+    Response.Content := J.AsJSON;
+  finally
+    J.Free;
+  end;
+  FMainJob.ReleaseConnection;
+  inherited Execute;
+end;
+{$ENDIF}
+
 { TWCPreThread }
 
 function TWCPreThread.GenerateClientJob: TWCMainClientJob;
 var ResultClass : TWCMainClientJobClass;
+    {$IFDEF WC_WEB_SOCKETS}
+    jsonObj : TJSONData;
+    jsonData : TJSONVariant;
+    jsonDataObj : TJSONObject;
+    rid : Cardinal;
+    uri, s : string;
+    {$ENDIF}
 begin
   Result := nil;
+  {$IFDEF WC_WEB_SOCKETS}
+  if Connection.HTTPVersion = wcWebSocket then
+  begin
+    if Assigned(Connection.RefRequest) then
+    begin
+      S := TWCWSIncomingChunck(Connection.RefRequest).DataToUtf8String;
+      if Length(s) > 0 then begin
+        try
+          jsonObj := GetJSON(S);
+        except
+          jsonObj := nil;
+        end;
+        if Assigned(jsonObj) then
+        begin
+          try
+            if jsonObj is TJSONObject then
+            begin
+             rid := TJSONObject(jsonObj).Get('rid', 0);
+             uri := TJSONObject(jsonObj).Get('uri', '');
+             jsonDataObj := TJSONObject(jsonObj).Get('data', TJSONObject(nil));
+             jsonData := null;
+             if not assigned(jsonDataObj) then
+               jsonData := TJSONObject(jsonObj).Get('data');
+             Request.SetCustomHeader('JSONRPC_RID', inttostr(rid));
+             if (length(uri) > 0) and (uri[1] = '.') then
+               uri := Copy(uri, 2, Length(uri));
+             if CompareStr(uri, '/wcDoSynchronizeWebSocket.json')=0 then
+             begin
+               if Assigned(jsonDataObj) then
+               begin
+                 Request.SetCustomHeader('Last-Event-ID',
+                                         inttostr(jsonDataObj.Get('lstId', 0)));
+               end;
+               Result := TWCTryToStartSynchroThread.Create(Connection);
+             end else begin
+               ResultClass := TWCMainClientJobClass(WCJobsTree.Values[uri]);
+               if assigned(ResultClass) then begin
+                  if (not VarIsNull(jsonData)) or assigned(jsonDataObj) then
+                  begin
+                    if assigned(jsonDataObj) then
+                      Request.Content := jsonDataObj.AsJSON else
+                      Request.Content := VarToStr(jsonData);
+                  end else
+                    Request.Content := '';
+                  Result := TJSONRPCHolderJob.Create(Connection, rid, ResultClass.Create(Connection));
+               end;
+             end;
+            end;
+          finally
+            jsonObj.Free;
+          end;
+        end;
+      end;
+      Connection.RefRequest := nil; //release incoming data. not need more
+    end;
+  end else
+  {$ENDIF}
+  begin
   if CompareText(Request.Method,'POST')=0 then
   begin
     ResultClass := TWCMainClientJobClass(WCJobsTree.Values[Request.PathInfo]);
@@ -83,6 +208,7 @@ begin
     begin
       Result := TWCSendServerFile.Create(Connection);
     end;
+  end;
   end;
 end;
 
@@ -108,6 +234,12 @@ begin
   try
     if not Response.HeadersSent then
       Response.SendHeaders;
+    {$IFDEF WC_WEB_SOCKETS}
+    if Connection.HTTPVersion = wcWebSocket then
+    begin
+      s := '{"rid":' + inttostr(FRID) + ',"data":"' + StringToJSONString(s) + '"}';
+    end;
+    {$ENDIF}
     Response.SendUtf8String(S);
     Result := True;
   except
@@ -124,9 +256,18 @@ begin
   ResponseReadyToSend := false;
   if FStage = 0 then
   begin
-    Response.Code:=200;
-    Response.ContentType:='text/event-stream; charset=utf-8';
-    Response.CacheControl:='no-cache';
+    {$IFDEF WC_WEB_SOCKETS}
+    if Connection.HTTPVersion = wcWebSocket then
+    begin
+      s := Request.GetCustomHeader('JSONRPC_RID');
+      if length(s) > 0 then FRID := StrToInt(s) else FRID := 0;
+    end else
+    {$ENDIF}
+    begin
+      Response.Code:=200;
+      Response.ContentType:='text/event-stream; charset=utf-8';
+      Response.CacheControl:='no-cache';
+    end;
     Response.KeepStreamAlive:=true;
     FStage := 1;
   end;
@@ -135,6 +276,7 @@ begin
       if FStage = 1 then
       begin
         FStage := 2; // set here to react on exceptions and exits
+        if not Connection.HTTPRefCon.ConnectionAvaible then Exit;
         aClient := TWCTestWebClient(Client);
         if not assigned(aClient) then begin
           Application.SendError(Response, 405);
@@ -142,7 +284,15 @@ begin
         end else begin
           if (aClient.State = csDisconnected) then
           begin
-            S := 'event: disconnect' + #10;
+            {$IFDEF WC_WEB_SOCKETS}
+            if Connection.HTTPVersion = wcWebSocket then
+            begin
+              S := '{"event":"disconnect"}';
+            end else
+            {$ENDIF}
+            begin
+              S := 'event: disconnect' + #10;
+            end;
             SendResponse;
             Exit;
           end;
@@ -188,7 +338,15 @@ begin
           lastEventID := curEventID;
         end;
         if Length(S) > 0 then begin
+          {$IFDEF WC_WEB_SOCKETS}
+          if Connection.HTTPVersion = wcWebSocket then
+          begin
+            S := '{"data":' + S + ',"id":' + inttostr(curEventID) + '}';
+          end else
+          {$ENDIF}
+          begin
           S := 'data: ' + S + #10 + 'id: ' + inttostr(curEventID) + #10#10;
+          end;
           if not SendResponse then Exit;
         end;
         FStage := 1;

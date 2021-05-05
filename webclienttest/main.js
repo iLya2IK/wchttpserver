@@ -6,8 +6,12 @@ const VAL_CONNECTION_STATE = 1;
 const VAL_LIFETIME_VALUE = 2;
 const VAL_LAUNCH_STATE = 3;
 const CCS_CONNECTED = 1; 
-const CLS_RUN = 1; 
+const CLS_RUN = 1;
+const MODE_EVENT_SOURCE = 1;
+const MODE_WEB_SOCKET = 2;
 
+var CUR_MODE = 0;
+var AUTHO_MODE = 0;
 var esc = {src : null, config : null, username : ""}
 
 function toUTF8Array(str) {
@@ -37,8 +41,17 @@ function toUTF8Array(str) {
     return utf8;
 }
 
-/* fetch replacement */
 function fastpost(method, params, successfunc) {
+    if (CUR_MODE === MODE_EVENT_SOURCE) {
+        fastpost_http(method, params, successfunc);
+    } else
+    if (CUR_MODE === MODE_WEB_SOCKET) {
+        fastpost_websocket(method, params, successfunc);
+    }        
+}
+
+/* fetch replacement */
+function fastpost_http(method, params, successfunc) {
     var xhr = new XMLHttpRequest();
     xhr.open("POST", method, true);
     let content = JSON.stringify(params);
@@ -53,27 +66,40 @@ function fastpost(method, params, successfunc) {
           successfunc(xhr.responseText);      
     };
     (params)? xhr.send(content) : xhr.send();
-  }
+}
+  
+function fastpost_websocket(method, params, successfunc) {
+    create_jsonrpc_req(method, params, false, successfunc);
+}  
+
+var JSONRPC_RID = 0;
+var jsonrpc_requests = new Map();
+  
+function create_jsonrpc_req(method, params, ispersist, successfunc) {
+    let arid = JSONRPC_RID++;    
+    request = {persist:ispersist, func:successfunc, body:{rid:arid, uri:method, data:params}};
+    jsonrpc_requests.set(arid, request);
+    (synwstimer)&&synwstimer.send(JSON.stringify(request.body));
+}
 
 /******************************************************************************\
  * SERVER FUNCTIONS
 /******************************************************************************/
 
 function wcGetClientInt(apos, successfunc) {     
-    let request = { pos : apos }
-    fastpost("./wcGetClientInt.json", request, successfunc);
+    fastpost("./wcGetClientInt.json", { pos : apos }, successfunc);
 }
 
 function wcDisconnect(successfunc) {
-    fastpost("./wcDisconnect.json", null, successfunc);     
+    fastpost_http("./wcDisconnect.json", null, successfunc);     
 }
 
 function wcLaunch(successfunc) {
-    fastpost("./wcLaunch.json", null, successfunc);     
+    fastpost_http("./wcLaunch.json", null, successfunc);     
 }
 
 function wcStop(successfunc) {
-    fastpost("./wcStop.json", null, successfunc);     
+    fastpost_http("./wcStop.json", null, successfunc);     
 }
 
 // https://github.com/Modi34/Microbe template engine
@@ -122,15 +148,25 @@ function isRunning() {return document.body.classList.contains(S_RUNNING);}
 
 let click_toolbar = {
   button_connect(event) {
-    if (!isAuthorized()) 
+    if (!isAuthorized()) {
+      AUTHO_MODE = MODE_EVENT_SOURCE;
       return button_cancel.click();
-    
-    wcDisconnect(text => {
-      let status = JSON.parse(text).status;
-      (status == OK) ? updateConnectionState() : dropState();                
-    });     
-    /*console.log('try to disconnect')*/
+    }   
   },
+  button_connect_ws(event) {
+    if (!isAuthorized()) {
+      AUTHO_MODE = MODE_WEB_SOCKET;
+      return button_cancel.click();
+    }   
+  },  
+  button_disconnect(event) {
+    if (isAuthorized()) {
+        wcDisconnect(text => {
+        let status = JSON.parse(text).status;
+        (status == OK) ? updateConnectionState() : dropState();                
+        });     
+    }
+  },  
   button_run(event) {
     if (!isRunning()) {
         console.log('RUN');
@@ -164,6 +200,7 @@ button_cancel.onclick = function (event) {
 form_auth.onsubmit = event => {
   event.preventDefault();
   var inputs = form_auth.elements
+  var anAuthoMode = AUTHO_MODE;
   
   let request = {
       VAL_USERNAME : inputs["login"].value,
@@ -171,11 +208,20 @@ form_auth.onsubmit = event => {
       content : "some long string to test client-side compression. here is some important message for user. i think 200 chars is anough. here is additional utf8 symbols: бабушка, балалайка"
   }
       
-  fastpost("./wcConnectToServer.json", request, text => {
+  fastpost_http("./wcConnectToServer.json", request, text => {
         let status = JSON.parse(text).status;
-        (status == OK)? startSynTimer() : dropState();                
+        (status == OK)? reconnectSynTimer(anAuthoMode) : dropState();                
         form_auth.classList.remove(S_ACT);
     });  
+}
+
+function reconnectSynTimer(anAuthoMode) {
+  if (anAuthoMode === MODE_WEB_SOCKET) {
+    startWebSocketSynTimer();
+  }
+  if (anAuthoMode === MODE_EVENT_SOURCE) {
+    startEventSourceSynTimer();
+  }  
 }
 
 // close auth form on escape
@@ -186,9 +232,9 @@ document.onkeyup = event => {
 }
 
 let syntimer = null;
+let synwstimer = null;
 
-function doSync(text) {              
-  let synevent = JSON.parse(text);                 
+function doSync(synevent) {                       
   for (let i in synevent.events) {
       // proceed event      
       let theevent = synevent.events[i];
@@ -238,7 +284,7 @@ function debounce(func, wait) {
 let reconnectFrequencySeconds = 1;
 let needToReconnect = false;
 let reconnectFunc = debounce(function() {
-  startSynTimer();
+  reconnectSynTimer();
   // Double every attempt to avoid overwhelming server
   reconnectFrequencySeconds *= 2;
   // Max out at ~1 minute as a compromise between user experience and server load
@@ -250,9 +296,10 @@ let reconnectFunc = debounce(function() {
   }
 }, function() { return reconnectFrequencySeconds * 1000 });
 
-function startSynTimer() { 
+function startEventSourceSynTimer() { 
   if  (syntimer == null) {
     needToReconnect = true;
+    CUR_MODE = MODE_EVENT_SOURCE;
     syntimer = new EventSource('./wcDoSynchronizeEventSource.json');     
     syntimer.addEventListener("disconnect", function(event) {
       dropState();
@@ -270,26 +317,71 @@ function startSynTimer() {
       }
     }
     syntimer.onmessage = e=>{
-      let text = e.data;
-      doSync(text);
+      let synevent = JSON.parse(e.data);
+      doSync(synevent);
     }      
   } else {
       stopSynTimer();
       startSynTimer();
   }    
 }
+function startWebSocketSynTimer() { 
+  if  (syntimer == null) {
+    needToReconnect = true;
+    CUR_MODE = MODE_WEB_SOCKET;
+    // Создаёт WebSocket - подключение.
+    synwstimer = new WebSocket('wss://localhost:8080');
+    synwstimer.addEventListener('open', function (event) { 
+        create_jsonrpc_req("./wcDoSynchronizeWebSocket.json", {lstId: 0}, true, 
+                           msg=>{      
+                            if (msg.event == "disconnect") {
+                                dropState();
+                            } else {
+                                let synevent = JSON.parse( msg ).data;
+                                doSync(synevent);
+                            }});
+    });    
+    synwstimer.addEventListener('error', function (event) {   
+      if (synwstimer) {
+        synwstimer.close();
+        if (needToReconnect) reconnectFunc();      
+      }
+    });    
+    synwstimer.addEventListener('message', function (event) {
+      let response = JSON.parse(event.data);
+      let request = jsonrpc_requests.get(response.rid);
+      if (request) {
+          request.func( response.data );
+          if (!request.persist) {
+              jsonrpc_requests.delete(response.rid);
+          }
+      } else {
+          //close();?
+      }
+    });
+  } else {
+      stopSynTimer();
+      startWebSocketSynTimer();
+  }    
+}
 
-function stopSynTimer() { 
+function stopSynTimer() {
+  clearTimeout(synreconnecttimeout);
+  needToReconnect=false;    
+  jsonrpc_requests.clear();
   if (syntimer != null) {
-    clearTimeout(synreconnecttimeout);
-    needToReconnect=false;
     syntimer.close();  
     syntimer = null;
+  }
+  if (synwstimer != null) {
+    synwstimer.close(1000);  
+    synwstimer = null;    
   }
 }
 //
 function dropState() {    
     stopSynTimer();    
+    
     document.body.classList.remove(S_AUTH);      
 }
 
@@ -331,3 +423,4 @@ function updateLifeTime() {
 }
 
 checkSupport();
+stopSynTimer();

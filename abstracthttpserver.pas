@@ -79,7 +79,7 @@ Type
 
   { TAbsHTTPServer }
   THTTPServerRequestHandler = Procedure (Sender: TObject;
-      Var ARequest: TAbsHTTPConnectionRequest;
+      Var ARequest  : TAbsHTTPConnectionRequest;
       Var AResponse : TAbsHTTPConnectionResponse) of object;
 
   { TAbsInetServer }

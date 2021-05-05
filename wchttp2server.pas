@@ -65,7 +65,8 @@ type
   TWCHTTP2ServerSettings = class;
 
   TWCConnectionState = (wcCONNECTED, wcHALFCLOSED, wcDROPPED, wcDEAD);
-  TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP1_1, wcHTTP2);
+  TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP1_1, wcHTTP2
+                       {$IFDEF WC_WEB_SOCKETS}, wcWebSocket{$ENDIF});
 
   { TWCHTTP2FrameHeader }
 
@@ -373,9 +374,16 @@ type
     property Blocked : Boolean read GetBlocked;
   end;
 
+  { TWCReferencedObject }
+
+  TWCReferencedObject = class(TNetReferencedObject)
+  public
+    procedure Release; virtual;
+  end;
+
   { TWCHTTPStream }
 
-  TWCHTTPStream = class(TNetReferencedObject)
+  TWCHTTPStream = class(TWCReferencedObject)
   private
     FID : Cardinal;
     FConnection : TWCHTTP2Connection;
@@ -390,6 +398,7 @@ type
     FWaitingRemoteStream : Cardinal;
     FHeadersComplete : Boolean;
     FResponseProceed : Boolean;
+    function GetCurResponse : TWCHTTP2Response;
     function GetRecursedPriority: Byte;
     function GetResponseProceed: Boolean;
     procedure ResetRecursivePriority;
@@ -405,7 +414,7 @@ type
   public
     constructor Create(aConnection : TWCHTTP2Connection; aStreamID : Cardinal);
     destructor Destroy; override;
-    procedure Release;
+    procedure Release; override;
     property ID : Cardinal read FID;
     property StreamState : THTTP2StreamState read FStreamState;
     property ParentStream : Cardinal read FParentStream;
@@ -414,6 +423,7 @@ type
     // avaible request
     function RequestReady : Boolean;
     property Request : TWCHTTP2Request read FCurRequest;
+    property Response : TWCHTTP2Response read GetCurResponse;
     property ResponseProceed : Boolean read GetResponseProceed write SetResponseProceed;
     property SendWindow : TThreadSafeWindowSize read FSendWindow;
   end;
@@ -467,10 +477,10 @@ type
   TWCHTTPConnection = class(TAbsHTTPConnection)
   private
     FHTTPRefCon  : TWCHTTPRefConnection;
-    FHTTP2Str  : TWCHTTPStream;
+    FRefRequest  : TWCReferencedObject;
     FSocketRef : TWCHTTPSocketReference;
     procedure SetHTTPRefCon(AValue: TWCHTTPRefConnection);
-    procedure SetHTTP2Stream(AValue: TWCHTTPStream);
+    procedure SetRefRequest(AValue: TWCReferencedObject);
   protected
     procedure DoSocketAttach(ASocket : TSocketStream); override;
     function  GetSocket : TSocketStream; override;
@@ -482,7 +492,7 @@ type
     procedure DecSocketReference;
     property SocketReference : TWCHTTPSocketReference read FSocketRef;
     property HTTPRefCon: TWCHTTPRefConnection read FHTTPRefCon write SetHTTPRefCon;
-    property HTTP2Str: TWCHTTPStream read FHTTP2Str write SetHTTP2Stream;
+    property RefRequest: TWCReferencedObject read FRefRequest write SetRefRequest;
   end;
 
   { TThreadSafeConnSettings }
@@ -537,16 +547,33 @@ type
     procedure Refresh(const TS: QWord); virtual;
     procedure TryToConsumeFrames(const TS: Qword);
     procedure TryToSendFrames(const TS: Qword);
-    procedure InitializeBuffers;
     procedure HoldDelayValue(aDelay : TThreadInteger);
     procedure RelaxDelayValue(aDelay : TThreadInteger);
   protected
+    procedure InitializeBuffers;
     function GetInitialReadBufferSize : Cardinal; virtual; abstract;
     function GetInitialWriteBufferSize : Cardinal; virtual; abstract;
     function CanExpandWriteBuffer(aCurSize, aNeedSize : Cardinal) : Boolean; virtual; abstract;
     function RequestsWaiting : Boolean; virtual; abstract;
     function NextFrameToSend(it: TIteratorObject): TIteratorObject; virtual;
     procedure AfterFrameSent({%H-}fr: TWCHTTPRefProtoFrame); virtual; abstract;
+
+    { utilities to work with readbuffer and socket }
+    function TruncReadBuffer(S : TBufferedStream) : Int64;
+    function ReadMore(Buffered : TBufferedStream;
+                      WriteAt  : Int64) : Int64;
+    function LoadMoreData(Buffered : TBufferedStream;
+                          WriteTo : TBufferedStream;
+                          FallBackPos,
+                          ExtraSize,
+                          Offset : Int64) : Boolean;
+
+    property ReadBuffer : TThreadPointer read FReadBuffer;
+    property ReadBufferSize : Cardinal read FReadBufferSize;
+    property ReadTailSize : Integer read FReadTailSize write FReadTailSize;
+    property WriteBuffer : TThreadPointer read FWriteBuffer;
+    property SocketRef : TWCHTTPSocketReference read FSocketRef;
+    property Owner: TWCHTTPRefConnections read FOwner;
   public
     constructor Create(aOwner: TWCHTTPRefConnections;
         aSocket: TWCHTTPSocketReference;
@@ -558,7 +585,7 @@ type
     class function CheckProtocolVersion(Data : Pointer; sz : integer) :
                                              TWCProtocolVersion;
     class function Protocol : TWCProtocolVersion; virtual; abstract;
-    procedure PushFrame(fr : TWCHTTPRefProtoFrame); overload;
+    procedure PushFrame(fr : TWCHTTPRefProtoFrame); virtual; overload;
     procedure PushFrame(const S : String); overload;
     procedure PushFrame(Strm : TStream; Sz : Cardinal; Owned : Boolean); overload;
     procedure PushFrame(Strs : TStrings); overload;
@@ -750,6 +777,7 @@ type
     procedure   RemoveDeadConnections(const TS: QWord; MaxLifeTime: Cardinal);
     procedure   Idle(const TS: QWord);
     procedure   PushSocketError;
+    procedure   CloseAll;
     property    GarbageCollector : TNetReferenceList read FGarbageCollector write
                                          FGarbageCollector;
   end;
@@ -806,6 +834,13 @@ type
   end;
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
+
+{ TWCReferencedObject }
+
+procedure TWCReferencedObject.Release;
+begin
+  DecReference;
+end;
 
 { TWCClosedStreams }
 
@@ -1632,15 +1667,15 @@ begin
   if FHTTPRefCon=AValue then Exit;
   if assigned(FHTTPRefCon) then
     FHTTPRefCon.DecReference;
-  SetHTTP2Stream(nil);
+  SetRefRequest(nil);
   FHTTPRefCon:=AValue;
 end;
 
-procedure TWCHTTPConnection.SetHTTP2Stream(AValue: TWCHTTPStream);
+procedure TWCHTTPConnection.SetRefRequest(AValue : TWCReferencedObject);
 begin
-  if FHTTP2Str=AValue then Exit;
-  if Assigned(FHTTP2Str) then FHTTP2Str.Release;  //release here!
-  FHTTP2Str:=AValue;
+  if FRefRequest=AValue then Exit;
+  if Assigned(FRefRequest) then FRefRequest.Release;  //release here!
+  FRefRequest:=AValue;
 end;
 
 procedure TWCHTTPConnection.DoSocketAttach(ASocket: TSocketStream);
@@ -1659,7 +1694,7 @@ begin
   FSocketRef:= nil;
   inherited Create(AServer, ASocket);
   FHTTPRefCon:=nil;
-  FHTTP2Str:=nil;
+  FRefRequest:=nil;
 end;
 
 constructor TWCHTTPConnection.CreateRefered(AServer: TAbsCustomHTTPServer;
@@ -1669,7 +1704,7 @@ begin
   FSocketRef := ASocketRef;
   ASocketRef.IncReference;
   FHTTPRefCon:=nil;
-  FHTTP2Str:=nil;
+  FRefRequest:=nil;
 end;
 
 destructor TWCHTTPConnection.Destroy;
@@ -2725,6 +2760,24 @@ begin
   FNeedToRemoveDeadConnections.Value := True;
 end;
 
+procedure TWCHTTPRefConnections.CloseAll;
+var P :TIteratorObject;
+begin
+  Lock;
+  try
+    P := ListBegin;
+    while assigned(P) do
+    begin
+      if (TWCHTTPRefConnection(P.Value).ConnectionAvaible) then
+        TWCHTTPRefConnection(P.Value).ConnectionState := wcDROPPED;
+
+      P := P.Next;
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
 { TWCHTTPRefConnection }
 
 procedure TWCHTTPRefConnection.SetConnectionState(CSt: TWCConnectionState);
@@ -3070,6 +3123,66 @@ begin
   Result := it;
 end;
 
+function TWCHTTPRefConnection.TruncReadBuffer(S : TBufferedStream) : Int64;
+begin
+  Result := S.Size - S.Position;
+  if (Result > 0) and (S.Position > 0) then
+     Move(PByte(ReadBuffer.Value)[S.Position], ReadBuffer.Value^, Result);
+end;
+
+function TWCHTTPRefConnection.ReadMore(Buffered : TBufferedStream;
+                                       WriteAt : Int64) : Int64;
+var R, AddSz : Int64;
+    Src : Pointer;
+begin
+  AddSz := FReadBufferSize - WriteAt;
+  R := AddSz;
+  Result := WriteAt;
+  While (AddSz > 0) and (R > 0) do
+  begin
+    if Buffered.Position < Buffered.Size then
+    begin
+      R := Buffered.Size - Buffered.Position;
+      Src := Pointer(Buffered.Memory + Buffered.Position);
+      if AddSz < R then R := AddSz;
+      Move(Src^, PByte(FReadBuffer.Value)[Result], R);
+      Buffered.Position := Buffered.Position + R;
+    end
+    else
+    begin
+      R:=FSocketRef.Read(PByte(FReadBuffer.Value)[Result], AddSz);
+      If R <= 0 then
+        break;
+    end;
+    if R > 0 then begin
+      Dec(AddSz, R);
+      Inc(Result, R);
+    end else break;
+  end;
+end;
+
+function TWCHTTPRefConnection.LoadMoreData(
+  Buffered : TBufferedStream;
+  WriteTo  : TBufferedStream;
+  FallBackPos, ExtraSize, Offset : Int64) : Boolean;
+var L : Int64;
+begin
+  Result := True;
+  if (WriteTo.Size - WriteTo.Position) < ExtraSize then
+  begin
+    WriteTo.Position := FallBackPos;
+    L := TruncReadBuffer(WriteTo);
+    L := ReadMore(Buffered, L);
+    if (L - Offset) < ExtraSize then begin
+      WriteTo.Position := 0;
+      WriteTo.Size := L;
+      Exit(false);
+    end;
+    WriteTo.SetPointer(ReadBuffer.Value, L);
+    WriteTo.Position:= Offset;
+  end;
+end;
+
 { TWCHTTP2Connection }
 
 function TWCHTTP2Connection.AddNewStream(aStreamID : Cardinal): TWCHTTPStream;
@@ -3136,51 +3249,12 @@ end;
 
 procedure TWCHTTP2Connection.ConsumeNextFrame(Mem: TBufferedStream);
 var
-  ReadLoc, MemSz : Int64;
-
-function ReadMore(WriteAt, AddSz : Int64) : Int64;
-var R : Integer;
-   Src : Pointer;
-begin
-  R := AddSz;
-  Result := WriteAt;
-  While (AddSz > 0) and (R > 0) do
-  begin
-    if ReadLoc < MemSz then
-    begin
-      R := MemSz - ReadLoc;
-      Src := Pointer(Mem.Memory + Mem.Position + ReadLoc);
-      if AddSz < R then R := AddSz;
-      Move(Src^, PByte(FReadBuffer.Value)[Result], R);
-    end
-    else
-    begin
-      R:=FSocketRef.Read(PByte(FReadBuffer.Value)[Result], AddSz);
-      If R <= 0 then
-        break;
-    end;
-    if R > 0 then begin
-      Dec(AddSz, R);
-      Inc(ReadLoc, R);
-      Inc(Result, R);
-    end else break;
-  end;
-end;
-
-var
-  Sz, fallbackpos, L, R : Int64;
+  Sz, fallbackpos : Int64;
   err : Byte;
   Buffer : Pointer;
   FrameHeader : TWCHTTP2FrameHeader;
   S : TBufferedStream;
   Str, RemoteStr : TWCHTTPStream;
-
-function TruncReadBuffer : Int64;
-begin
-  Result := S.Size - S.Position;
-  if Result > 0 then
-     Move(PByte(FReadBuffer.Value)[S.Position], FReadBuffer.Value^, Result);
-end;
 
 function ProceedHeadersPayload(Strm : TWCHTTPStream; aSz : Cardinal) : Byte;
 var readbuf : TBufferedStream;
@@ -3234,28 +3308,22 @@ var B : Byte;
 begin
   Str := nil; RemoteStr := nil;
   if assigned(Mem) then begin
-    MemSz := Mem.Size - Mem.Position;
-    if MemSz = 0 then Exit;
-  end;
+    if (Mem.Size - Mem.Position) = 0 then Exit;
+  end else Exit;
 
   FReadBuffer.Lock;
   try
-    Sz := FReadBufferSize;
     FrameHeader := TWCHTTP2FrameHeader.Create;
     S := TBufferedStream.Create;
     try
-      if Sz > (FReadBufferSize - FReadTailSize) then
-         Sz := (FReadBufferSize - FReadTailSize);
+      Sz := ReadBufferSize - ReadTailSize;
       if Sz <= 0 then
       begin
-        if FReadTailSize >= FReadBufferSize then
-          err := H2E_INTERNAL_ERROR else
-          err := H2E_READ_BUFFER_OVERFLOW;
+        err := H2E_READ_BUFFER_OVERFLOW;
         exit;
       end;
-      ReadLoc := 0;
-      Sz := ReadMore(FReadTailSize, Sz);
-      if ReadLoc = 0 then begin
+      Sz := ReadMore(Mem, FReadTailSize);
+      if Sz = FReadTailSize then begin
         err := H2E_INTERNAL_ERROR;
         Exit;
       end;
@@ -3264,20 +3332,12 @@ begin
       err := H2E_NO_ERROR;
       while true do
       begin
-        if (S.Size - S.Position) < H2P_FRAME_HEADER_SIZE then
-        begin
-          L := TruncReadBuffer;
-          Sz := ReadMore(L, (FReadBufferSize - Sz));
-          if Sz < H2P_FRAME_HEADER_SIZE then begin
-            fallbackpos := 0;
-            S.Position := 0;
-            S.Size := Sz;
-            err := H2E_PARSE_ERROR;
-            break;
-          end;
-          S.SetPointer(FReadBuffer.Value, Sz);
-        end;
         fallbackpos := S.Position;
+        if not LoadMoreData(Mem, S, fallbackpos, H2P_FRAME_HEADER_SIZE, 0) then
+        begin
+          err := H2E_PARSE_ERROR;
+          break;
+        end;
         // read header
         FrameHeader.LoadFromStream(S);
         // find stream
@@ -3382,7 +3442,7 @@ begin
           end;
         end;
 
-        R := FConSettings[H2SET_MAX_FRAME_SIZE];
+        Sz := FConSettings[H2SET_MAX_FRAME_SIZE];
         case FrameHeader.FrameType of
           H2FT_PING :
             Flag := FrameHeader.PayloadLength <> H2P_PING_SIZE;
@@ -3400,7 +3460,7 @@ begin
           H2FT_GOAWAY :
             Flag := FrameHeader.PayloadLength < H2P_GOAWAY_MIN_SIZE;
         else
-          Flag := FrameHeader.PayloadLength > R;
+          Flag := FrameHeader.PayloadLength > Sz;
         end;
         if Flag then
         begin
@@ -3408,22 +3468,12 @@ begin
           break;
         end;
 
-        if (FrameHeader.PayloadLength > (S.Size - S.Position)) then
+        if not LoadMoreData(Mem, S, fallbackpos,
+                                 FrameHeader.PayloadLength,
+                                 H2P_FRAME_HEADER_SIZE) then
         begin
-          // try to load rest octets for frame
-          S.Position := fallbackpos; // truncate to the begining of the frame
-          L := TruncReadBuffer;
-          Sz := ReadMore(L, (FReadBufferSize - Sz));
-          if (Sz - H2P_FRAME_HEADER_SIZE) < FrameHeader.PayloadLength then
-          begin
-            fallbackpos := 0;
-            S.Position := 0;
-            S.Size := Sz;
-            err := H2E_PARSE_ERROR;
-            break;
-          end;
-          S.SetPointer(FReadBuffer.Value, Sz);
-          S.Position:= H2P_FRAME_HEADER_SIZE; // to payload begining
+          err := H2E_PARSE_ERROR;
+          break;
         end;
         if err = H2E_NO_ERROR then
         begin
@@ -3728,7 +3778,7 @@ begin
       if S.Position < S.Size then
       begin
         FReadTailSize := S.Size - S.Position;
-        TruncReadBuffer;
+        TruncReadBuffer(S);
       end else
         FReadTailSize := 0;
 
@@ -4208,6 +4258,11 @@ begin
   end else Result := FRecursedPriority;
 end;
 
+function TWCHTTPStream.GetCurResponse : TWCHTTP2Response;
+begin
+  Result := FCurRequest.Response;
+end;
+
 function TWCHTTPStream.GetResponseProceed: Boolean;
 begin
   Lock;
@@ -4381,7 +4436,7 @@ begin
       end;
     end;
   end;
-  DecReference;
+  inherited Release;
 end;
 
 function TWCHTTPStream.RequestReady: Boolean;

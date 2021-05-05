@@ -19,7 +19,7 @@ interface
 
 uses
   Classes, sysutils,
-  HTTPDefs,
+  HTTPDefs, httpprotocol,
   jsonscanner, jsonparser, fpjson,
   variants;
 
@@ -41,6 +41,7 @@ function ESWGetHeaderContent(H : THTTPHeader;
 function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
 function DecodeSIDToInt(const value : String) : Cardinal;
+procedure CopyHTTPRequest(dest, src : TRequest);
 
 Implementation
 
@@ -103,6 +104,20 @@ begin
     if C = '_' then Result := Result or (63 shl k);
     Inc(k, 6);
   end;
+end;
+
+procedure CopyHTTPRequest(dest, src : TRequest);
+var h : THeader;
+begin
+  if not Assigned(src) then Exit;
+  dest.URL := src.URL;
+  dest.PathInfo := src.PathInfo;
+  for h := low(THeader) to high(THeader) do
+  begin
+    dest.SetHeader(h, src.GetHeader(h));
+  end;
+  dest.CookieFields.Assign(src.CookieFields);
+  dest.CustomHeaders.Assign(src.CustomHeaders);
 end;
 
 function ESWGetHeaderContent(H : THTTPHeader; const P1S, P2S : String;
