@@ -23,7 +23,30 @@ public
 end;
 PWSClosePayload = ^TWSClosePayload;
 
-TWebSocketApplayedExts = Array [0..2] of TWebSocketApplayedExt;
+TWebSocketExtID = Cardinal;
+TWebSocketExtOption = record
+  Name  : AnsiString;
+  Value : Variant;
+end;
+PWebSocketExtOption = ^TWebSocketExtOption;
+TWebSocketExtOptions = Array [0..255] of PWebSocketExtOption;
+PWebSocketExtOptions = ^TWebSocketExtOptions;
+
+{ TWebSocketAppliedExt }
+
+TWebSocketAppliedExt = record
+private
+  class operator Initialize(var aRec: TWebSocketAppliedExt);
+  class operator Finalize(var aRec: TWebSocketAppliedExt);
+public
+  id : TWebSocketExtID;
+  OptionsCount : Integer;
+  Options : PWebSocketExtOptions;
+end;
+PWebSocketAppliedExt = ^TWebSocketAppliedExt;
+TWebSocketAppliedExts = Array [0..255] of PWebSocketAppliedExt;
+PWebSocketAppliedExts = ^TWebSocketAppliedExts;
+
 TWebSocketFrameHeader = Array [0..13] of Byte;
 PWebSocketFrameHeader = ^TWebSocketFrameHeader;
 
@@ -135,6 +158,27 @@ begin
   end;
   Result := false;
   curVerNum := 0;
+end;
+
+{ TWebSocketAppliedExt }
+
+class operator TWebSocketAppliedExt.Initialize(var aRec : TWebSocketAppliedExt);
+begin
+  aRec.OptionsCount := 0;
+  aRec.Options := nil;
+end;
+
+class operator TWebSocketAppliedExt.Finalize(var aRec : TWebSocketAppliedExt);
+var i : integer;
+begin
+  if Assigned(aRec.Options) then
+  begin
+    for i := 0 to aRec.OptionsCount-1 do
+    begin
+      FreeMem(aRec.Options^[i]);
+    end;
+    FreeMem(aRec.Options);
+  end;
 end;
 
 { TWSClosePayload }

@@ -155,11 +155,13 @@ type
   TWCWSChunck = class(TWCReferencedObject)
   private
     FOpCode     : TWebSocketOpCode;
-    FExtensions : TWebSocketApplayedExts;
+    FExtensions : PWebSocketAppliedExts;
     FOptions    : TWebSocketUpgradeOptions;
   public
     constructor Create(aOptions : TWebSocketUpgradeOptions;
-                       aOpCode : TWebSocketOpCode); virtual;
+                       aOpCode : TWebSocketOpCode;
+                       const Exts : Array of PWebSocketAppliedExt); virtual;
+    destructor Destroy; override;
     property OpCode : TWebSocketOpCode read FOpCode;
     property Options : TWebSocketUpgradeOptions read FOptions;
   end;
@@ -173,7 +175,8 @@ type
     function GetTotalSize: Int64;
   public
     constructor Create(aOptions : TWebSocketUpgradeOptions;
-                       aOpCode : TWebSocketOpCode); override;
+                       aOpCode : TWebSocketOpCode;
+                       const Exts : Array of PWebSocketAppliedExt); override;
     destructor Destroy; override;
     procedure Complete;
     property IsComplete : Boolean read FComplete;
@@ -205,7 +208,8 @@ type
     FInChuncks  : TWCWSIncomingChuncks;
     FOptions    : TWebSocketUpgradeOptions;
     FLastError  : Word;
-    function AddNewIncomingChunck(aOpCode : TWebSocketOpCode) : TWCWSIncomingChunck;
+    function AddNewIncomingChunck(aOpCode : TWebSocketOpCode;
+      const aExts : array of PWebSocketAppliedExt) : TWCWSIncomingChunck;
   protected
     function GetInitialReadBufferSize : Cardinal; override;
     function GetInitialWriteBufferSize : Cardinal; override;
@@ -345,11 +349,18 @@ end;
 { TWCWSChunck }
 
 constructor TWCWSChunck.Create(aOptions : TWebSocketUpgradeOptions;
-  aOpCode : TWebSocketOpCode);
+  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketAppliedExt);
 begin
   inherited Create;
   FOptions := aOptions;
   FOpCode := aOpCode;
+  FExtensions := nil;
+end;
+
+destructor TWCWSChunck.Destroy;
+begin
+  if Assigned(FExtensions) then FreeMemAndNil(FExtensions);
+  inherited Destroy;
 end;
 
 { TWCWSFrameHeader }
@@ -523,9 +534,9 @@ begin
 end;
 
 constructor TWCWSIncomingChunck.Create(aOptions : TWebSocketUpgradeOptions;
-  aOpCode : TWebSocketOpCode);
+  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketAppliedExt);
 begin
-  inherited Create(aOptions, aOpCode);
+  inherited Create(aOptions, aOpCode, Exts);
   FData := TMemoryStream.Create;
 end;
 
@@ -729,10 +740,10 @@ begin
   // do nothing
 end;
 
-function TWCWebSocketConnection.AddNewIncomingChunck(aOpCode : TWebSocketOpCode
-  ) : TWCWSIncomingChunck;
+function TWCWebSocketConnection.AddNewIncomingChunck(aOpCode : TWebSocketOpCode;
+  const aExts : Array of PWebSocketAppliedExt) : TWCWSIncomingChunck;
 begin
-  Result := TWCWSIncomingChunck.Create(FOptions, aOpCode);
+  Result := TWCWSIncomingChunck.Create(FOptions, aOpCode, aExts);
   Result.IncReference;
   FInChuncks.PushChunck(Result);
   Owner.GarbageCollector.Add(Result);
@@ -881,7 +892,7 @@ begin
           case FrameHeader.OpCode of
             WSP_OPCODE_TEXT,
             WSP_OPCODE_BINARY : begin
-              ActualChunck := AddNewIncomingChunck(FrameHeader.OpCode);
+              ActualChunck := AddNewIncomingChunck(FrameHeader.OpCode, []);
               ActualChunck.IncReference;
               ActualChunck.PushData(Pointer(S.Memory + S.Position),
                                     FrameHeader.PayloadLength,
