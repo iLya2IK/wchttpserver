@@ -9,6 +9,7 @@ uses SysUtils, base64, sha1, Classes;
 
 type
 TWebSocketOpCode = Byte;
+TWebSocketApplayedExt = AnsiString;
 
 { TWSClosePayload }
 
@@ -22,6 +23,7 @@ public
 end;
 PWSClosePayload = ^TWSClosePayload;
 
+TWebSocketApplayedExts = Array [0..2] of TWebSocketApplayedExt;
 TWebSocketFrameHeader = Array [0..13] of Byte;
 PWebSocketFrameHeader = ^TWebSocketFrameHeader;
 

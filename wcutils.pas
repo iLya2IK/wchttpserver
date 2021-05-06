@@ -112,7 +112,7 @@ begin
   if not Assigned(src) then Exit;
   dest.URL := src.URL;
   dest.PathInfo := src.PathInfo;
-  for h := low(THeader) to high(THeader) do
+  for h := hhAccept to high(THeader) do
   begin
     dest.SetHeader(h, src.GetHeader(h));
   end;

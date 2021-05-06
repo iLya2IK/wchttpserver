@@ -45,17 +45,15 @@ type
 
   {$IFDEF WC_WEB_SOCKETS}
 
-  { TJSONRPCHolderJob }
+  { TJSONRPCWrapperJob }
 
-  TJSONRPCHolderJob = class(TWCMainClientJob)
+  TJSONRPCWrapperJob = class(TWCMainClientWrapperJob)
   private
-    FMainJob : TWCMainClientJob;
     FRID : Cardinal;
   public
     constructor Create(aConnection : TWCConnection; aRID: Cardinal;
-      aJob: TWCMainClientJob); overload;
-    destructor Destroy; override;
-    procedure Execute; override;
+      aWrappedJobClass: TWCMainClientJobClass); overload;
+    procedure DoWrappedExecute; override;
   end;
   {$ENDIF}
 
@@ -91,35 +89,24 @@ end;
 
 
 {$IFDEF WC_WEB_SOCKETS}
-{ TJSONRPCHolderJob }
+{ TJSONRPCWrapperJob }
 
-constructor TJSONRPCHolderJob.Create(aConnection : TWCConnection;
-  aRID : Cardinal; aJob : TWCMainClientJob);
+constructor TJSONRPCWrapperJob.Create(aConnection : TWCConnection;
+  aRID : Cardinal; aWrappedJobClass : TWCMainClientJobClass);
 begin
-  inherited Create(aConnection);
+  inherited Create(aConnection, aWrappedJobClass);
   FRID := aRID;
-  FMainJob := aJob;
 end;
 
-destructor TJSONRPCHolderJob.Destroy;
-begin
-  FMainJob.Free;
-  inherited Destroy;
-end;
-
-procedure TJSONRPCHolderJob.Execute;
+procedure TJSONRPCWrapperJob.DoWrappedExecute;
 var j : TJSONObject;
 begin
-  FMainJob.ResponseReadyToSend := false;
-  FMainJob.Execute;
-  J := TJSONObject.Create(['rid', FRID, 'data', FMainJob.Response.Content]);
+  J := TJSONObject.Create(['rid', FRID, 'data', WrappedJob.Response.Content]);
   try
     Response.Content := J.AsJSON;
   finally
     J.Free;
   end;
-  FMainJob.ReleaseConnection;
-  inherited Execute;
 end;
 {$ENDIF}
 
@@ -132,64 +119,59 @@ var ResultClass : TWCMainClientJobClass;
     jsonData : TJSONVariant;
     jsonDataObj : TJSONObject;
     rid : Cardinal;
-    uri, s : string;
+    uri : string;
     {$ENDIF}
 begin
   Result := nil;
   {$IFDEF WC_WEB_SOCKETS}
   if Connection.HTTPVersion = wcWebSocket then
   begin
-    if Assigned(Connection.RefRequest) then
+    if Connection.Request.ContentLength > 0 then
     begin
-      S := TWCWSIncomingChunck(Connection.RefRequest).DataToUtf8String;
-      if Length(s) > 0 then begin
+      try
+        jsonObj := GetJSON(Connection.Request.Content);
+      except
+        jsonObj := nil;
+      end;
+      if Assigned(jsonObj) then
+      begin
         try
-          jsonObj := GetJSON(S);
-        except
-          jsonObj := nil;
-        end;
-        if Assigned(jsonObj) then
-        begin
-          try
-            if jsonObj is TJSONObject then
-            begin
-             rid := TJSONObject(jsonObj).Get('rid', 0);
-             uri := TJSONObject(jsonObj).Get('uri', '');
-             jsonDataObj := TJSONObject(jsonObj).Get('data', TJSONObject(nil));
-             jsonData := null;
-             if not assigned(jsonDataObj) then
-               jsonData := TJSONObject(jsonObj).Get('data');
-             Request.SetCustomHeader('JSONRPC_RID', inttostr(rid));
-             if (length(uri) > 0) and (uri[1] = '.') then
-               uri := Copy(uri, 2, Length(uri));
-             if CompareStr(uri, '/wcDoSynchronizeWebSocket.json')=0 then
+          if jsonObj is TJSONObject then
+          begin
+           rid := TJSONObject(jsonObj).Get('rid', 0);
+           uri := TJSONObject(jsonObj).Get('uri', '');
+           jsonDataObj := TJSONObject(jsonObj).Get('data', TJSONObject(nil));
+           jsonData := null;
+           if not assigned(jsonDataObj) then
+             jsonData := TJSONObject(jsonObj).Get('data');
+           Request.SetCustomHeader('JSONRPC_RID', inttostr(rid));
+           if (length(uri) > 0) and (uri[1] = '.') then
+             uri := Copy(uri, 2, Length(uri));
+           ResultClass := TWCMainClientJobClass(WCJobsTree.Values[uri]);
+           if assigned(ResultClass) then begin
+              if (not VarIsNull(jsonData)) or assigned(jsonDataObj) then
+              begin
+                if assigned(jsonDataObj) then
+                  Request.Content := jsonDataObj.AsJSON else
+                  Request.Content := VarToStr(jsonData);
+              end else
+                Request.Content := '';
+              Result := TJSONRPCWrapperJob.Create(Connection, rid, ResultClass);
+           end else
+           if CompareStr(uri, '/wcDoSynchronizeWebSocket.json')=0 then
+           begin
+             if Assigned(jsonDataObj) then
              begin
-               if Assigned(jsonDataObj) then
-               begin
-                 Request.SetCustomHeader('Last-Event-ID',
-                                         inttostr(jsonDataObj.Get('lstId', 0)));
-               end;
-               Result := TWCTryToStartSynchroThread.Create(Connection);
-             end else begin
-               ResultClass := TWCMainClientJobClass(WCJobsTree.Values[uri]);
-               if assigned(ResultClass) then begin
-                  if (not VarIsNull(jsonData)) or assigned(jsonDataObj) then
-                  begin
-                    if assigned(jsonDataObj) then
-                      Request.Content := jsonDataObj.AsJSON else
-                      Request.Content := VarToStr(jsonData);
-                  end else
-                    Request.Content := '';
-                  Result := TJSONRPCHolderJob.Create(Connection, rid, ResultClass.Create(Connection));
-               end;
+               Request.SetCustomHeader('Last-Event-ID',
+                                       inttostr(jsonDataObj.Get('lstId', 0)));
              end;
-            end;
-          finally
-            jsonObj.Free;
+             Result := TWCTryToStartSynchroThread.Create(Connection);
+           end;
           end;
+        finally
+          jsonObj.Free;
         end;
       end;
-      Connection.RefRequest := nil; //release incoming data. not need more
     end;
   end else
   {$ENDIF}

@@ -84,6 +84,10 @@ type
     function ReadLine : String;
     Function ReadReqHeaders : TWCRequest;
     function ConvertFromHTTP2Req(AReq2 : TWCHTTP2Request) : TWCRequest;
+    {$IFDEF WC_WEB_SOCKETS}
+    function ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck;
+      aOptions : TWebSocketUpgradeOptions) : TWCRequest;
+    {$ENDIF}
     procedure ReadReqContent(ARequest: TWCRequest);
     procedure ConsumeHeader(ARequest: TRequest; AHeader: String); override;
     procedure UnknownHeader({%H-}ARequest: TRequest; const {%H-}AHeader: String); override;
@@ -123,7 +127,22 @@ type
     property  ResponseReadyToSend : Boolean read FResponseReadyToSend write
                                                  FResponseReadyToSend;
   end;
+
   TWCMainClientJobClass = class of TWCMainClientJob;
+
+  { TWCMainClientWrapperJob }
+
+  TWCMainClientWrapperJob = class(TWCMainClientJob)
+  private
+    FWrappedJob : TWCMainClientJob;
+  public
+    constructor Create(aConnection : TWCConnection;
+                             aWrappedJobClass: TWCMainClientJobClass); overload;
+    destructor Destroy; override;
+    procedure Execute; override;
+    procedure DoWrappedExecute; virtual; abstract;
+    property WrappedJob : TWCMainClientJob read FWrappedJob;
+  end;
 
   { TWCPreAnalizeClientJob }
 
@@ -762,6 +781,36 @@ begin
   except
     if ShowCleanUpErrors then
       Raise;
+  end;
+end;
+
+{ TWCMainClientWrapperJob }
+
+constructor TWCMainClientWrapperJob.Create(aConnection : TWCConnection;
+  aWrappedJobClass : TWCMainClientJobClass);
+begin
+  inherited Create(aConnection);
+  if assigned(aWrappedJobClass) then begin
+    FWrappedJob := aWrappedJobClass.Create(aConnection);
+    FWrappedJob.ResponseReadyToSend := false;
+  end else
+    FWrappedJob := nil;
+end;
+
+destructor TWCMainClientWrapperJob.Destroy;
+begin
+  if Assigned(FWrappedJob) then FWrappedJob.Free;
+  inherited Destroy;
+end;
+
+procedure TWCMainClientWrapperJob.Execute;
+begin
+  try
+    WrappedJob.Execute;
+    DoWrappedExecute;
+  finally
+    if Assigned(FWrappedJob) then FWrappedJob.ReleaseConnection;
+    inherited Execute;
   end;
 end;
 
@@ -1491,6 +1540,26 @@ begin
   end;
 end;
 
+{$IFDEF WC_WEB_SOCKETS}
+function TWCConnection.ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck;
+  aOptions : TWebSocketUpgradeOptions) : TWCRequest;
+begin
+  if not assigned(AReq) then Exit(nil);
+  Result:=TWCRequest(TWCHttpServer(Server).CreateRequest);
+  try
+    TWCHttpServer(Server).InitRequest(Result);
+    Result.SetConnection(Self);
+    AReq.CopyToHTTP1Request(Result);
+    Result.InitRequestVars;
+    Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
+    Result.ServerPort := TWCHttpServer(Server).Port;
+  except
+    FreeAndNil(Result);
+    Raise;
+  end;
+end;
+{$ENDIF}
+
 procedure TWCConnection.ReadReqContent(ARequest: TWCRequest);
 Var
   P,L,R : integer;
@@ -1617,7 +1686,7 @@ begin
           begin
             FRequest.InitRequestVars;
             //check here if http1.1 upgrade to other protocol
-            if SameText(FRequest.ProtocolVersion, '1.1') then
+            if SameStr(FRequest.ProtocolVersion, '1.1') then
             begin
               if Pos('upgrade', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
               begin
@@ -1695,8 +1764,8 @@ begin
                                                        H2E_PROTOCOL_ERROR);
             TWCHTTP2Connection(HTTPRefCon).GoAway(H2E_PROTOCOL_ERROR);
             Result := WC_CONSUME_PROTOCOL_ERROR;
-          end;
-          FRequest.DecodeContent;
+          end else
+            FRequest.DecodeContent;
         end else
           Result := WC_CONSUME_NO_DATA;
       end;
@@ -1709,15 +1778,9 @@ begin
         RefRequest := TWCWebSocketConnection(HTTPRefCon).PopReadyChunck;
         if Assigned(RefRequest) then
         begin
-          if not assigned(FRequest) then begin
-            FRequest := TWCRequest(TWCHttpServer(Server).CreateRequest);
-            TWCWebSocketConnection(HTTPRefCon).Options.Lock;
-            try
-              CopyHTTPRequest(FRequest, TWCWebSocketConnection(HTTPRefCon).Options.Request);
-            finally
-              TWCWebSocketConnection(HTTPRefCon).Options.UnLock;
-            end;
-          end;
+          if not assigned(FRequest) then
+            FRequest := ConvertFromWebSocketReq(TWCWSIncomingChunck(RefRequest),
+                                                TWCWebSocketConnection(HTTPRefCon).Options);
         end else
           Result := WC_CONSUME_NO_DATA;
       end;

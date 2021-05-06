@@ -154,10 +154,14 @@ type
 
   TWCWSChunck = class(TWCReferencedObject)
   private
-    FOpCode : TWebSocketOpCode;
+    FOpCode     : TWebSocketOpCode;
+    FExtensions : TWebSocketApplayedExts;
+    FOptions    : TWebSocketUpgradeOptions;
   public
-    constructor Create(aOpCode : TWebSocketOpCode);
+    constructor Create(aOptions : TWebSocketUpgradeOptions;
+                       aOpCode : TWebSocketOpCode); virtual;
     property OpCode : TWebSocketOpCode read FOpCode;
+    property Options : TWebSocketUpgradeOptions read FOptions;
   end;
 
   { TWCWSIncomingChunck }
@@ -168,12 +172,14 @@ type
     FComplete   : Boolean;
     function GetTotalSize: Int64;
   public
-    constructor Create(aOpCode : TWebSocketOpCode); overload;
+    constructor Create(aOptions : TWebSocketUpgradeOptions;
+                       aOpCode : TWebSocketOpCode); override;
     destructor Destroy; override;
     procedure Complete;
     property IsComplete : Boolean read FComplete;
     property TotalSize : Int64 read GetTotalSize;
     property Data : TMemoryStream read FData;
+    procedure CopyToHTTP1Request(aReq1 : TRequest);
     procedure PushData(aBuffer: Pointer;
                        aSize: Cardinal;
                        aMasked : Boolean;
@@ -338,9 +344,11 @@ end;
 
 { TWCWSChunck }
 
-constructor TWCWSChunck.Create(aOpCode: TWebSocketOpCode);
+constructor TWCWSChunck.Create(aOptions : TWebSocketUpgradeOptions;
+  aOpCode : TWebSocketOpCode);
 begin
   inherited Create;
+  FOptions := aOptions;
   FOpCode := aOpCode;
 end;
 
@@ -514,9 +522,10 @@ begin
   Result := Data.Size;
 end;
 
-constructor TWCWSIncomingChunck.Create(aOpCode: TWebSocketOpCode);
+constructor TWCWSIncomingChunck.Create(aOptions : TWebSocketUpgradeOptions;
+  aOpCode : TWebSocketOpCode);
 begin
-  inherited Create(aOpCode);
+  inherited Create(aOptions, aOpCode);
   FData := TMemoryStream.Create;
 end;
 
@@ -529,6 +538,22 @@ end;
 procedure TWCWSIncomingChunck.Complete;
 begin
   FComplete := true;
+end;
+
+procedure TWCWSIncomingChunck.CopyToHTTP1Request(aReq1 : TRequest);
+var S : RawByteString;
+begin
+  aReq1.Method := 'GET';
+  Options.Lock;
+  try
+    CopyHTTPRequest(aReq1, Options.Request);
+  finally
+    Options.UnLock;
+  end;
+  aReq1.ContentLength := TotalSize;
+  SetLength(S, TotalSize);
+  Move(FData.Memory^, S[1], TotalSize);
+  aReq1.Content := S;
 end;
 
 procedure TWCWSIncomingChunck.PushData(aBuffer: Pointer; aSize: Cardinal;
@@ -707,7 +732,7 @@ end;
 function TWCWebSocketConnection.AddNewIncomingChunck(aOpCode : TWebSocketOpCode
   ) : TWCWSIncomingChunck;
 begin
-  Result := TWCWSIncomingChunck.Create(aOpCode);
+  Result := TWCWSIncomingChunck.Create(FOptions, aOpCode);
   Result.IncReference;
   FInChuncks.PushChunck(Result);
   Owner.GarbageCollector.Add(Result);

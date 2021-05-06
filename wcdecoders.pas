@@ -202,6 +202,7 @@ begin
   if not Assigned(InOutStream) then Exit;
   Decode(InOutStream.Memory, InOutStream.Size, outBuffer, Sz);
   InOutStream.Position := 0;
+  InOutStream.Size := Sz;
   InOutStream.WriteBuffer(outBuffer^, Sz);
   Freemem(outBuffer);
 end;

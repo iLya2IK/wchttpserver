@@ -103,7 +103,6 @@ begin
     FN := Request.GetCustomHeader('Last-Event-ID');
     if Length(FN) = 0 then SynLastIndx := 0 else
                            SynLastIndx := StrToInt(FN);
-    //StartSynchroTimer(Connection, SynLastIndx);
     Application.ESServer.AddSortedJob(TWCSynchroJob.Create(Connection, SynLastIndx));
     ReleaseConnection;
   end;
