@@ -31,16 +31,90 @@ Type
   TGetSocketHandlerEvent = Procedure (Sender : TObject; Const UseSSL : Boolean; Out AHandler : TSocketHandler) of object;
   TSocketHandlerCreatedEvent = Procedure (Sender : TObject; AHandler : TSocketHandler) of object;
 
+  { TAbsHTTPContent }
+
+  TAbsHTTPContent = class
+  protected
+    function  GetRawStringValue: RawByteString; virtual; abstract;
+    function  GetStreamValue : TStream; virtual; abstract;
+    procedure SetStreamValue(Str : TStream); virtual; abstract;
+    procedure SetRawStringValue(AValue: RawByteString ); virtual; abstract;
+  public
+    property RawString : RawByteString  read GetRawStringValue write
+                                             SetRawStringValue;
+    { Pointer to Stream. Nb: do not forget that TStream should be returned with
+      reseted position }
+    property Stream : TStream read GetStreamValue write SetStreamValue;
+  end;
+
+  TAbsHTTPContentClass = class of TAbsHTTPContent;
+
+  { TAbsHTTPRawStringContent }
+
+  TAbsHTTPRawStringContent = Class(TAbsHTTPContent)
+  private
+    FStringContent : RawByteString;
+  protected
+    function  GetRawStringValue: RawByteString; override;
+    procedure SetRawStringValue(AValue: RawByteString ); override;
+    function  GetStreamValue : TStream; override;
+    procedure SetStreamValue(Str : TStream); override;
+  public
+    constructor Create; virtual;
+  end;
+
+  { TAbsHTTPCombinedContent }
+
+  TAbsHTTPCombinedContent = Class(TAbsHTTPContent)
+  private
+    FStream : TStream;
+    FOwnStream : Boolean;
+    procedure ReleaseStream;
+  protected
+    function  GetRawStringValue: RawByteString; override;
+    procedure SetRawStringValue(AValue: RawByteString ); override;
+    function  GetStreamValue : TStream; override;
+    procedure SetStreamValue(Str : TStream); override;
+    function  StreamAssigned : Boolean;
+    function  UpdateStreamValue : TStream; virtual;
+  public
+    constructor Create; virtual;
+    destructor Destroy; override;
+    property OwnStream : Boolean read FOwnStream write FOwnStream;
+  end;
+
+  { TErrContentDataTypeNotProvided }
+
+  TErrContentDataTypeNotProvided = class(Exception)
+  public
+    constructor Create; overload;
+  end;
+
   { TAbsHTTPConnectionRequest }
 
   TAbsHTTPConnectionRequest = Class(TRequest)
   private
-    FConnection: TAbsHTTPConnection;
+    FConnection   : TAbsHTTPConnection;
+    FAbsContent   : TAbsHTTPContent;
+    FContentClass : TAbsHTTPContentClass;
+    function GetContent: RawByteString;
+    function GetContentStream : TStream;
+    procedure SetContentClass(AValue: TAbsHTTPContentClass);
+    procedure SetContent(AValue: RawByteString);
   protected
     Procedure InitRequestVars; override;
     Procedure SetConnection(AConnection : TAbsHTTPConnection);
   public
+    Constructor Create; override;
+    Constructor Create(aContentClass : TAbsHTTPContentClass); overload;
+    Destructor Destroy; override;
     Property Connection : TAbsHTTPConnection Read FConnection;
+    //we should override native TRequest::Content property
+    Property Content : RawByteString read GetContent write SetContent;
+    Property ContentStream : TStream read GetContentStream;
+    Property ContentObject : TAbsHTTPContent read FAbsContent;
+    Property ContentClass : TAbsHTTPContentClass read FContentClass write
+                                                                SetContentClass;
   end;
 
   { TAbsHTTPConnectionResponse }
@@ -62,10 +136,10 @@ Type
     FServer: TAbsCustomHttpServer;
     Function GetLookupHostNames : Boolean;
   Protected
-    procedure UnknownHeader(ARequest: TRequest; const AHeader: String); virtual; abstract;
+    procedure UnknownHeader(ARequest: TAbsHTTPConnectionRequest; const AHeader: String); virtual; abstract;
     procedure HandleRequestError(E : Exception); virtual;
     Procedure SetupSocket; virtual;
-    Procedure ConsumeHeader(ARequest: TRequest; AHeader: String); virtual; abstract;
+    Procedure ConsumeHeader(ARequest: TAbsHTTPConnectionRequest; AHeader: String); virtual; abstract;
     procedure DoSocketAttach(ASocket : TSocketStream); virtual; abstract;
     function  GetSocket : TSocketStream; virtual; abstract;
   Public
@@ -243,7 +317,9 @@ implementation
 
 
 resourcestring
-  SErrSocketActive    =  'Operation not allowed while server is active';
+  SErrSocketActive       =  'Operation not allowed while server is active';
+  SErrContentDataTypeNotProvided =  'This data type not provided for content';
+
 
 { TAbsHTTPConnectionRequest }
 Function GetStatusCode (ACode: Integer) : String;
@@ -321,6 +397,110 @@ begin
   end;
 end;
 
+{ TErrContentDataTypeNotProvided }
+
+constructor TErrContentDataTypeNotProvided.Create;
+begin
+  inherited Create(SErrContentDataTypeNotProvided);
+end;
+
+{ TAbsHTTPCombinedContent }
+
+procedure TAbsHTTPCombinedContent.ReleaseStream;
+begin
+  if assigned(FStream) then
+  begin
+    if OwnStream then
+      FreeAndNil(FStream) else
+      FStream := nil;
+  end;
+end;
+
+function TAbsHTTPCombinedContent.GetRawStringValue: RawByteString;
+begin
+  if assigned(FStream) then
+  begin
+    SetLength(Result, FStream.Size);
+    FStream.Position := 0;
+    FStream.ReadBuffer(Result[1], FStream.Size);
+  end else Result := '';
+end;
+
+procedure TAbsHTTPCombinedContent.SetRawStringValue(AValue: RawByteString);
+begin
+  if assigned(FStream) then
+  begin
+    FStream.Size := Length(AValue);
+    FStream.Position := 0;
+    FStream.WriteBuffer(AValue[1], FStream.Size);
+  end else
+    raise TErrContentDataTypeNotProvided.Create;
+end;
+
+function TAbsHTTPCombinedContent.GetStreamValue: TStream;
+begin
+  if not Assigned(FStream) then
+  begin
+    Result := UpdateStreamValue;
+  end else
+    Result := FStream;
+end;
+
+procedure TAbsHTTPCombinedContent.SetStreamValue(Str: TStream);
+begin
+  ReleaseStream;
+  FStream := Str;
+end;
+
+function TAbsHTTPCombinedContent.StreamAssigned: Boolean;
+begin
+  Result := Assigned(FStream);
+end;
+
+function TAbsHTTPCombinedContent.UpdateStreamValue: TStream;
+begin
+  Result := TMemoryStream.Create;
+  FOwnStream := true;
+end;
+
+constructor TAbsHTTPCombinedContent.Create;
+begin
+  FStream := nil;
+end;
+
+destructor TAbsHTTPCombinedContent.Destroy;
+begin
+  ReleaseStream;
+  inherited Destroy;
+end;
+
+{ TAbsHTTPRawStringContent }
+
+constructor TAbsHTTPRawStringContent.Create;
+begin
+  FStringContent := '';
+end;
+
+function TAbsHTTPRawStringContent.GetRawStringValue: RawByteString;
+begin
+  Result := FStringContent;
+end;
+
+procedure TAbsHTTPRawStringContent.SetRawStringValue(AValue: RawByteString);
+begin
+  FStringContent := AValue;
+end;
+
+function TAbsHTTPRawStringContent.GetStreamValue: TStream;
+begin
+  Result := nil;
+end;
+
+procedure TAbsHTTPRawStringContent.SetStreamValue(Str: TStream);
+begin
+  raise TErrContentDataTypeNotProvided.Create;
+end;
+
 { TAbsHTTPConnectionResponse }
 
 procedure TAbsHTTPConnectionResponse.SetConnection(
@@ -328,6 +508,36 @@ procedure TAbsHTTPConnectionResponse.SetConnection(
 begin
   FConnection := AConnection;
 end;
+
+function TAbsHTTPConnectionRequest.GetContent: RawByteString;
+begin
+  if Assigned(FAbsContent) then
+    Result := FAbsContent.RawString else
+    Result := '';
+end;
+
+function TAbsHTTPConnectionRequest.GetContentStream: TStream;
+begin
+  if Assigned(FAbsContent) then
+    Result := FAbsContent.Stream else
+    Result := nil;
+end;
+
+procedure TAbsHTTPConnectionRequest.SetContentClass(AValue: TAbsHTTPContentClass
+  );
+begin
+  if FContentClass=AValue then Exit;
+  FContentClass:=AValue;
+  if Assigned(FAbsContent) then FAbsContent.Free;
+  FAbsContent := FContentClass.Create;
+end;
+
+procedure TAbsHTTPConnectionRequest.SetContent(AValue: RawByteString);
+begin
+  if Assigned(FAbsContent) then
+    FAbsContent.RawString := AValue;
+end;
+
 
 procedure TAbsHTTPConnectionRequest.InitRequestVars;
 Var
@@ -347,6 +557,25 @@ procedure TAbsHTTPConnectionRequest.SetConnection(
   AConnection: TAbsHTTPConnection);
 begin
   FConnection := AConnection;
+end;
+
+constructor TAbsHTTPConnectionRequest.Create;
+begin
+  inherited Create;
+  ContentClass := TAbsHTTPRawStringContent;
+end;
+
+constructor TAbsHTTPConnectionRequest.Create(aContentClass: TAbsHTTPContentClass
+  );
+begin
+  inherited Create;
+  ContentClass := aContentClass;
+end;
+
+destructor TAbsHTTPConnectionRequest.Destroy;
+begin
+  if Assigned(FAbsContent) then FAbsContent.Free;
+  inherited Destroy;
 end;
 
 Function SocketAddrToString(ASocketAddr: TSockAddr): String;
@@ -390,7 +619,7 @@ begin
   Inherited;
 end;
 
-Function TAbsHTTPConnection.GetLookupHostNames : Boolean;
+function TAbsHTTPConnection.GetLookupHostNames: Boolean;
 begin
   if Assigned(FServer) then
     Result:=FServer.LookupHostNames

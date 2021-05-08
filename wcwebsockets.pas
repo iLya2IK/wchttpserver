@@ -152,7 +152,7 @@ type
 
   { TWCWSChunck }
 
-  TWCWSChunck = class(TWCReferencedObject)
+  TWCWSChunck = class(TWCRequestRefWrapper)
   private
     FOpCode     : TWebSocketOpCode;
     FExtensions : PWebSocketAppliedExts;
@@ -162,6 +162,8 @@ type
                        aOpCode : TWebSocketOpCode;
                        const Exts : Array of PWebSocketAppliedExt); virtual;
     destructor Destroy; override;
+    function GetReqContentStream : TStream; override;
+    function IsReqContentStreamOwn : Boolean; override;
     property OpCode : TWebSocketOpCode read FOpCode;
     property Options : TWebSocketUpgradeOptions read FOptions;
   end;
@@ -178,6 +180,8 @@ type
                        aOpCode : TWebSocketOpCode;
                        const Exts : Array of PWebSocketAppliedExt); override;
     destructor Destroy; override;
+    function GetReqContentStream : TStream; override;
+    function IsReqContentStreamOwn : Boolean; override;
     procedure Complete;
     property IsComplete : Boolean read FComplete;
     property TotalSize : Int64 read GetTotalSize;
@@ -363,6 +367,16 @@ begin
   inherited Destroy;
 end;
 
+function TWCWSChunck.GetReqContentStream: TStream;
+begin
+  Result := nil;
+end;
+
+function TWCWSChunck.IsReqContentStreamOwn: Boolean;
+begin
+  Result := false;
+end;
+
 { TWCWSFrameHeader }
 
 procedure TWCWSFrameHeader.PrepareToSend;
@@ -546,13 +560,22 @@ begin
   inherited Destroy;
 end;
 
+function TWCWSIncomingChunck.GetReqContentStream: TStream;
+begin
+  Result:=FData;
+end;
+
+function TWCWSIncomingChunck.IsReqContentStreamOwn: Boolean;
+begin
+  Result:=true;
+end;
+
 procedure TWCWSIncomingChunck.Complete;
 begin
   FComplete := true;
 end;
 
 procedure TWCWSIncomingChunck.CopyToHTTP1Request(aReq1 : TRequest);
-var S : RawByteString;
 begin
   aReq1.Method := 'GET';
   Options.Lock;
@@ -562,9 +585,6 @@ begin
     Options.UnLock;
   end;
   aReq1.ContentLength := TotalSize;
-  SetLength(S, TotalSize);
-  Move(FData.Memory^, S[1], TotalSize);
-  aReq1.Content := S;
 end;
 
 procedure TWCWSIncomingChunck.PushData(aBuffer: Pointer; aSize: Cardinal;

@@ -64,8 +64,6 @@ implementation
 
 uses WCServerTestJobs,
   {$IFDEF WC_WEB_SOCKETS}
-  wcwebsockets,
-  websocketconsts,
   jsonscanner, jsonparser, fpjson, Variants,
   {$ENDIF}
   AvgLvlTree;

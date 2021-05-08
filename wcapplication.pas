@@ -85,12 +85,11 @@ type
     Function ReadReqHeaders : TWCRequest;
     function ConvertFromHTTP2Req(AReq2 : TWCHTTP2Request) : TWCRequest;
     {$IFDEF WC_WEB_SOCKETS}
-    function ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck;
-      aOptions : TWebSocketUpgradeOptions) : TWCRequest;
+    function ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck) : TWCRequest;
     {$ENDIF}
     procedure ReadReqContent(ARequest: TWCRequest);
-    procedure ConsumeHeader(ARequest: TRequest; AHeader: String); override;
-    procedure UnknownHeader({%H-}ARequest: TRequest; const {%H-}AHeader: String); override;
+    procedure ConsumeHeader(ARequest: TAbsHTTPConnectionRequest; AHeader: String); override;
+    procedure UnknownHeader({%H-}ARequest: TAbsHTTPConnectionRequest; const {%H-}AHeader: String); override;
     procedure DoSocketAttach(ASocket : TSocketStream); override;
   public
     Constructor Create(AServer : TAbsCustomHTTPServer; ASocket : TSocketStream); override;
@@ -365,7 +364,7 @@ type
     procedure DoInfo(const V : String; const aParams : Array Of const); overload;
     procedure DoError(const V : String); overload;
     procedure DoError(const V : String; const aParams : Array Of const); overload;
-    procedure SendError(AResponse: TResponse; errno: Integer);
+    procedure SendError(AResponse: TAbsHTTPConnectionResponse; errno: Integer);
     Procedure Initialize; override;
     function GetWebHandler: TWCHttpServerHandler;
     function InitializeAbstractWebHandler : TWebHandler; override;
@@ -536,8 +535,8 @@ type
     procedure Initialize;  virtual;
     function SaveNewState(aState: TWebClientState; const aNewState: String;
       oldHash: Cardinal; ignoreHash: boolean=false): Boolean;
-    procedure ResponseString(AResponse : TResponse; const S : String); virtual;
-    procedure ResponseStream(AResponse : TResponse; Str : TStream; StrSize : Int64;
+    procedure ResponseString(AResponse : TAbsHTTPConnectionResponse; const S : String); virtual;
+    procedure ResponseStream(AResponse : TAbsHTTPConnectionResponse; Str : TStream; StrSize : Int64;
       OwnStream : Boolean); virtual;
     property CUID : String read FCUID;
     property StateHash[index : TWebClientState] : Cardinal read GetStateHash;
@@ -601,7 +600,7 @@ type
     function CreateSession(ARequest : TWCRequest) : TSqliteWebSession;
     //
     procedure OnCreateNewSession(Sender : TObject);
-    function  AddClient(ARequest : TRequest; const ClientID : String): TWebClient;
+    function  AddClient(ARequest : TAbsHTTPConnectionRequest; const ClientID : String): TWebClient;
     function  GetClient(const ClientID : String) : TWebClient;
     procedure RemoveClient(const ClientID : String); overload;
     procedure RemoveClient(mClient : TWebClient); overload;
@@ -636,6 +635,26 @@ type
     property  KeepStreamAlive : Boolean read FKeepAlive write FKeepAlive;
   end;
 
+  TWCContentType = (wctAny, wctUtf8String, wctWideString, wctRawString, wctBlob);
+
+  { TWCContent }
+
+  TWCContent = class(TAbsHTTPCombinedContent)
+  private
+    FContentType : TWCContentType;
+    FRequestRef  : TWCRequestRefWrapper;
+    procedure SetRequestRef(AValue: TWCRequestRefWrapper);
+  protected
+    function  UpdateStreamValue : TStream; override;
+  public
+    constructor Create; override;
+    property RequestRef : TWCRequestRefWrapper read FRequestRef write
+                                                               SetRequestRef;
+    property ContentType : TWCContentType read FContentType;
+    function AsWideString : WideString;
+    destructor Destroy; override;
+  end;
+
   { TWCRequest }
 
   TWCRequest = class (TAbsHTTPConnectionRequest)
@@ -660,8 +679,8 @@ type
     {$endif}
   public
     constructor Create(aConnection : TWCHTTPRefConnection);
-    destructor Destroy; override;
-    procedure Execute; override;
+    destructor  Destroy; override;
+    procedure   Execute; override;
   end;
 
   { TWCSendServerFile }
@@ -782,6 +801,44 @@ begin
     if ShowCleanUpErrors then
       Raise;
   end;
+end;
+
+{ TWCContent }
+
+procedure TWCContent.SetRequestRef(AValue: TWCRequestRefWrapper);
+begin
+  if FRequestRef=AValue then Exit;
+  if Assigned(FRequestRef) then FRequestRef.DecReference;
+  FRequestRef:=AValue;
+  FRequestRef.IncReference;
+end;
+
+function TWCContent.UpdateStreamValue: TStream;
+begin
+  if assigned(FRequestRef) then
+  begin
+    Result := FRequestRef.GetReqContentStream;
+    OwnStream := not FRequestRef.IsReqContentStreamOwn;
+  end else
+    Result := inherited UpdateStreamValue;
+end;
+
+constructor TWCContent.Create;
+begin
+  inherited Create;
+  FRequestRef := nil;
+  FContentType := wctAny;
+end;
+
+function TWCContent.AsWideString: WideString;
+begin
+  Result := WideString(RawString)
+end;
+
+destructor TWCContent.Destroy;
+begin
+  RequestRef := nil;
+  inherited Destroy;
 end;
 
 { TWCMainClientWrapperJob }
@@ -1196,12 +1253,18 @@ begin
     aDecoder := Application.ClientDecoders[ContentEncoding];
     if assigned(aDecoder) then
     begin
-      // maybe not best solution for large content blocks
-      // Initial Content -> DecodedBytes -> Output Content
-      // utf8 charset means as default on then client-side
-      // need to parse Content-Type string to determinate
-      // initial client-side charset and convert result string to utf8
-      Content := aDecoder.DecodeString(Content);
+      if ContentObject.Stream is TBufferedStream then
+        aDecoder.DecodeBufferStream(TBufferedStream(ContentObject.Stream)) else
+      if ContentObject.Stream is TMemoryStream then
+        aDecoder.DecodeMemoryStream(TMemoryStream(ContentObject.Stream)) else
+      begin
+        // maybe not best solution for large content blocks
+        // Initial Content -> DecodedBytes -> Output Content.
+        // utf8 charset means as default on the client-side.
+        // need to parse Content-Type string to determinate
+        // initial client-side charset and convert result string to utf8
+        Content := aDecoder.DecodeString(Content);
+      end;
     end;
   end;
 end;
@@ -1531,6 +1594,7 @@ begin
     TWCHttpServer(Server).InitRequest(Result);
     Result.SetConnection(Self);
     AReq2.CopyToHTTP1Request(Result);
+    TWCContent(Result.ContentObject).RequestRef := aReq2.Stream;
     Result.InitRequestVars;
     Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
     Result.ServerPort := TWCHttpServer(Server).Port;
@@ -1541,8 +1605,7 @@ begin
 end;
 
 {$IFDEF WC_WEB_SOCKETS}
-function TWCConnection.ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck;
-  aOptions : TWebSocketUpgradeOptions) : TWCRequest;
+function TWCConnection.ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck) : TWCRequest;
 begin
   if not assigned(AReq) then Exit(nil);
   Result:=TWCRequest(TWCHttpServer(Server).CreateRequest);
@@ -1550,6 +1613,7 @@ begin
     TWCHttpServer(Server).InitRequest(Result);
     Result.SetConnection(Self);
     AReq.CopyToHTTP1Request(Result);
+    TWCContent(Result.ContentObject).RequestRef := AReq;
     Result.InitRequestVars;
     Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
     Result.ServerPort := TWCHttpServer(Server).Port;
@@ -1593,7 +1657,7 @@ begin
   ARequest.InitContent(S);
 end;
 
-procedure TWCConnection.ConsumeHeader(ARequest: TRequest;
+procedure TWCConnection.ConsumeHeader(ARequest: TAbsHTTPConnectionRequest;
   AHeader: String);
 Var
   P : Integer;
@@ -1612,7 +1676,7 @@ begin
   ARequest.SetFieldByName(N,V);
 end;
 
-procedure TWCConnection.UnknownHeader({%H-}ARequest: TRequest;
+procedure TWCConnection.UnknownHeader({%H-}ARequest: TAbsHTTPConnectionRequest;
   const {%H-}AHeader: String);
 begin
   // do nothing
@@ -1779,8 +1843,7 @@ begin
         if Assigned(RefRequest) then
         begin
           if not assigned(FRequest) then
-            FRequest := ConvertFromWebSocketReq(TWCWSIncomingChunck(RefRequest),
-                                                TWCWebSocketConnection(HTTPRefCon).Options);
+            FRequest := ConvertFromWebSocketReq(TWCWSIncomingChunck(RefRequest));
         end else
           Result := WC_CONSUME_NO_DATA;
       end;
@@ -2052,6 +2115,7 @@ end;
 function TWCHttpServer.CreateRequest: TAbsHTTPConnectionRequest;
 begin
   Result:=TWCRequest.Create;
+  Result.ContentClass := TWCContent;
 end;
 
 function TWCHttpServer.CreateResponse(ARequest: TAbsHTTPConnectionRequest
@@ -2420,7 +2484,7 @@ begin
     Result := False;
 end;
 
-procedure TWebClient.ResponseString(AResponse: TResponse; const S: String);
+procedure TWebClient.ResponseString(AResponse: TAbsHTTPConnectionResponse; const S: String);
 var
   StrBuffer : TBufferedStream;
   L : Longint;
@@ -2436,7 +2500,7 @@ begin
     AResponse.Content:=S;
 end;
 
-procedure TWebClient.ResponseStream(AResponse : TResponse; Str : TStream;
+procedure TWebClient.ResponseStream(AResponse : TAbsHTTPConnectionResponse; Str : TStream;
   StrSize : Int64;
   OwnStream : Boolean);
 var
@@ -2774,7 +2838,8 @@ begin
   DoError(E.Message);
 end;
 
-procedure TWCHTTPApplication.DoGetModule(Sender: TObject; {%H-}ARequest: TRequest;
+procedure TWCHTTPApplication.DoGetModule(Sender: TObject;
+  {%H-}ARequest: TRequest;
   var ModuleClass: TCustomHTTPModuleClass);
 begin
   ModuleClass := nil;
@@ -3276,7 +3341,7 @@ begin
     WriteLn('e: ', Format(V, aParams));
 end;
 
-procedure TWCHTTPApplication.SendError(AResponse: TResponse; errno: Integer);
+procedure TWCHTTPApplication.SendError(AResponse: TAbsHTTPConnectionResponse; errno: Integer);
 begin
   AResponse.Code:=errno;
   AResponse.Content:='';
@@ -3781,7 +3846,7 @@ begin
   end;
 end;
 
-function TWebClientsContainer.AddClient(ARequest: TRequest;
+function TWebClientsContainer.AddClient(ARequest: TAbsHTTPConnectionRequest;
   const ClientID: String): TWebClient;
 begin
   Result := FConnectedClients.GetClient(ClientID);

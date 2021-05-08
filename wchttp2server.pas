@@ -212,6 +212,7 @@ type
     procedure PushData(Data : Pointer; sz : Cardinal); overload;
     procedure PushData(Strm: TStream; startAt: Int64); overload;
     procedure PushData(Strings: TStrings); overload;
+    property  Stream : TWCHTTPStream read FStream;
     property  DataBlock : Pointer read FCurDataBlock;
     property  DataBlockSize : Integer read FDataBlockSize;
   end;
@@ -283,7 +284,7 @@ type
     constructor Create(aHPackEncoder : TThreadSafeHPackEncoder);
     destructor Destroy; override;
     procedure PushHeader(const H, V : String); virtual; abstract;
-    procedure PushAll(R: TResponse);
+    procedure PushAll(R: TAbsHTTPConnectionResponse);
   end;
 
   { TWCHTTP2BufResponseHeaderPusher }
@@ -325,14 +326,14 @@ type
     constructor Create(aConnection : TWCHTTP2Connection;
                        aStream : TWCHTTPStream); override;
     destructor Destroy; override;
-    procedure CopyFromHTTP1Response(R : TResponse);
+    procedure CopyFromHTTP1Response(R : TAbsHTTPConnectionResponse);
     procedure Close;
     procedure PushResponse;
     procedure SerializeResponse;
     procedure SerializeHeaders(closeStrm: Boolean);
     procedure SerializeData(closeStrm: Boolean);
-    procedure SerializeResponseHeaders(R : TResponse; closeStrm: Boolean);
-    procedure SerializeResponseData(R : TResponse; closeStrm: Boolean);
+    procedure SerializeResponseHeaders(R : TAbsHTTPConnectionResponse; closeStrm: Boolean);
+    procedure SerializeResponseData(R : TAbsHTTPConnectionResponse; closeStrm: Boolean);
     procedure SerializeRefStream(R: TReferencedStream; closeStrm: Boolean);
     property ResponsePushed : Boolean read FResponsePushed;
   end;
@@ -351,7 +352,7 @@ type
                        aStream : TWCHTTPStream); override;
     destructor Destroy; override;
     procedure CopyHeaders(aHPackDecoder : TThreadSafeHPackDecoder);
-    procedure CopyToHTTP1Request(ARequest : TRequest);
+    procedure CopyToHTTP1Request(ARequest : TAbsHTTPConnectionRequest);
     property  Response : TWCHTTP2Response read GetResponse;
     property  ResponsePushed : Boolean read GetResponsePushed;
     property  Complete : Boolean read FComplete write FComplete;
@@ -376,14 +377,16 @@ type
 
   { TWCReferencedObject }
 
-  TWCReferencedObject = class(TNetReferencedObject)
+  TWCRequestRefWrapper = class(TNetReferencedObject)
   public
+    function GetReqContentStream : TStream; virtual; abstract;
+    function IsReqContentStreamOwn : Boolean; virtual; abstract;
     procedure Release; virtual;
   end;
 
   { TWCHTTPStream }
 
-  TWCHTTPStream = class(TWCReferencedObject)
+  TWCHTTPStream = class(TWCRequestRefWrapper)
   private
     FID : Cardinal;
     FConnection : TWCHTTP2Connection;
@@ -421,6 +424,8 @@ type
     property Priority :  Byte read FPriority;
     property RecursedPriority : Byte read GetRecursedPriority;
     // avaible request
+    function GetReqContentStream : TStream; override;
+    function IsReqContentStreamOwn : Boolean; override;
     function RequestReady : Boolean;
     property Request : TWCHTTP2Request read FCurRequest;
     property Response : TWCHTTP2Response read GetCurResponse;
@@ -477,10 +482,10 @@ type
   TWCHTTPConnection = class(TAbsHTTPConnection)
   private
     FHTTPRefCon  : TWCHTTPRefConnection;
-    FRefRequest  : TWCReferencedObject;
+    FRefRequest  : TWCRequestRefWrapper;
     FSocketRef : TWCHTTPSocketReference;
     procedure SetHTTPRefCon(AValue: TWCHTTPRefConnection);
-    procedure SetRefRequest(AValue: TWCReferencedObject);
+    procedure SetRefRequest(AValue: TWCRequestRefWrapper);
   protected
     procedure DoSocketAttach(ASocket : TSocketStream); override;
     function  GetSocket : TSocketStream; override;
@@ -492,7 +497,7 @@ type
     procedure DecSocketReference;
     property SocketReference : TWCHTTPSocketReference read FSocketRef;
     property HTTPRefCon: TWCHTTPRefConnection read FHTTPRefCon write SetHTTPRefCon;
-    property RefRequest: TWCReferencedObject read FRefRequest write SetRefRequest;
+    property RefRequest: TWCRequestRefWrapper read FRefRequest write SetRefRequest;
   end;
 
   { TThreadSafeConnSettings }
@@ -835,9 +840,9 @@ type
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
 
-{ TWCReferencedObject }
+{ TWCRequestRefWrapper }
 
-procedure TWCReferencedObject.Release;
+procedure TWCRequestRefWrapper.Release;
 begin
   DecReference;
 end;
@@ -1671,7 +1676,7 @@ begin
   FHTTPRefCon:=AValue;
 end;
 
-procedure TWCHTTPConnection.SetRefRequest(AValue : TWCReferencedObject);
+procedure TWCHTTPConnection.SetRefRequest(AValue : TWCRequestRefWrapper);
 begin
   if FRefRequest=AValue then Exit;
   if Assigned(FRefRequest) then FRefRequest.Release;  //release here!
@@ -1843,7 +1848,7 @@ begin
   inherited Destroy;
 end;
 
-procedure TWCHTTP2ResponseHeaderPusher.PushAll(R: TResponse);
+procedure TWCHTTP2ResponseHeaderPusher.PushAll(R: TAbsHTTPConnectionResponse);
 var h1 : THeader;
     h2 : THTTP2Header;
     v  : String;
@@ -1983,7 +1988,7 @@ begin
   inherited Destroy;
 end;
 
-procedure TWCHTTP2Response.CopyFromHTTP1Response(R: TResponse);
+procedure TWCHTTP2Response.CopyFromHTTP1Response(R: TAbsHTTPConnectionResponse);
 var pusher : TWCHTTP2BufResponseHeaderPusher;
     Capacity : Cardinal;
 begin
@@ -2073,7 +2078,7 @@ begin
   FDataBlockSize:=0;
 end;
 
-procedure TWCHTTP2Response.SerializeResponseHeaders(R: TResponse;
+procedure TWCHTTP2Response.SerializeResponseHeaders(R: TAbsHTTPConnectionResponse;
   closeStrm: Boolean);
 var sc : TWCHTTP2SerializeStream;
     pusher : TWCHTTP2StrmResponseHeaderPusher;
@@ -2102,7 +2107,7 @@ begin
   end;
 end;
 
-procedure TWCHTTP2Response.SerializeResponseData(R: TResponse;
+procedure TWCHTTP2Response.SerializeResponseData(R: TAbsHTTPConnectionResponse;
   closeStrm: Boolean);
 var sc : TWCHTTP2SerializeStream;
 begin
@@ -2229,7 +2234,7 @@ begin
   end;
 end;
 
-procedure TWCHTTP2Request.CopyToHTTP1Request(ARequest: TRequest);
+procedure TWCHTTP2Request.CopyToHTTP1Request(ARequest: TAbsHTTPConnectionRequest);
 var
   i, j : integer;
   h : PHTTPHeader;
@@ -2275,11 +2280,6 @@ begin
           end else
             ARequest.SetCustomHeader(v^.HeaderName, v^.HeaderValue);
         end;
-      end;
-      if FDataBlockSize > 0 then begin
-        SetLength(S, FDataBlockSize);
-        Move(FCurDataBlock^, S[1], FDataBlockSize);
-        ARequest.Content := S;
       end;
     finally
       //
@@ -4437,6 +4437,26 @@ begin
     end;
   end;
   inherited Release;
+end;
+
+function TWCHTTPStream.GetReqContentStream: TStream;
+begin
+  if assigned(FCurRequest) then
+  begin
+    if FCurRequest.DataBlockSize > 0 then
+    begin
+     Result := TBufferedStream.Create;
+     TBufferedStream(Result).SetPointer(FCurRequest.DataBlock,
+                                        FCurRequest.DataBlockSize);
+    end else
+     Result := nil;
+  end else
+     Result := nil;
+end;
+
+function TWCHTTPStream.IsReqContentStreamOwn: Boolean;
+begin
+  Result := false;
 end;
 
 function TWCHTTPStream.RequestReady: Boolean;
