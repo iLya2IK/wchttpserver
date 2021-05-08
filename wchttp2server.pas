@@ -200,21 +200,22 @@ type
 
   TWCHTTP2Block = class
   private
-    FCurDataBlock  : Pointer;
-    FDataBlockSize : Integer;
+    FData          : TMemoryStream;
     FConnection    : TWCHTTP2Connection;
     FStream        : TWCHTTPStream;
+    function GetDataBlock : TMemoryStream;
+    function GetDataBlockSize : Integer;
   public
     constructor Create(aConnection : TWCHTTP2Connection;
                        aStream : TWCHTTPStream); virtual;
     destructor Destroy; override;
     // avaible data
-    procedure PushData(Data : Pointer; sz : Cardinal); overload;
+    procedure PushData(aData : Pointer; sz : Cardinal); overload;
     procedure PushData(Strm: TStream; startAt: Int64); overload;
     procedure PushData(Strings: TStrings); overload;
     property  Stream : TWCHTTPStream read FStream;
-    property  DataBlock : Pointer read FCurDataBlock;
-    property  DataBlockSize : Integer read FDataBlockSize;
+    property  Data : TMemoryStream read GetDataBlock;
+    property  DataBlockSize : Integer read GetDataBlockSize;
   end;
 
   { TWCHTTP2SerializeStream }
@@ -2025,8 +2026,8 @@ end;
 
 procedure TWCHTTP2Response.SerializeResponse;
 begin
-  SerializeHeaders(FDataBlockSize = 0);
-  if FDataBlockSize > 0 then
+  SerializeHeaders(DataBlockSize = 0);
+  if DataBlockSize > 0 then
      SerializeData(true);
 end;
 
@@ -2060,7 +2061,7 @@ var
 begin
   // serialize in group of data chunck with max_frame_size
   // then remove fdatablock
-  if assigned(FCurDataBlock) and (FDataBlockSize > 0) then
+  if (DataBlockSize > 0) then
   begin
     sc := TWCHTTP2SerializeStream.Create(FConnection, FStream,
                                          H2FT_DATA,
@@ -2068,14 +2069,14 @@ begin
                                          0,
                                          (Ord(closeStrm) * H2FL_END_STREAM));
     try
-      sc.WriteBuffer(FCurDataBlock^, FDataBlockSize);
+      sc.WriteBuffer(FData.Memory^, DataBlockSize);
     finally
       sc.Free;
     end;
     if closeStrm then
       PushResponse;
   end;
-  FDataBlockSize:=0;
+  FData.Clear;
 end;
 
 procedure TWCHTTP2Response.SerializeResponseHeaders(R: TAbsHTTPConnectionResponse;
@@ -2111,8 +2112,7 @@ procedure TWCHTTP2Response.SerializeResponseData(R: TAbsHTTPConnectionResponse;
   closeStrm: Boolean);
 var sc : TWCHTTP2SerializeStream;
 begin
-  if Assigned(FCurDataBlock) then FreeMemAndNil(FCurDataBlock);
-  FDataBlockSize:=0;
+  FData.Clear;
 
   if R.ContentLength > 0 then
   begin
@@ -2409,33 +2409,29 @@ end;
 
 { TWCHTTP2Block }
 
-procedure TWCHTTP2Block.PushData(Data: Pointer; sz: Cardinal);
+procedure TWCHTTP2Block.PushData(aData: Pointer; sz: Cardinal);
+var cursize : int64;
 begin
   if sz = 0 then Exit;
-  
-  if not Assigned(FCurDataBlock) then
-     FCurDataBlock:=GetMem(Sz) else
-     FCurDataBlock:=ReAllocMem(FCurDataBlock, Sz + FDataBlockSize);
 
-  Move(Data^, PByte(FCurDataBlock)[FDataBlockSize], Sz);
+  cursize := FData.Size;
+  FData.Size := cursize + sz;
 
-  Inc(FDataBlockSize, sz);
+  Move(aData^, PByte(FData.Memory)[cursize], Sz);
 end;
 
 procedure TWCHTTP2Block.PushData(Strm: TStream; startAt : Int64);
 var sz : Int64;
+    cursize : int64;
 begin
   Strm.Position:= startAt;
   sz := Strm.Size - startAt;
   if Sz > 0 then
   begin
-    if not Assigned(FCurDataBlock) then
-       FCurDataBlock:=GetMem(Sz) else
-       FCurDataBlock:=ReAllocMem(FCurDataBlock, Sz + FDataBlockSize);
+    cursize := FData.Size;
+    FData.Size := cursize + sz;
 
-    Strm.Read(PByte(FCurDataBlock)[FDataBlockSize], Sz);
-
-    Inc(FDataBlockSize, sz);
+    Strm.Read(PByte(FData.Memory)[cursize], Sz);
   end;
 end;
 
@@ -2448,18 +2444,27 @@ begin
   PushData(Pointer(@(ToSend[1])), L);
 end;
 
+function TWCHTTP2Block.GetDataBlock : TMemoryStream;
+begin
+  Result := FData;
+end;
+
+function TWCHTTP2Block.GetDataBlockSize : Integer;
+begin
+  Result := FData.Size;
+end;
+
 constructor TWCHTTP2Block.Create(aConnection: TWCHTTP2Connection;
   aStream: TWCHTTPStream);
 begin
-  FCurDataBlock := nil;
-  FDataBlockSize := 0;
+  FData := TMemoryStream.Create;
   FConnection := aConnection;
   FStream := aStream;
 end;
 
 destructor TWCHTTP2Block.Destroy;
 begin
-  if Assigned(FCurDataBlock) then FreeMem(FCurDataBlock);
+  FreeAndNil(FData);
   inherited Destroy;
 end;
 
@@ -4445,9 +4450,7 @@ begin
   begin
     if FCurRequest.DataBlockSize > 0 then
     begin
-     Result := TBufferedStream.Create;
-     TBufferedStream(Result).SetPointer(FCurRequest.DataBlock,
-                                        FCurRequest.DataBlockSize);
+     Result := FCurRequest.Data;
     end else
      Result := nil;
   end else
@@ -4456,7 +4459,7 @@ end;
 
 function TWCHTTPStream.IsReqContentStreamOwn: Boolean;
 begin
-  Result := false;
+  Result := true;
 end;
 
 function TWCHTTPStream.RequestReady: Boolean;

@@ -148,7 +148,7 @@ end;
 
 procedure TWCGetInteger.Execute;
 begin
-  if ESWGetHeaderContent(Request, cSPos, P1, 0) then
+  if ESWGetHeaderContent(Request.Content, cSPos, P1, 0) then
   begin
     Response.Content:= IntToStr(TWCTestWebClient(Client).GetClientInt(P1));
   end else

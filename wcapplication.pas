@@ -810,7 +810,7 @@ begin
   if FRequestRef=AValue then Exit;
   if Assigned(FRequestRef) then FRequestRef.DecReference;
   FRequestRef:=AValue;
-  FRequestRef.IncReference;
+  if Assigned(FRequestRef) then FRequestRef.IncReference;
 end;
 
 function TWCContent.UpdateStreamValue: TStream;
@@ -1253,10 +1253,9 @@ begin
     aDecoder := Application.ClientDecoders[ContentEncoding];
     if assigned(aDecoder) then
     begin
-      if ContentObject.Stream is TBufferedStream then
-        aDecoder.DecodeBufferStream(TBufferedStream(ContentObject.Stream)) else
-      if ContentObject.Stream is TMemoryStream then
-        aDecoder.DecodeMemoryStream(TMemoryStream(ContentObject.Stream)) else
+      if (ContentObject.Stream is TMemoryStream) or
+         (ContentObject.Stream is TBufferedStream) then
+        aDecoder.DecodeStream(ContentObject.Stream) else
       begin
         // maybe not best solution for large content blocks
         // Initial Content -> DecodedBytes -> Output Content.

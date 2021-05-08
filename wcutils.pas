@@ -28,13 +28,13 @@ Type
   PParamsVariantArray = ^TParamsVariantArray;
 
 
-function ESWGetHeaderContent(H : THTTPHeader; const P1S, P2S : String;
+function ESWGetHeaderContent(const H : String; const P1S, P2S : String;
                              out Par1, Par2 : Variant;
                              const Def1, Def2 : Variant) : Boolean; overload;
-function ESWGetHeaderContent(H : THTTPHeader; const PS : String;
+function ESWGetHeaderContent(const H : String; const PS : String;
                              out Par : Variant;
                              const Def : Variant) : Boolean; overload;
-function ESWGetHeaderContent(H : THTTPHeader;
+function ESWGetHeaderContent(const H : String;
                              const PARS : Array of String;
                              VALS : PParamsVariantArray;
                              const Def : Array of Variant) : Boolean; overload;
@@ -120,7 +120,7 @@ begin
   dest.CustomHeaders.Assign(src.CustomHeaders);
 end;
 
-function ESWGetHeaderContent(H : THTTPHeader; const P1S, P2S : String;
+function ESWGetHeaderContent(const H : String; const P1S, P2S : String;
                               out Par1, Par2 : Variant;
                               const Def1, Def2 : Variant) : Boolean;
 var jsonObj: TJSONObject;
@@ -128,7 +128,7 @@ var jsonObj: TJSONObject;
 begin
   Result := false;
   try
-    jsonObj:= TJSONObject(GetJSON(H.Content));
+    jsonObj:= TJSONObject(GetJSON(H));
     if assigned(jsonObj) then
     begin
       jsonData1 := jsonObj.Find(P1S);
@@ -154,14 +154,14 @@ begin
   end;
 end;
 
-function ESWGetHeaderContent(H: THTTPHeader; const PS: String; out
+function ESWGetHeaderContent(const H : String; const PS: String; out
   Par: Variant; const Def: Variant) : Boolean;
 var jsonObj: TJSONObject;
     jsonData : TJSONData;
 begin
   Result := false;
   try
-    jsonObj:= TJSONObject(GetJSON(H.Content));
+    jsonObj:= TJSONObject(GetJSON(H));
     if assigned(jsonObj) then
     begin
       jsonData := jsonObj.Find(PS);
@@ -180,7 +180,7 @@ begin
   end;
 end;
 
-function ESWGetHeaderContent(H : THTTPHeader; const PARS : array of String;
+function ESWGetHeaderContent(const H : String; const PARS : array of String;
   VALS : PParamsVariantArray; const Def : array of Variant) : Boolean;
 var jsonObj: TJSONObject;
     jsonData : Array of TJSONData;
@@ -189,7 +189,7 @@ begin
   Result := false;
   if Length(PARS) <> Length(Def) then Exit;
   try
-    jsonObj:= TJSONObject(GetJSON(H.Content));
+    jsonObj:= TJSONObject(GetJSON(H));
     if assigned(jsonObj) then
     begin
       SetLength(jsonData, Length(PARS));

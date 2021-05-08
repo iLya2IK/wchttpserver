@@ -30,8 +30,7 @@ type
                      out NewBuffer: PByte; out NewCount: PtrInt); virtual; abstract;
   public
     class function DecoderName : String; virtual;
-    class procedure DecodeMemoryStream(InOutStream: TMemoryStream);
-    class procedure DecodeBufferStream(InOutStream: TBufferedStream);
+    class procedure DecodeStream(InOutStream : TStream);
     class function DecodeString(const S : String) : RawByteString;
   end;
 
@@ -59,6 +58,8 @@ procedure UnRegisterWCDecoder(aDecode : TWCClientDecoderClass);
 function IsWCDecoderRegistered(const aDecoder : String) : Boolean;
 
 implementation
+
+const SErrStreamTypeNotSupported = 'Stream type not supported for decoding';
 
 var WCRegisteredDecoders : TThreadSafeDecoders = nil;
 
@@ -195,26 +196,28 @@ begin
   Result := '';
 end;
 
-class procedure TWCClientDecoder.DecodeMemoryStream(InOutStream : TMemoryStream);
+class procedure TWCClientDecoder.DecodeStream(InOutStream : TStream);
 var outBuffer : PByte;
     Sz : PtrInt;
 begin
   if not Assigned(InOutStream) then Exit;
-  Decode(InOutStream.Memory, InOutStream.Size, outBuffer, Sz);
-  InOutStream.Position := 0;
-  InOutStream.Size := Sz;
-  InOutStream.WriteBuffer(outBuffer^, Sz);
-  Freemem(outBuffer);
-end;
-
-class procedure TWCClientDecoder.DecodeBufferStream(
-  InOutStream : TBufferedStream);
-var outBuffer : PByte;
-    Sz : PtrInt;
-begin
-  if not Assigned(InOutStream) then Exit;
-  Decode(InOutStream.Memory, InOutStream.Size, outBuffer, Sz);
-  InOutStream.SetPointer(outBuffer, Sz);
+  if InOutStream is TMemoryStream then
+  begin
+    Decode(TMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
+    InOutStream.Position := 0;
+    InOutStream.Size := Sz;
+    InOutStream.WriteBuffer(outBuffer^, Sz);
+    Freemem(outBuffer);
+  end
+  else
+  if InOutStream is TBufferedStream then
+  begin
+    Decode(TBufferedStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
+    Freemem(TBufferedStream(InOutStream).Memory);
+    TBufferedStream(InOutStream).SetPointer(outBuffer, Sz);
+  end
+  else
+    raise Exception.Create(SErrStreamTypeNotSupported);
 end;
 
 class function TWCClientDecoder.DecodeString(const S : String) : RawByteString;

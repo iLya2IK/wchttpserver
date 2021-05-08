@@ -418,7 +418,7 @@ end;
 
 function TAbsHTTPCombinedContent.GetRawStringValue: RawByteString;
 begin
-  if assigned(FStream) then
+  if assigned(Stream) then
   begin
     SetLength(Result, FStream.Size);
     FStream.Position := 0;
@@ -428,7 +428,7 @@ end;
 
 procedure TAbsHTTPCombinedContent.SetRawStringValue(AValue: RawByteString);
 begin
-  if assigned(FStream) then
+  if assigned(Stream) then
   begin
     FStream.Size := Length(AValue);
     FStream.Position := 0;
@@ -439,11 +439,8 @@ end;
 
 function TAbsHTTPCombinedContent.GetStreamValue: TStream;
 begin
-  if not Assigned(FStream) then
-  begin
-    Result := UpdateStreamValue;
-  end else
-    Result := FStream;
+  if not Assigned(FStream) then FStream := UpdateStreamValue;
+  Result := FStream;
 end;
 
 procedure TAbsHTTPCombinedContent.SetStreamValue(Str: TStream);
