@@ -60,6 +60,7 @@ type
   TWCHTTPStreams = class;
   TWCHTTPRefConnection = class;
   TWCHTTP2Connection = class;
+  TWCHTTPConnectionRequest = class;
   TWCHTTPRefConnections = class;
   TWCHTTPStream = class;
   TWCHTTP2ServerSettings = class;
@@ -353,7 +354,6 @@ type
                        aStream : TWCHTTPStream); override;
     destructor Destroy; override;
     procedure CopyHeaders(aHPackDecoder : TThreadSafeHPackDecoder);
-    procedure CopyToHTTP1Request(ARequest : TAbsHTTPConnectionRequest);
     property  Response : TWCHTTP2Response read GetResponse;
     property  ResponsePushed : Boolean read GetResponsePushed;
     property  Complete : Boolean read FComplete write FComplete;
@@ -380,9 +380,40 @@ type
 
   TWCRequestRefWrapper = class(TNetReferencedObject)
   public
+    procedure CopyToHTTP1Request(aReq : TWCHTTPConnectionRequest); virtual; abstract;
     function GetReqContentStream : TStream; virtual; abstract;
     function IsReqContentStreamOwn : Boolean; virtual; abstract;
     procedure Release; virtual;
+  end;
+
+  TWCContentType = (wctAny, wctUtf8String, wctWideString, wctRawString, wctBlob);
+
+  { TWCContent }
+
+  TWCContent = class(TAbsHTTPCombinedContent)
+  private
+    FContentType : TWCContentType;
+    FRequestRef  : TWCRequestRefWrapper;
+    procedure SetRequestRef(AValue: TWCRequestRefWrapper);
+  protected
+    function  UpdateStreamValue : TStream; override;
+  public
+    constructor Create; override;
+    property RequestRef : TWCRequestRefWrapper read FRequestRef write
+                                                               SetRequestRef;
+    property ContentType : TWCContentType read FContentType write FContentType;
+    function AsWideString : WideString;
+    destructor Destroy; override;
+  end;
+
+  { TWCHTTPConnectionRequest }
+
+  TWCHTTPConnectionRequest = class(TAbsHTTPConnectionRequest)
+  private
+    function GetWCContent: TWCContent;
+  public
+    constructor Create; override;
+    property WCContent : TWCContent read GetWCContent;
   end;
 
   { TWCHTTPStream }
@@ -427,6 +458,7 @@ type
     // avaible request
     function GetReqContentStream : TStream; override;
     function IsReqContentStreamOwn : Boolean; override;
+    procedure CopyToHTTP1Request(AReq : TWCHTTPConnectionRequest); override;
     function RequestReady : Boolean;
     property Request : TWCHTTP2Request read FCurRequest;
     property Response : TWCHTTP2Response read GetCurResponse;
@@ -840,6 +872,57 @@ type
   end;
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
+
+{ TWCHTTPConnectionRequest }
+
+function TWCHTTPConnectionRequest.GetWCContent: TWCContent;
+begin
+  Result := TWCContent(ContentObject);
+end;
+
+constructor TWCHTTPConnectionRequest.Create;
+begin
+  inherited Create;
+  ContentClass := TWCContent;
+end;
+
+{ TWCContent }
+
+procedure TWCContent.SetRequestRef(AValue: TWCRequestRefWrapper);
+begin
+  if FRequestRef=AValue then Exit;
+  if Assigned(FRequestRef) then FRequestRef.DecReference;
+  FRequestRef:=AValue;
+  if Assigned(FRequestRef) then FRequestRef.IncReference;
+end;
+
+function TWCContent.UpdateStreamValue: TStream;
+begin
+  if assigned(FRequestRef) then
+  begin
+    Result := FRequestRef.GetReqContentStream;
+    OwnStream := not FRequestRef.IsReqContentStreamOwn;
+  end else
+    Result := inherited UpdateStreamValue;
+end;
+
+constructor TWCContent.Create;
+begin
+  inherited Create;
+  FRequestRef := nil;
+  FContentType := wctAny;
+end;
+
+function TWCContent.AsWideString: WideString;
+begin
+  Result := WideString(RawString)
+end;
+
+destructor TWCContent.Destroy;
+begin
+  RequestRef := nil;
+  inherited Destroy;
+end;
 
 { TWCRequestRefWrapper }
 
@@ -2231,59 +2314,6 @@ begin
   finally
     aHPackDecoder.UnLock;
     aHPackDecoder.DecReference;
-  end;
-end;
-
-procedure TWCHTTP2Request.CopyToHTTP1Request(ARequest: TAbsHTTPConnectionRequest);
-var
-  i, j : integer;
-  h : PHTTPHeader;
-  v : PHPackHeaderTextItem;
-  S : String;
-begin
-  if Complete then
-  begin
-    try
-      for i := 0 to FHeaders.Count-1 do
-      begin
-        v := FHeaders[i];
-        h := GetHTTPHeaderType(v^.HeaderName);
-        if assigned(h) then
-        begin
-          if h^.h2 <> hh2Unknown then
-          begin
-            case h^.h2 of
-              hh2Method : ARequest.Method := v^.HeaderValue;
-              hh2Path   : begin
-                ARequest.URL:= v^.HeaderValue;
-                S:=ARequest.URL;
-                j:=Pos('?',S);
-                if (j>0) then
-                  S:=Copy(S,1,j-1);
-                If (Length(S)>1) and (S[1]<>'/') then
-                  S:='/'+S
-                else if S='/' then
-                  S:='';
-                ARequest.PathInfo:=S;
-              end;
-              hh2Authority, hh2Scheme, hh2Status : ;
-              hh2Cookie : begin
-                ARequest.CookieFields.Add(v^.HeaderValue);
-              end
-            else
-              ARequest.SetCustomHeader(HTTP2AddHeaderNames[h^.h2], v^.HeaderValue);
-            end;
-          end else
-          if h^.h1 <> hhUnknown then
-          begin
-            ARequest.SetHeader(h^.h1, v^.HeaderValue);
-          end else
-            ARequest.SetCustomHeader(v^.HeaderName, v^.HeaderValue);
-        end;
-      end;
-    finally
-      //
-    end;
   end;
 end;
   
@@ -4460,6 +4490,61 @@ end;
 function TWCHTTPStream.IsReqContentStreamOwn: Boolean;
 begin
   Result := true;
+end;
+
+procedure TWCHTTPStream.CopyToHTTP1Request(AReq: TWCHTTPConnectionRequest);
+var
+  i, j : integer;
+  h : PHTTPHeader;
+  v : PHPackHeaderTextItem;
+  S : String;
+begin
+  with FCurRequest do
+  if Complete then
+  begin
+    try
+      for i := 0 to FHeaders.Count-1 do
+      begin
+        v := FHeaders[i];
+        h := GetHTTPHeaderType(v^.HeaderName);
+        if assigned(h) then
+        begin
+          if h^.h2 <> hh2Unknown then
+          begin
+            case h^.h2 of
+              hh2Method : AReq.Method := v^.HeaderValue;
+              hh2Path   : begin
+                AReq.URL:= v^.HeaderValue;
+                S:=AReq.URL;
+                j:=Pos('?',S);
+                if (j>0) then
+                  S:=Copy(S,1,j-1);
+                If (Length(S)>1) and (S[1]<>'/') then
+                  S:='/'+S
+                else if S='/' then
+                  S:='';
+                AReq.PathInfo:=S;
+              end;
+              hh2Authority, hh2Scheme, hh2Status : ;
+              hh2Cookie : begin
+                AReq.CookieFields.Add(v^.HeaderValue);
+              end
+            else
+              AReq.SetCustomHeader(HTTP2AddHeaderNames[h^.h2], v^.HeaderValue);
+            end;
+          end else
+          if h^.h1 <> hhUnknown then
+          begin
+            AReq.SetHeader(h^.h1, v^.HeaderValue);
+          end else
+            AReq.SetCustomHeader(v^.HeaderName, v^.HeaderValue);
+        end;
+      end;
+      AReq.WCContent.RequestRef := Self;
+    finally
+      //
+    end;
+  end;
 end;
 
 function TWCHTTPStream.RequestReady: Boolean;

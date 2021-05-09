@@ -186,7 +186,7 @@ type
     property IsComplete : Boolean read FComplete;
     property TotalSize : Int64 read GetTotalSize;
     property Data : TMemoryStream read FData;
-    procedure CopyToHTTP1Request(aReq1 : TRequest);
+    procedure CopyToHTTP1Request(aReq1 : TWCHTTPConnectionRequest); override;
     procedure PushData(aBuffer: Pointer;
                        aSize: Cardinal;
                        aMasked : Boolean;
@@ -575,7 +575,8 @@ begin
   FComplete := true;
 end;
 
-procedure TWCWSIncomingChunck.CopyToHTTP1Request(aReq1 : TRequest);
+procedure TWCWSIncomingChunck.CopyToHTTP1Request(
+  aReq1: TWCHTTPConnectionRequest);
 begin
   aReq1.Method := 'GET';
   Options.Lock;
@@ -585,6 +586,7 @@ begin
     Options.UnLock;
   end;
   aReq1.ContentLength := TotalSize;
+  aReq1.WCContent.RequestRef := Self;
 end;
 
 procedure TWCWSIncomingChunck.PushData(aBuffer: Pointer; aSize: Cardinal;

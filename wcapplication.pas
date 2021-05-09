@@ -83,10 +83,7 @@ type
   protected
     function ReadLine : String;
     Function ReadReqHeaders : TWCRequest;
-    function ConvertFromHTTP2Req(AReq2 : TWCHTTP2Request) : TWCRequest;
-    {$IFDEF WC_WEB_SOCKETS}
-    function ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck) : TWCRequest;
-    {$ENDIF}
+    function ConvertFromRefRequest(AReq: TWCRequestRefWrapper): TWCRequest;
     procedure ReadReqContent(ARequest: TWCRequest);
     procedure ConsumeHeader(ARequest: TAbsHTTPConnectionRequest; AHeader: String); override;
     procedure UnknownHeader({%H-}ARequest: TAbsHTTPConnectionRequest; const {%H-}AHeader: String); override;
@@ -635,29 +632,9 @@ type
     property  KeepStreamAlive : Boolean read FKeepAlive write FKeepAlive;
   end;
 
-  TWCContentType = (wctAny, wctUtf8String, wctWideString, wctRawString, wctBlob);
-
-  { TWCContent }
-
-  TWCContent = class(TAbsHTTPCombinedContent)
-  private
-    FContentType : TWCContentType;
-    FRequestRef  : TWCRequestRefWrapper;
-    procedure SetRequestRef(AValue: TWCRequestRefWrapper);
-  protected
-    function  UpdateStreamValue : TStream; override;
-  public
-    constructor Create; override;
-    property RequestRef : TWCRequestRefWrapper read FRequestRef write
-                                                               SetRequestRef;
-    property ContentType : TWCContentType read FContentType;
-    function AsWideString : WideString;
-    destructor Destroy; override;
-  end;
-
   { TWCRequest }
 
-  TWCRequest = class (TAbsHTTPConnectionRequest)
+  TWCRequest = class (TWCHTTPConnectionRequest)
   private
     function GetSocket: TSocketStream;
     function GetConnection : TWCConnection;
@@ -801,44 +778,6 @@ begin
     if ShowCleanUpErrors then
       Raise;
   end;
-end;
-
-{ TWCContent }
-
-procedure TWCContent.SetRequestRef(AValue: TWCRequestRefWrapper);
-begin
-  if FRequestRef=AValue then Exit;
-  if Assigned(FRequestRef) then FRequestRef.DecReference;
-  FRequestRef:=AValue;
-  if Assigned(FRequestRef) then FRequestRef.IncReference;
-end;
-
-function TWCContent.UpdateStreamValue: TStream;
-begin
-  if assigned(FRequestRef) then
-  begin
-    Result := FRequestRef.GetReqContentStream;
-    OwnStream := not FRequestRef.IsReqContentStreamOwn;
-  end else
-    Result := inherited UpdateStreamValue;
-end;
-
-constructor TWCContent.Create;
-begin
-  inherited Create;
-  FRequestRef := nil;
-  FContentType := wctAny;
-end;
-
-function TWCContent.AsWideString: WideString;
-begin
-  Result := WideString(RawString)
-end;
-
-destructor TWCContent.Destroy;
-begin
-  RequestRef := nil;
-  inherited Destroy;
 end;
 
 { TWCMainClientWrapperJob }
@@ -1261,7 +1200,8 @@ begin
         // Initial Content -> DecodedBytes -> Output Content.
         // utf8 charset means as default on the client-side.
         // need to parse Content-Type string to determinate
-        // initial client-side charset and convert result string to utf8
+        // initial client-side charset and set Content type
+        // ContentType := wctWideString for example
         Content := aDecoder.DecodeString(Content);
       end;
     end;
@@ -1585,26 +1525,7 @@ begin
   end;
 end;
 
-function TWCConnection.ConvertFromHTTP2Req(AReq2: TWCHTTP2Request): TWCRequest;
-begin
-  if not assigned(AReq2) then Exit(nil);
-  Result:=TWCRequest(TWCHttpServer(Server).CreateRequest);
-  try
-    TWCHttpServer(Server).InitRequest(Result);
-    Result.SetConnection(Self);
-    AReq2.CopyToHTTP1Request(Result);
-    TWCContent(Result.ContentObject).RequestRef := aReq2.Stream;
-    Result.InitRequestVars;
-    Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
-    Result.ServerPort := TWCHttpServer(Server).Port;
-  except
-    FreeAndNil(Result);
-    Raise;
-  end;
-end;
-
-{$IFDEF WC_WEB_SOCKETS}
-function TWCConnection.ConvertFromWebSocketReq(AReq : TWCWSIncomingChunck) : TWCRequest;
+function TWCConnection.ConvertFromRefRequest(AReq: TWCRequestRefWrapper): TWCRequest;
 begin
   if not assigned(AReq) then Exit(nil);
   Result:=TWCRequest(TWCHttpServer(Server).CreateRequest);
@@ -1612,7 +1533,7 @@ begin
     TWCHttpServer(Server).InitRequest(Result);
     Result.SetConnection(Self);
     AReq.CopyToHTTP1Request(Result);
-    TWCContent(Result.ContentObject).RequestRef := AReq;
+    TWCContent(Result.ContentObject).RequestRef := aReq;
     Result.InitRequestVars;
     Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
     Result.ServerPort := TWCHttpServer(Server).Port;
@@ -1621,7 +1542,6 @@ begin
     Raise;
   end;
 end;
-{$ENDIF}
 
 procedure TWCConnection.ReadReqContent(ARequest: TWCRequest);
 Var
@@ -1753,6 +1673,7 @@ begin
             begin
               if Pos('upgrade', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
               begin
+                FProtocolVersion := wcUNK;
                 {$IFDEF WC_WEB_SOCKETS}
                 wsopenmode := TWCWebSocketConnection.TryToUpgradeFromHTTP(FRequest);
                 if assigned(wsopenmode) then
@@ -1819,7 +1740,7 @@ begin
            HTTPRefCon.ConsumeNextFrame(FInput);
         RefRequest := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
         if Assigned(RefRequest) then begin
-          FRequest := ConvertFromHTTP2Req(TWCHTTPStream(RefRequest).Request);
+          FRequest := ConvertFromRefRequest(RefRequest);
           // check Malformed Requests
           if FRequest.ContentLength <> TWCHTTPStream(RefRequest).Request.DataBlockSize then
           begin
@@ -1842,7 +1763,7 @@ begin
         if Assigned(RefRequest) then
         begin
           if not assigned(FRequest) then
-            FRequest := ConvertFromWebSocketReq(TWCWSIncomingChunck(RefRequest));
+            FRequest := ConvertFromRefRequest(RefRequest);
         end else
           Result := WC_CONSUME_NO_DATA;
       end;
@@ -2114,7 +2035,6 @@ end;
 function TWCHttpServer.CreateRequest: TAbsHTTPConnectionRequest;
 begin
   Result:=TWCRequest.Create;
-  Result.ContentClass := TWCContent;
 end;
 
 function TWCHttpServer.CreateResponse(ARequest: TAbsHTTPConnectionRequest
