@@ -183,8 +183,12 @@ let click_toolbar = {
 }
 
 document.onclick = function (event) {
-  click_toolbar[event.target.id]&&
+  if (click_toolbar[event.target.id]) {
     click_toolbar[event.target.id](event)
+  } else 
+  if (click_toolbar[event.target.parentNode.id]) {
+    click_toolbar[event.target.parentNode.id](event)
+  }
 }
 
 /******************************************************************************\
