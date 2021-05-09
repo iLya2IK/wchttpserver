@@ -165,12 +165,16 @@ type
     FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
-    FHTTPRefConnections : TWCHTTP2ServerRefConnections;
+    FHTTPRefConnections : TWCHTTPRefConnections;
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
+    function GetHTTP2Settings: TWCHTTP2Settings;
     function GetMaxMainClientsThreads: Integer;
     function GetMaxPreClientsThreads: Integer;
+    {$IFDEF WC_WEB_SOCKETS}
+    function GetWebSocketSettings: TWCWebSocketSettings;
+    {$ENDIF}
     procedure StopThreads;
   protected
     procedure SetSSLMasterKeyLog(AValue: String); override;
@@ -208,7 +212,11 @@ type
     procedure DoSendData(aConnection : TWCHTTPRefConnection);
     destructor Destroy; override;
 
-    property  HTTPRefConnections : TWCHTTP2ServerRefConnections read FHTTPRefConnections;
+    property  HTTPRefConnections : TWCHTTPRefConnections read FHTTPRefConnections;
+    property  HTTP2Settings : TWCHTTP2Settings read GetHTTP2Settings;
+    {$IFDEF WC_WEB_SOCKETS}
+    property  WebSocketSettings : TWCWebSocketSettings read GetWebSocketSettings;
+    {$ENDIF}
   end;
 
   { TWCHttpServerHandler }
@@ -1675,7 +1683,8 @@ begin
               begin
                 FProtocolVersion := wcUNK;
                 {$IFDEF WC_WEB_SOCKETS}
-                wsopenmode := TWCWebSocketConnection.TryToUpgradeFromHTTP(FRequest);
+                wsopenmode := TWCWebSocketConnection.TryToUpgradeFromHTTP(FRequest,
+                                                                          TWCHttpServer(Server).WebSocketSettings);
                 if assigned(wsopenmode) then
                 begin
                   FProtocolVersion := wcWebSocket;
@@ -1995,7 +2004,11 @@ begin
   FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
-  FHTTPRefConnections := TWCHTTP2ServerRefConnections.Create(nil);
+  FHTTPRefConnections := TWCHTTPRefConnections.Create(nil);
+  FHTTPRefConnections.RegisterProtocolHelper(wcHTTP2, TWCHTTP2ServerHelper);
+  {$IFDEF WC_WEB_SOCKETS}
+  FHTTPRefConnections.RegisterProtocolHelper(wcWebSocket, TWCWebSocketServerHelper);
+  {$ENDIF}
 end;
 
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;
@@ -2132,6 +2145,11 @@ begin
    end;
 end;
 
+function TWCHttpServer.GetHTTP2Settings: TWCHTTP2Settings;
+begin
+  Result := TWCHTTP2Helper(FHTTPRefConnections.Protocol[wcHTTP2]).Settings;
+end;
+
 procedure TWCHttpServer.AddLinearJob(AJob: TLinearJob);
 begin
   FThreadPool.AddLinear(AJob);
@@ -2165,6 +2183,13 @@ function TWCHttpServer.GetMaxPreClientsThreads: Integer;
 begin
   Result := FThreadPool.LinearThreadsCount;
 end;
+
+{$IFDEF WC_WEB_SOCKETS}
+function TWCHttpServer.GetWebSocketSettings: TWCWebSocketSettings;
+begin
+  Result := TWCWebSocketHelper(FHTTPRefConnections.Protocol[wcWebSocket]).Settings;
+end;
+{$ENDIF}
 
 procedure TWCHttpServer.StopThreads;
 begin
@@ -2739,8 +2764,7 @@ begin
     CFG_H2SET_INITIAL_WINDOW_SIZE,
     CFG_H2SET_MAX_FRAME_SIZE,
     CFG_H2SET_MAX_HEADER_LIST_SIZE: begin
-      ESServer.HTTPRefConnections.HTTP2Settings.Add((Sender.HashName shr 4) and $0f,
-                                                              Sender.Value);
+      ESServer.HTTP2Settings.Add((Sender.HashName shr 4) and $0f, Sender.Value);
     end;
     //Web files
     CFG_COMPRESS_LIMIT :

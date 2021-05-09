@@ -27,6 +27,8 @@ uses
 
 type
 
+  TWCWebSocketSettings = class;
+
   { TWebSocketUpgradeOptions }
 
   TWebSocketUpgradeOptions = class(TNetCustomLockedObject)
@@ -39,9 +41,13 @@ type
     FSecWebSocketVersion: AnsiString;
     FSecWebSocketExts : AnsiString;
     FNumVersion : Word;
+    FExtensions : PWebSocketExts;
+    function GetExt(index : integer): PWebSocketExt;
+    function GetExtCount: Integer;
   public
     constructor Create(aRequest : TRequest; const aSubProtocol : String;
-                                aCurVersion : Word);
+                                aCurVersion : Word;
+                                aSettings : TWCWebSocketSettings);
     destructor Destroy; override;
     property Key: AnsiString read FSecWebSocketKey;
     property Accept: AnsiString read FSecWebSocketAccept;
@@ -51,6 +57,8 @@ type
     property Extensions: AnsiString read FSecWebSocketExts;
     property NumVersion : Word read FNumVersion;
     property Request : TRequest read FInitialRequest;
+    property ExtCount : Integer read GetExtCount;
+    property Ext[index : integer] : PWebSocketExt read GetExt;
   end;
 
   { TWCWSUpgradeHandshakeFrame }
@@ -155,17 +163,22 @@ type
   TWCWSChunck = class(TWCRequestRefWrapper)
   private
     FOpCode     : TWebSocketOpCode;
-    FExtensions : PWebSocketAppliedExts;
+    FExtensions : PWebSocketExts;
     FOptions    : TWebSocketUpgradeOptions;
+    function GetExt(index : integer): PWebSocketExt;
+    function GetExtCount: Integer;
   public
     constructor Create(aOptions : TWebSocketUpgradeOptions;
                        aOpCode : TWebSocketOpCode;
-                       const Exts : Array of PWebSocketAppliedExt); virtual;
+                       const Exts : Array of PWebSocketExt); virtual;
     destructor Destroy; override;
     function GetReqContentStream : TStream; override;
     function IsReqContentStreamOwn : Boolean; override;
     property OpCode : TWebSocketOpCode read FOpCode;
     property Options : TWebSocketUpgradeOptions read FOptions;
+    // extensions
+    property ExtCount : Integer read GetExtCount;
+    property Ext[index : integer] : PWebSocketExt read GetExt;
   end;
 
   { TWCWSIncomingChunck }
@@ -178,7 +191,7 @@ type
   public
     constructor Create(aOptions : TWebSocketUpgradeOptions;
                        aOpCode : TWebSocketOpCode;
-                       const Exts : Array of PWebSocketAppliedExt); override;
+                       const Exts : Array of PWebSocketExt); override;
     destructor Destroy; override;
     function GetReqContentStream : TStream; override;
     function IsReqContentStreamOwn : Boolean; override;
@@ -205,6 +218,34 @@ type
     destructor Destroy; override;
   end;
 
+  { TWCWebSocketServerSettings }
+
+  TWCWebSocketSettings = class(TNetCustomLockedObject)
+  private
+    FAllowedExts : PWebSocketExts;
+    function GetAllowedExtCount: Integer;
+    function GetExt(index : integer): PWebSocketExt;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property AllowedExtCount : Integer read GetAllowedExtCount;
+    property AllowedExt[index : integer] : PWebSocketExt read GetExt;
+  end;
+
+  { TWCWebSocketHelper }
+
+  TWCWebSocketHelper = class(TWCProtocolHelper)
+  private
+    FSettings : TWCWebSocketSettings;
+  public
+    constructor Create; overload;
+    destructor Destroy; override;
+    property Settings : TWCWebSocketSettings read FSettings;
+  end;
+
+  TWCWebSocketServerHelper = class(TWCWebSocketHelper)
+  end;
+
   { TWCWebSocketConnection }
 
   TWCWebSocketConnection = class(TWCHTTPRefConnection)
@@ -213,7 +254,8 @@ type
     FOptions    : TWebSocketUpgradeOptions;
     FLastError  : Word;
     function AddNewIncomingChunck(aOpCode : TWebSocketOpCode;
-      const aExts : array of PWebSocketAppliedExt) : TWCWSIncomingChunck;
+      const aExts : array of PWebSocketExt) : TWCWSIncomingChunck;
+    function GetWebSocketSettings: TWCWebSocketSettings;
   protected
     function GetInitialReadBufferSize : Cardinal; override;
     function GetInitialWriteBufferSize : Cardinal; override;
@@ -236,8 +278,10 @@ type
     function  PopReadyChunck : TWCWSIncomingChunck;
     property LastError : Word read FLastError;
     property Options : TWebSocketUpgradeOptions read FOptions;
+    property WebSocketSettings : TWCWebSocketSettings read GetWebSocketSettings;
     class function Protocol : TWCProtocolVersion; override;
-    class function TryToUpgradeFromHTTP(aReq : TRequest) : TWebSocketUpgradeOptions; virtual;
+    class function TryToUpgradeFromHTTP(aReq : TRequest;
+                                        aSettings : TWCWebSocketSettings) : TWebSocketUpgradeOptions; virtual;
   end;
 
 var WCWS_MAX_PAYLOAD_SIZE : Int64 = $200000;
@@ -251,12 +295,65 @@ const
   WEBSOCKET_INITIAL_WRITE_BUFFER_SIZE = $FFFF;
   WEBSOCKET_MAX_WRITE_BUFFER_SIZE     = $9600000;
 
+{ TWCWebSocketHelper }
+
+constructor TWCWebSocketHelper.Create;
+begin
+  inherited Create(wcWebSocket);
+  FSettings := TWCWebSocketSettings.Create;
+end;
+
+destructor TWCWebSocketHelper.Destroy;
+begin
+  inherited Destroy;
+end;
+
+{ TWCWebSocketSettings }
+
+function TWCWebSocketSettings.GetAllowedExtCount: Integer;
+begin
+  Result := FAllowedExts^.Len;
+end;
+
+function TWCWebSocketSettings.GetExt(index : integer): PWebSocketExt;
+begin
+  Result := FAllowedExts^.Exts[index];
+end;
+
+constructor TWCWebSocketSettings.Create;
+begin
+  FAllowedExts := GetMem(WSEX_MIN_EXTS_SIZE);
+  FAllowedExts^.Len := 0;
+end;
+
+destructor TWCWebSocketSettings.Destroy;
+begin
+  DoneWebSocketExts(FAllowedExts, False);
+  inherited Destroy;
+end;
+
 { TWebSocketUpgradeOptions }
 
-constructor TWebSocketUpgradeOptions.Create(aRequest : TRequest;
-  const aSubProtocol : String; aCurVersion : Word);
+function TWebSocketUpgradeOptions.GetExt(index : integer): PWebSocketExt;
+begin
+  if assigned(FExtensions) then
+    Result := FExtensions^.Exts[index] else
+    Result := nil;
+end;
+
+function TWebSocketUpgradeOptions.GetExtCount: Integer;
+begin
+  if assigned(FExtensions) then
+    Result := FExtensions^.Len else
+    Result := 0;
+end;
+
+constructor TWebSocketUpgradeOptions.Create(aRequest: TRequest;
+  const aSubProtocol: String; aCurVersion: Word; aSettings: TWCWebSocketSettings
+  );
 begin
   inherited Create;
+  FExtensions := nil;
   FSecWebSocketProtocol_Allow := aRequest.GetCustomHeader(WS_Sec_WebSocket_Protocol);
   FSecWebSocketProtocol := aSubProtocol;
   FSecWebSocketKey := aRequest.GetCustomHeader(WS_Sec_WebSocket_Key);
@@ -264,6 +361,7 @@ begin
   FNumVersion := aCurVersion;
   FSecWebSocketAccept := GetWebSocketAcceptKey(FSecWebSocketKey);
   //todo : implement extensions
+  //aSettings.Exts | WS_Sec_WebSocket_Extensions
   FSecWebSocketExts := '';//aReq.GetCustomHeader(WS_Sec_WebSocket_Extensions);
   FInitialRequest := TRequest.Create;
   CopyHTTPRequest(FInitialRequest, aRequest);
@@ -272,6 +370,7 @@ end;
 destructor TWebSocketUpgradeOptions.Destroy;
 begin
   if assigned(FInitialRequest) then FInitialRequest.Free;
+  if assigned(FExtensions) then DoneWebSocketExts(FExtensions, False);
   inherited Destroy;
 end;
 
@@ -352,18 +451,41 @@ end;
 
 { TWCWSChunck }
 
+function TWCWSChunck.GetExt(index : integer): PWebSocketExt;
+begin
+  if assigned(FExtensions) then
+    Result := FExtensions^.Exts[index] else
+    Result := nil;
+end;
+
+function TWCWSChunck.GetExtCount: Integer;
+begin
+  if assigned(FExtensions) then
+    Result := FExtensions^.Len else
+    Result := 0;
+end;
+
 constructor TWCWSChunck.Create(aOptions : TWebSocketUpgradeOptions;
-  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketAppliedExt);
+  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketExt);
+var i : integer;
 begin
   inherited Create;
   FOptions := aOptions;
   FOpCode := aOpCode;
-  FExtensions := nil;
+  if Length(Exts) > 0 then
+  begin
+    FExtensions := InitWebSocketExts(Length(Exts));
+    for i := 0 to high(Exts) do
+    begin
+      FExtensions^.Exts[i] := Exts[i];
+    end;
+  end else
+    FExtensions := nil;
 end;
 
 destructor TWCWSChunck.Destroy;
 begin
-  if Assigned(FExtensions) then FreeMemAndNil(FExtensions);
+  if Assigned(FExtensions) then DoneWebSocketExts(FExtensions, True);
   inherited Destroy;
 end;
 
@@ -548,7 +670,7 @@ begin
 end;
 
 constructor TWCWSIncomingChunck.Create(aOptions : TWebSocketUpgradeOptions;
-  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketAppliedExt);
+  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketExt);
 begin
   inherited Create(aOptions, aOpCode, Exts);
   FData := TMemoryStream.Create;
@@ -762,13 +884,18 @@ begin
   // do nothing
 end;
 
-function TWCWebSocketConnection.AddNewIncomingChunck(aOpCode : TWebSocketOpCode;
-  const aExts : Array of PWebSocketAppliedExt) : TWCWSIncomingChunck;
+function TWCWebSocketConnection.AddNewIncomingChunck(aOpCode: TWebSocketOpCode;
+  const aExts: array of PWebSocketExt): TWCWSIncomingChunck;
 begin
   Result := TWCWSIncomingChunck.Create(FOptions, aOpCode, aExts);
   Result.IncReference;
   FInChuncks.PushChunck(Result);
   Owner.GarbageCollector.Add(Result);
+end;
+
+function TWCWebSocketConnection.GetWebSocketSettings: TWCWebSocketSettings;
+begin
+  Result := TWCWebSocketHelper(Owner.Protocol[wcWebSocket]).Settings;
 end;
 
 constructor TWCWebSocketConnection.Create(aOwner : TWCHTTPRefConnections;
@@ -1044,8 +1171,8 @@ begin
   Result := wcWebSocket;
 end;
 
-class function TWCWebSocketConnection.TryToUpgradeFromHTTP(aReq : TRequest
-  ) : TWebSocketUpgradeOptions;
+class function TWCWebSocketConnection.TryToUpgradeFromHTTP(aReq: TRequest;
+  aSettings: TWCWebSocketSettings): TWebSocketUpgradeOptions;
 var subproto : ansistring;
     cur_version : word;
 begin
@@ -1064,7 +1191,7 @@ begin
   //todo: create handler to determine protocol subversion from selector
   subproto := 'chat';
 
-  Result := TWebSocketUpgradeOptions.Create(aReq, subproto, cur_version);
+  Result := TWebSocketUpgradeOptions.Create(aReq, subproto, cur_version, aSettings);
 end;
 
 end.

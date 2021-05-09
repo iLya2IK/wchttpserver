@@ -63,7 +63,7 @@ type
   TWCHTTPConnectionRequest = class;
   TWCHTTPRefConnections = class;
   TWCHTTPStream = class;
-  TWCHTTP2ServerSettings = class;
+  TWCHTTP2Settings = class;
 
   TWCConnectionState = (wcCONNECTED, wcHALFCLOSED, wcDROPPED, wcDEAD);
   TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP1_1, wcHTTP2
@@ -674,7 +674,7 @@ type
 
     function AddNewStream(aStreamID: Cardinal): TWCHTTPStream;
     function GetConnSetting(id : Word): Cardinal;
-    function GetHTTP2Settings: TWCHTTP2ServerSettings;
+    function GetHTTP2Settings: TWCHTTP2Settings;
   protected
     procedure ResetHPack;
     procedure InitHPack;
@@ -716,7 +716,7 @@ type
     function TryToIdleStep(const TS: Qword): Boolean; override;
     procedure ResetStream(aSID, aError: Cardinal);
     procedure GoAway(aError : Cardinal);
-    property HTTP2Settings : TWCHTTP2ServerSettings read GetHTTP2Settings;
+    property HTTP2Settings : TWCHTTP2Settings read GetHTTP2Settings;
     property Streams : TWCHTTPStreams read FStreams;
     // error
     property ErrorStream : Cardinal read FErrorStream;
@@ -757,12 +757,12 @@ type
     procedure RemoveClosedStreams;
   end;
 
-  { TWCHTTP2ServerSettings }
+  { TWCHTTP2Settings }
 
-  TWCHTTP2ServerSettings = class(TNetCustomLockedObject)
+  TWCHTTP2Settings = class(TNetCustomLockedObject)
   private
-    HTTP2ServerSettings : PHTTP2SettingsPayload;
-    HTTP2ServerSettingsSize : Cardinal;
+    HTTP2Settings : PHTTP2SettingsPayload;
+    HTTP2SettingsSize : Cardinal;
     function GetCount: Integer;
     function GetSetting(index : integer): THTTP2SettingsBlock;
   public
@@ -783,6 +783,17 @@ type
   TEpollData = epoll_data;
   {$endif}
 
+  { TWCProtocolHelper }
+
+  TWCProtocolHelper = class(TNetCustomLockedObject)
+  private
+    FProtocol : TWCProtocolVersion;
+  public
+    constructor Create(aProtocol : TWCProtocolVersion); overload;
+  end;
+
+  TWCProtocolHelperClass = class of TWCProtocolHelper;
+
   { TWCHTTPREfConnections }
 
   TWCHTTPRefConnections = class(TThreadSafeFastSeq)
@@ -791,6 +802,7 @@ type
     FMaintainStamp : QWord;
     FGarbageCollector : TNetReferenceList;
     FNeedToRemoveDeadConnections : TThreadBoolean;
+    FHelpers : Array [TWCProtocolVersion] of TWCProtocolHelper;
     {$ifdef socket_epoll_mode}
     FTimeout: cInt;
     FEvents: array of TEpollEvent;
@@ -805,6 +817,7 @@ type
     procedure Inflate;
     procedure CallActionEpoll(aCount : Integer);
     {$endif}
+    function GetProtocolHelper(Id : TWCProtocolVersion): TWCProtocolHelper;
     function IsConnDead(aConn: TObject; data: pointer): Boolean;
     procedure AfterConnExtracted(aObj : TObject);
   public
@@ -814,39 +827,43 @@ type
     function    GetByHandle(aSocket : Cardinal) : TWCHTTPRefConnection;
     procedure   RemoveDeadConnections(const TS: QWord; MaxLifeTime: Cardinal);
     procedure   Idle(const TS: QWord);
+    procedure   RegisterProtocolHelper(Id : TWCProtocolVersion;
+                                          aHelper : TWCProtocolHelperClass);
     procedure   PushSocketError;
     procedure   CloseAll;
+    property    Protocol[Id : TWCProtocolVersion] : TWCProtocolHelper read
+                                         GetProtocolHelper;
     property    GarbageCollector : TNetReferenceList read FGarbageCollector write
                                          FGarbageCollector;
   end;
 
-  { TWCHTTP2RefConnections }
+  { TWCHTTP2Helper }
 
-  TWCHTTP2RefConnections = class(TWCHTTPRefConnections)
+  TWCHTTP2Helper = class(TWCProtocolHelper)
   private
-    FSettings : TWCHTTP2ServerSettings;
+    FSettings : TWCHTTP2Settings;
   protected
     function CheckStreamID(SID : Cardinal) : Boolean; virtual; abstract;
     function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
                           const {%H-}PseudoHeaders : THTTP2PseudoHeaders) : Cardinal; virtual; abstract;
   public
-    constructor Create(aGarbageCollector : TNetReferenceList);
+    constructor Create; overload;
     destructor Destroy; override;
-    property HTTP2Settings : TWCHTTP2ServerSettings read FSettings;
+    property Settings : TWCHTTP2Settings read FSettings;
   end;
 
-  { TWCHTTP2ServerRefConnections }
+  { TWCHTTP2ServerHelper }
 
-  TWCHTTP2ServerRefConnections = class(TWCHTTP2RefConnections)
+  TWCHTTP2ServerHelper = class(TWCHTTP2Helper)
   protected
     function CheckStreamID(SID : Cardinal) : Boolean; override;
     function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
                           const PseudoHeaders : THTTP2PseudoHeaders) : Cardinal; override;
   end;
 
-  { TWCHTTP2ClientRefConnections }
+  { TWCHTTP2ClientHelper }
 
-  TWCHTTP2ClientRefConnections = class(TWCHTTP2RefConnections)
+  TWCHTTP2ClientHelper = class(TWCHTTP2Helper)
   protected
     function CheckStreamID(SID : Cardinal) : Boolean; override;
     function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
@@ -872,6 +889,14 @@ type
   end;
 
 PWCLifeTimeChecker = ^TWCLifeTimeChecker;
+
+{ TWCProtocolHelper }
+
+constructor TWCProtocolHelper.Create(aProtocol: TWCProtocolVersion);
+begin
+  inherited Create;
+  FProtocol := aProtocol;
+end;
 
 { TWCHTTPConnectionRequest }
 
@@ -967,28 +992,28 @@ begin
   Result := (SID >= FStartFrom) and (SID <= FEndAt);
 end;
 
-{ TWCHTTP2ClientRefConnections }
+{ TWCHTTP2ClientHelper }
 
-function TWCHTTP2ClientRefConnections.CheckStreamID(SID: Cardinal): Boolean;
+function TWCHTTP2ClientHelper.CheckStreamID(SID: Cardinal): Boolean;
 begin
   Result := (SID and $00000001) = 0;
 end;
 
-function TWCHTTP2ClientRefConnections.CheckHeaders(
+function TWCHTTP2ClientHelper.CheckHeaders(
   Decoder: TThreadSafeHPackDecoder; const PseudoHeaders: THTTP2PseudoHeaders
   ): Cardinal;
 begin
   Result := H2E_NO_ERROR;
 end;
 
-{ TWCHTTP2ServerRefConnections }
+{ TWCHTTP2ServerHelper }
 
-function TWCHTTP2ServerRefConnections.CheckStreamID(SID: Cardinal): Boolean;
+function TWCHTTP2ServerHelper.CheckStreamID(SID: Cardinal): Boolean;
 begin
   Result := (SID and $00000001) > 0;
 end;
 
-function TWCHTTP2ServerRefConnections.CheckHeaders(
+function TWCHTTP2ServerHelper.CheckHeaders(
   {%H-}Decoder: TThreadSafeHPackDecoder; const PseudoHeaders: THTTP2PseudoHeaders
   ): Cardinal;
 begin
@@ -1004,15 +1029,15 @@ begin
   Exit(H2E_NO_ERROR);
 end;
 
-{ TWCHTTP2RefConnections }
+{ TWCHTTP2Helper }
 
-constructor TWCHTTP2RefConnections.Create(aGarbageCollector: TNetReferenceList);
+constructor TWCHTTP2Helper.Create;
 begin
-  inherited Create(aGarbageCollector);
-  FSettings := TWCHTTP2ServerSettings.Create;
+  inherited Create(wcHTTP2);
+  FSettings := TWCHTTP2Settings.Create;
 end;
 
-destructor TWCHTTP2RefConnections.Destroy;
+destructor TWCHTTP2Helper.Destroy;
 begin
   FSettings.Free;
   inherited Destroy;
@@ -1238,64 +1263,64 @@ begin
   Result := wcHTTP1_1;
 end;
 
-{ TWCHTTP2ServerSettings }
+{ TWCHTTP2Settings }
 
-function TWCHTTP2ServerSettings.GetCount: Integer;
+function TWCHTTP2Settings.GetCount: Integer;
 begin
   Lock;
   try
-    Result := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
+    Result := HTTP2SettingsSize div H2P_SETTINGS_BLOCK_SIZE;
   finally
     UnLock;
   end;
 end;
 
-function TWCHTTP2ServerSettings.GetSetting(index : integer
+function TWCHTTP2Settings.GetSetting(index : integer
   ): THTTP2SettingsBlock;
 begin
   Lock;
   try
-    Result := HTTP2ServerSettings^[index];
+    Result := HTTP2Settings^[index];
   finally
     UnLock;
   end;
 end;
 
-constructor TWCHTTP2ServerSettings.Create;
+constructor TWCHTTP2Settings.Create;
 begin
   inherited Create;
-  HTTP2ServerSettings := nil;
-  HTTP2ServerSettingsSize := 0;
+  HTTP2Settings := nil;
+  HTTP2SettingsSize := 0;
 end;
 
-destructor TWCHTTP2ServerSettings.Destroy;
+destructor TWCHTTP2Settings.Destroy;
 begin
-  if assigned(HTTP2ServerSettings) then Freemem(HTTP2ServerSettings);
+  if assigned(HTTP2Settings) then Freemem(HTTP2Settings);
   inherited Destroy;
 end;
 
-procedure TWCHTTP2ServerSettings.Reset;
+procedure TWCHTTP2Settings.Reset;
 begin
   Lock;
   try
-    if assigned(HTTP2ServerSettings) then FreeMem(HTTP2ServerSettings);
-    HTTP2ServerSettings := GetMem(HTTP2_SETTINGS_MAX_SIZE);
-    HTTP2ServerSettingsSize := 0;
+    if assigned(HTTP2Settings) then FreeMem(HTTP2Settings);
+    HTTP2Settings := GetMem(HTTP2_SETTINGS_MAX_SIZE);
+    HTTP2SettingsSize := 0;
   finally
     UnLock;
   end;
 end;
 
-procedure TWCHTTP2ServerSettings.Add(Id: Word; Value: Cardinal);
+procedure TWCHTTP2Settings.Add(Id: Word; Value: Cardinal);
 var l, Sz : Integer;
     S : PHTTP2SettingsPayload;
 begin
   Lock;
   try
-    if not Assigned(HTTP2ServerSettings) then
+    if not Assigned(HTTP2Settings) then
       Reset;
-    S := HTTP2ServerSettings;
-    Sz := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
+    S := HTTP2Settings;
+    Sz := HTTP2SettingsSize div H2P_SETTINGS_BLOCK_SIZE;
     for l := 0 to Sz - 1 do
     begin
       if S^[l].Identifier = Id then begin
@@ -1303,18 +1328,18 @@ begin
         Exit;
       end;
     end;
-    if HTTP2ServerSettingsSize < HTTP2_SETTINGS_MAX_SIZE then
+    if HTTP2SettingsSize < HTTP2_SETTINGS_MAX_SIZE then
     begin
       S^[Sz].Identifier := Id;
       S^[Sz].Value := Value;
-      Inc(HTTP2ServerSettingsSize, H2P_SETTINGS_BLOCK_SIZE);
+      Inc(HTTP2SettingsSize, H2P_SETTINGS_BLOCK_SIZE);
     end;
   finally
     UnLock;
   end;
 end;
 
-function TWCHTTP2ServerSettings.GetByID(Id: Word; DefaultValue: Cardinal
+function TWCHTTP2Settings.GetByID(Id: Word; DefaultValue: Cardinal
   ): Cardinal;
 var l, Sz : Integer;
     S : PHTTP2SettingsPayload;
@@ -1322,8 +1347,8 @@ begin
   Result := DefaultValue;
   Lock;
   try
-    S := HTTP2ServerSettings;
-    Sz := HTTP2ServerSettingsSize div H2P_SETTINGS_BLOCK_SIZE;
+    S := HTTP2Settings;
+    Sz := HTTP2SettingsSize div H2P_SETTINGS_BLOCK_SIZE;
     for l := 0 to Sz - 1 do
     begin
       if S^[l].Identifier = Id then begin
@@ -1336,15 +1361,15 @@ begin
   end;
 end;
 
-function TWCHTTP2ServerSettings.CopySettingsToMem(var Mem: Pointer): Integer;
+function TWCHTTP2Settings.CopySettingsToMem(var Mem: Pointer): Integer;
 begin
   Lock;
   try
-    Result := HTTP2ServerSettingsSize;
-    if HTTP2ServerSettingsSize > 0 then
+    Result := HTTP2SettingsSize;
+    if HTTP2SettingsSize > 0 then
     begin
-      Mem := GetMem(HTTP2ServerSettingsSize);
-      Move(HTTP2ServerSettings^, Mem^, HTTP2ServerSettingsSize);
+      Mem := GetMem(HTTP2SettingsSize);
+      Move(HTTP2Settings^, Mem^, HTTP2SettingsSize);
     end else Mem := nil;
   finally
     UnLock;
@@ -2639,6 +2664,12 @@ begin
             (not ConnectionAvaible);
 end;
 
+function TWCHTTPRefConnections.GetProtocolHelper(Id : TWCProtocolVersion
+  ): TWCProtocolHelper;
+begin
+  Result := FHelpers[Id];
+end;
+
 procedure TWCHTTPRefConnections.AfterConnExtracted(aObj: TObject);
 begin
   {$ifdef SOCKET_EPOLL_MODE}
@@ -2649,8 +2680,9 @@ begin
 end;
 
 constructor TWCHTTPRefConnections.Create(aGarbageCollector: TNetReferenceList);
+var v : TWCProtocolVersion;
 {$ifdef SOCKET_EPOLL_MODE}
-var lEvent : TEpollEvent;
+    lEvent : TEpollEvent;
 {$endif}
 begin
   inherited Create;
@@ -2658,6 +2690,8 @@ begin
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
   FGarbageCollector := aGarbageCollector;
+  For V := Low(TWCProtocolVersion) to High(TWCProtocolVersion) do
+    FHelpers[V] := nil;
   {$ifdef SOCKET_EPOLL_MODE}
   FEpollLocker := TNetCustomLockedObject.Create;
   Inflate;
@@ -2679,6 +2713,7 @@ end;
 
 destructor TWCHTTPRefConnections.Destroy;
 var P :TIteratorObject;
+    v : TWCProtocolVersion;
 begin
   Lock;
   try
@@ -2697,6 +2732,10 @@ begin
   FEpollLocker.Free;
   {$endif}
   FNeedToRemoveDeadConnections.Free;
+  For V := Low(TWCProtocolVersion) to High(TWCProtocolVersion) do
+  begin
+    if Assigned(FHelpers[V]) then FreeAndNil(FHelpers[V]);
+  end;
   inherited Destroy;
 end;
 
@@ -2788,6 +2827,14 @@ begin
   finally
     UnLock;
   end;
+end;
+
+procedure TWCHTTPRefConnections.RegisterProtocolHelper(Id: TWCProtocolVersion;
+  aHelper: TWCProtocolHelperClass);
+begin
+  if Assigned(FHelpers[Id]) then FreeAndNil(FHelpers[Id]);
+  if Assigned(aHelper) then
+    FHelpers[Id] := aHelper.Create(Id);
 end;
 
 procedure TWCHTTPRefConnections.PushSocketError;
@@ -3240,9 +3287,9 @@ begin
   Result := FConSettings[id];
 end;
 
-function TWCHTTP2Connection.GetHTTP2Settings: TWCHTTP2ServerSettings;
+function TWCHTTP2Connection.GetHTTP2Settings: TWCHTTP2Settings;
 begin
-  Result := TWCHTTP2RefConnections(FOwner).HTTP2Settings;
+  Result := TWCHTTP2Helper(FOwner.Protocol[wcHTTP2]).Settings;
 end;
 
 constructor TWCHTTP2Connection.Create(aOwner: TWCHTTPRefConnections;
@@ -3384,7 +3431,7 @@ begin
 
         if FrameHeader.StreamID > 0 then
         begin
-          if not TWCHTTP2RefConnections(FOwner).CheckStreamID(FrameHeader.StreamID) then
+          if not TWCHTTP2Helper(FOwner.Protocol[wcHTTP2]).CheckStreamID(FrameHeader.StreamID) then
           begin
             err := H2E_PROTOCOL_ERROR;
             break;
@@ -4417,7 +4464,7 @@ begin
     end;
 
     //specific checks
-    Result := TWCHTTP2RefConnections(FConnection.FOwner).CheckHeaders(aDecoder, PHValues);
+    Result := TWCHTTP2Helper(FConnection.Owner.Protocol[wcHTTP2]).CheckHeaders(aDecoder, PHValues);
   finally
     aDecoder.UnLock;
     aDecoder.DecReference;

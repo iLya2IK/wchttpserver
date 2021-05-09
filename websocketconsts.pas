@@ -32,20 +32,24 @@ PWebSocketExtOption = ^TWebSocketExtOption;
 TWebSocketExtOptions = Array [0..255] of PWebSocketExtOption;
 PWebSocketExtOptions = ^TWebSocketExtOptions;
 
-{ TWebSocketAppliedExt }
+{ TWebSocketExt }
 
-TWebSocketAppliedExt = record
+TWebSocketExt = record
 private
-  class operator Initialize(var aRec: TWebSocketAppliedExt);
-  class operator Finalize(var aRec: TWebSocketAppliedExt);
+  class operator Initialize(var aRec: TWebSocketExt);
+  class operator Finalize(var aRec: TWebSocketExt);
 public
   id : TWebSocketExtID;
+  Temp : Boolean;
   OptionsCount : Integer;
   Options : PWebSocketExtOptions;
 end;
-PWebSocketAppliedExt = ^TWebSocketAppliedExt;
-TWebSocketAppliedExts = Array [0..255] of PWebSocketAppliedExt;
-PWebSocketAppliedExts = ^TWebSocketAppliedExts;
+PWebSocketExt = ^TWebSocketExt;
+TWebSocketExts = packed record
+  Len : Integer;
+  Exts : Array [0..255] of PWebSocketExt;
+end;
+PWebSocketExts = ^TWebSocketExts;
 
 TWebSocketFrameHeader = Array [0..13] of Byte;
 PWebSocketFrameHeader = ^TWebSocketFrameHeader;
@@ -57,6 +61,7 @@ WSP_MAX_FRAME_HEADER_SIZE   = 14;
 WSP_MASKING_KEY_SIZE        = 4;
 WSP_MIN_KEY_LEN             = 22;
 
+WSEX_MIN_EXTS_SIZE          = 4;
 
 WSP_OPCODE_CONTINUE = Byte($0);
 WSP_OPCODE_TEXT     = Byte($1);
@@ -105,6 +110,8 @@ function WebSocketIsFrameKnown(aProtoVer : Word;
 function WebSocketCheckVersionValid(const aProtoVer : AnsiString;
                                           out curVerNum : Word) : Boolean;
 function GetWebSocketAcceptKey(const aKey: AnsiString): AnsiString;
+function InitWebSocketExts(aLen : integer) : PWebSocketExts;
+procedure DoneWebSocketExts(var aExts : PWebSocketExts; OnlyTemp : Boolean);
 
 implementation
 
@@ -127,6 +134,23 @@ begin
   finally
     Outstream.free;
   end;
+end;
+
+function InitWebSocketExts(aLen: integer): PWebSocketExts;
+begin
+  Result := GetMem(WSEX_MIN_EXTS_SIZE + Sizeof(TWebSocketExt) * aLen);
+  Result^.Len:= aLen;
+end;
+
+procedure DoneWebSocketExts(var aExts: PWebSocketExts; OnlyTemp: Boolean);
+var i : integer;
+begin
+  For i := 0 to aExts^.Len-1 do
+  begin
+    if (not OnlyTemp) or aExts^.Exts[i]^.Temp then
+      Freemem(aExts^.Exts[i]);
+  end;
+  FreeMemAndNil(aExts);
 end;
 
 function WebSocketIsFrameKnown(aProtoVer : Word;
@@ -160,15 +184,15 @@ begin
   curVerNum := 0;
 end;
 
-{ TWebSocketAppliedExt }
+{ TWebSocketExt }
 
-class operator TWebSocketAppliedExt.Initialize(var aRec : TWebSocketAppliedExt);
+class operator TWebSocketExt.Initialize(var aRec : TWebSocketExt);
 begin
   aRec.OptionsCount := 0;
   aRec.Options := nil;
 end;
 
-class operator TWebSocketAppliedExt.Finalize(var aRec : TWebSocketAppliedExt);
+class operator TWebSocketExt.Finalize(var aRec : TWebSocketExt);
 var i : integer;
 begin
   if Assigned(aRec.Options) then

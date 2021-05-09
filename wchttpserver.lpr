@@ -155,7 +155,7 @@ begin
   Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 20);
   Conf.SetDefaultValue(CFG_CLIENT_ALLOW_ENCODE, 'deflate');
 
-  with Application.ESServer.HTTPRefConnections.HTTP2Settings do
+  with Application.ESServer.HTTP2Settings do
   if Count = 0 then begin
     Add(H2SET_MAX_CONCURRENT_STREAMS, 100);
     Add(H2SET_INITIAL_WINDOW_SIZE, $ffff);
