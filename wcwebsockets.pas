@@ -238,7 +238,7 @@ type
   private
     FSettings : TWCWebSocketSettings;
   public
-    constructor Create; overload;
+    constructor Create; override;
     destructor Destroy; override;
     property Settings : TWCWebSocketSettings read FSettings;
   end;
@@ -305,6 +305,7 @@ end;
 
 destructor TWCWebSocketHelper.Destroy;
 begin
+  FSettings.Free;
   inherited Destroy;
 end;
 

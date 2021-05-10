@@ -790,6 +790,7 @@ type
     FProtocol : TWCProtocolVersion;
   public
     constructor Create(aProtocol : TWCProtocolVersion); overload;
+    constructor Create; virtual; overload;
   end;
 
   TWCProtocolHelperClass = class of TWCProtocolHelper;
@@ -847,7 +848,7 @@ type
     function CheckHeaders({%H-}Decoder : TThreadSafeHPackDecoder;
                           const {%H-}PseudoHeaders : THTTP2PseudoHeaders) : Cardinal; virtual; abstract;
   public
-    constructor Create; overload;
+    constructor Create; override;
     destructor Destroy; override;
     property Settings : TWCHTTP2Settings read FSettings;
   end;
@@ -896,6 +897,12 @@ constructor TWCProtocolHelper.Create(aProtocol: TWCProtocolVersion);
 begin
   inherited Create;
   FProtocol := aProtocol;
+end;
+
+constructor TWCProtocolHelper.Create;
+begin
+  inherited Create;
+  FProtocol := wcUNK;
 end;
 
 { TWCHTTPConnectionRequest }
@@ -2834,7 +2841,7 @@ procedure TWCHTTPRefConnections.RegisterProtocolHelper(Id: TWCProtocolVersion;
 begin
   if Assigned(FHelpers[Id]) then FreeAndNil(FHelpers[Id]);
   if Assigned(aHelper) then
-    FHelpers[Id] := aHelper.Create(Id);
+    FHelpers[Id] := aHelper.Create;
 end;
 
 procedure TWCHTTPRefConnections.PushSocketError;
