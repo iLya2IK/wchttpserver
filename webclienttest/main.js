@@ -326,7 +326,7 @@ function startEventSourceSynTimer() {
     }      
   } else {
       stopSynTimer();
-      startSynTimer();
+      startEventSourceSynTimer();
   }    
 }
 function startWebSocketSynTimer() { 

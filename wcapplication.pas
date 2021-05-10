@@ -22,9 +22,10 @@ uses
   StringHashList,
   SysUtils, DateUtils,
   ECommonObjs,
+  wcnetworking,
   fpwebfile, fpmimetypes,
   fphttp, HTTPDefs, httpprotocol, http2consts,
-  abstracthttpserver, wchttp2server,
+  abstracthttpserver, wchttp2con,
   extopenssl,
   custweb, custabshttpapp,
   sqlitewebsession,
@@ -51,7 +52,7 @@ uses
   {$endif}
   {$endif}
   {$ifdef WC_WEB_SOCKETS}
-  , wcwebsockets
+  , wcwebsocketcon
   , websocketconsts
   {$endif}
   ;
@@ -61,13 +62,12 @@ type
   TWebClients = class;
   TWCResponse = class;
   TWCRequest = class;
-  TWCConnection = class;
   TWCHTTPServer = class;
   TWebClientClass = class of TWebClient;
 
-  { TWCConnection }
+  { TWCAppConnection }
 
-  TWCConnection =  class(TWCHTTPConnection)
+  TWCAppConnection =  class(TWCConnection)
   private
     FInputBuf : Pointer;
     FInput    : TBufferedStream;
@@ -90,7 +90,7 @@ type
     procedure DoSocketAttach(ASocket : TSocketStream); override;
   public
     Constructor Create(AServer : TAbsCustomHTTPServer; ASocket : TSocketStream); override;
-    Constructor CreateRefered(AServer : TAbsCustomHTTPServer; ASocketRef : TWCHTTPSocketReference); override;
+    Constructor CreateRefered(AServer : TAbsCustomHTTPServer; ASocketRef : TWCSocketReference); override;
     function ConsumeSocketData : Cardinal;
     procedure SetSessionParams(aClient : TWebClient; aSession : TSqliteWebSession);
     destructor Destroy; override;
@@ -105,18 +105,18 @@ type
 
   TWCMainClientJob = class(TSortedJob)
   private
-    FConn : TWCConnection;
+    FConn : TWCAppConnection;
     FResponseReadyToSend : Boolean;
     function GetClient: TWebClient;
     function GetRequest: TWCRequest;
     function GetResponse: TWCResponse;
   public
     P1, P2 : Variant;
-    constructor Create(aConn : TWCConnection); overload;
+    constructor Create(aConn : TWCAppConnection); overload;
     destructor Destroy; override;
     procedure Execute; override;
     procedure ReleaseConnection;
-    property  Connection : TWCConnection read FConn;
+    property  Connection : TWCAppConnection read FConn;
     property  Request : TWCRequest read GetRequest;
     property  Response : TWCResponse read GetResponse;
     property  Client : TWebClient read GetClient;
@@ -132,7 +132,7 @@ type
   private
     FWrappedJob : TWCMainClientJob;
   public
-    constructor Create(aConnection : TWCConnection;
+    constructor Create(aConnection : TWCAppConnection;
                              aWrappedJobClass: TWCMainClientJobClass); overload;
     destructor Destroy; override;
     procedure Execute; override;
@@ -144,15 +144,15 @@ type
 
   TWCPreAnalizeClientJob = class(TLinearJob)
   private
-    FConn : TWCConnection;
+    FConn : TWCAppConnection;
     function GetRequest: TWCRequest;
     function GetResponse: TWCResponse;
   public
-    constructor Create(aConn : TWCConnection);
+    constructor Create(aConn : TWCAppConnection);
     destructor Destroy; override;
     procedure Execute; override;
     function GenerateClientJob : TWCMainClientJob; virtual;
-    property Connection : TWCConnection read FConn;
+    property Connection : TWCAppConnection read FConn;
     property Request : TWCRequest read GetRequest;
     property Response : TWCResponse read GetResponse;
   end;
@@ -165,7 +165,7 @@ type
     FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
-    FHTTPRefConnections : TWCHTTPRefConnections;
+    FRefConnections : TWCRefConnections;
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
@@ -181,7 +181,7 @@ type
     procedure SetHostName(AValue: string); override;
     procedure SetCertificate(AValue: String); override;
     procedure SetPrivateKey(AValue: String); override;
-    function AttachRefCon(aRefCon : TWCHTTPRefConnection) : TWCHTTPRefConnection;
+    function AttachRefCon(aRefCon : TWCRefConnection) : TWCRefConnection;
   public
     constructor Create(AOwner: TComponent); override;
     function  CreateSSLSocketHandler: TSocketHandler; override;
@@ -191,28 +191,28 @@ type
     Function  CreateResponse(ARequest : TAbsHTTPConnectionRequest) : TAbsHTTPConnectionResponse; override;
     Procedure InitRequest(ARequest : TAbsHTTPConnectionRequest); override;
     Procedure InitResponse(AResponse : TAbsHTTPConnectionResponse); override;
-    function AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
-      aOpenMode: THTTP2OpenMode; aServerDoConsume: THttpRefSocketConsume;
-      aSendData: THttpRefSendData): TWCHTTP2Connection;
-    function AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
-      aServerDoConsume: THttpRefSocketConsume;
-      aSendData: THttpRefSendData): TWCHTTP11Connection;
+    function AttachNewHTTP2Con(aSocket: TWCSocketReference;
+      aOpenMode: THTTP2OpenMode; aServerDoConsume: TRefSocketConsume;
+      aSendData: TRefSendData): TWCHTTP2Connection;
+    function AttachNewHTTP11Con(aSocket: TWCSocketReference;
+      aServerDoConsume: TRefSocketConsume;
+      aSendData: TRefSendData): TWCHTTP11Connection;
     {$IFDEF WC_WEB_SOCKETS}
-    function AttachNewWebSocketCon(aSocket: TWCHTTPSocketReference;
+    function AttachNewWebSocketCon(aSocket: TWCSocketReference;
       aOpenMode : TWebSocketUpgradeOptions;
-      aServerDoConsume: THttpRefSocketConsume;
-      aSendData: THttpRefSendData): TWCWebSocketConnection;
+      aServerDoConsume: TRefSocketConsume;
+      aSendData: TRefSendData): TWCWebSocketConnection;
     {$ENDIF}
     property  MaxPreClientsThreads : Integer read GetMaxPreClientsThreads;
     property  MaxMainClientsThreads : Integer read GetMaxMainClientsThreads;
     procedure AddLinearJob(AJob : TLinearJob);
     procedure AddSortedJob(AJob : TSortedJob);
     function  ServerActive : Boolean;
-    procedure DoConnectToSocketRef(SockRef : TWCHTTPSocketReference);
-    procedure DoSendData(aConnection : TWCHTTPRefConnection);
+    procedure DoConnectToSocketRef(SockRef : TWCSocketReference);
+    procedure DoSendData(aConnection : TWCRefConnection);
     destructor Destroy; override;
 
-    property  HTTPRefConnections : TWCHTTPRefConnections read FHTTPRefConnections;
+    property  RefConnections : TWCRefConnections read FRefConnections;
     property  HTTP2Settings : TWCHTTP2Settings read GetHTTP2Settings;
     {$IFDEF WC_WEB_SOCKETS}
     property  WebSocketSettings : TWCWebSocketSettings read GetWebSocketSettings;
@@ -625,7 +625,7 @@ type
   private
     FKeepAlive : boolean;
     FRefStream : TReferencedStream;
-    function  GetConnection : TWCConnection;
+    function  GetConnection : TWCAppConnection;
     procedure SetRefStream(AValue: TReferencedStream);
   public
     constructor Create(ARequest : TWCRequest); overload;
@@ -635,22 +635,22 @@ type
     procedure ReleaseRefStream;
     Procedure DoSendHeaders(Headers : TStrings); override;
     Procedure DoSendContent; override;
-    property  WCConn : TWCConnection read GetConnection;
+    property  WCConn : TWCAppConnection read GetConnection;
     property  RefStream : TReferencedStream read FRefStream write SetRefStream;
     property  KeepStreamAlive : Boolean read FKeepAlive write FKeepAlive;
   end;
 
   { TWCRequest }
 
-  TWCRequest = class (TWCHTTPConnectionRequest)
+  TWCRequest = class (TWCConnectionRequest)
   private
     function GetSocket: TSocketStream;
-    function GetConnection : TWCConnection;
+    function GetConnection : TWCAppConnection;
   protected
     procedure DecodeContent;
   public
     procedure CollectHeaders(Headers : TStringList);
-    property  WCConn : TWCConnection read GetConnection;
+    property  WCConn : TWCAppConnection read GetConnection;
     property  Socket : TSocketStream read GetSocket;
   end;
 
@@ -658,12 +658,12 @@ type
 
   TWCHttpRefSendDataJob = class(TLinearJob)
   private
-    FConnection : TWCHTTPRefConnection;
+    FConnection : TWCRefConnection;
     {$ifdef DEBUG_STAT}
     FDStartStamp : QWord;
     {$endif}
   public
-    constructor Create(aConnection : TWCHTTPRefConnection);
+    constructor Create(aConnection : TWCRefConnection);
     destructor  Destroy; override;
     procedure   Execute; override;
   end;
@@ -790,7 +790,7 @@ end;
 
 { TWCMainClientWrapperJob }
 
-constructor TWCMainClientWrapperJob.Create(aConnection : TWCConnection;
+constructor TWCMainClientWrapperJob.Create(aConnection : TWCAppConnection;
   aWrappedJobClass : TWCMainClientJobClass);
 begin
   inherited Create(aConnection);
@@ -1074,7 +1074,7 @@ end;
 
 { TWCHttpRefSendDataJob }
 
-constructor TWCHttpRefSendDataJob.Create(aConnection: TWCHTTPRefConnection);
+constructor TWCHttpRefSendDataJob.Create(aConnection: TWCRefConnection);
 begin
   inherited Create;
   FConnection := aConnection;
@@ -1186,9 +1186,9 @@ begin
   Result := Connection.Socket;
 end;
 
-function TWCRequest.GetConnection: TWCConnection;
+function TWCRequest.GetConnection: TWCAppConnection;
 begin
-  Result := TWCConnection(Connection);
+  Result := TWCAppConnection(Connection);
 end;
 
 procedure TWCRequest.DecodeContent;
@@ -1277,9 +1277,9 @@ end;
 
 { TWCResponse }
 
-function TWCResponse.GetConnection: TWCConnection;
+function TWCResponse.GetConnection: TWCAppConnection;
 begin
-  Result := TWCConnection(Connection);
+  Result := TWCAppConnection(Connection);
 end;
 
 procedure TWCResponse.SetRefStream(AValue: TReferencedStream);
@@ -1311,13 +1311,13 @@ begin
   begin
     if WCConn.HTTPVersion = wcHTTP2 then
     begin
-      TWCHTTPStream(WCConn.RefRequest).Response.PushData(Pointer(@(S[1])), L);
-      TWCHTTPStream(WCConn.RefRequest).Response.SerializeData(not KeepStreamAlive);
+      TWCHTTP2Stream(WCConn.RefRequest).Response.PushData(Pointer(@(S[1])), L);
+      TWCHTTP2Stream(WCConn.RefRequest).Response.SerializeData(not KeepStreamAlive);
     end else
     begin
-      if Assigned(WCConn.HTTPRefCon) then
+      if Assigned(WCConn.RefCon) then
       begin
-        WCConn.HTTPRefCon.PushFrame(S);
+        WCConn.RefCon.PushFrame(S);
       end else
       begin
         C := WCConn.Socket.Write(S[1], L);
@@ -1341,7 +1341,7 @@ begin
   {$ENDIF}
   if WCConn.HTTPVersion = wcHTTP2 then
   begin
-    TWCHTTPStream(WCConn.RefRequest).Request.Response.Close;
+    TWCHTTP2Stream(WCConn.RefRequest).Request.Response.Close;
   end else
   begin
     // do nothing
@@ -1364,7 +1364,7 @@ begin
   case WCConn.HTTPVersion of
     wcHTTP2 :
     begin
-      TWCHTTPStream(WCConn.RefRequest).Request.
+      TWCHTTP2Stream(WCConn.RefRequest).Request.
                  Response.SerializeResponseHeaders(Self,
                                                          (ContentLength = 0) and
                                                          (not FKeepAlive));
@@ -1375,9 +1375,9 @@ begin
       For I:=0 to Headers.Count-1 do
         S:=S+Headers[i]+#13#10;
       // Last line in headers is empty.
-      if Assigned(WCConn.HTTPRefCon) then
+      if Assigned(WCConn.RefCon) then
       begin
-        WCConn.HTTPRefCon.PushFrame(S);
+        WCConn.RefCon.PushFrame(S);
       end else begin
         WCConn.Socket.WriteBuffer(S[1],Length(S));
       end;
@@ -1391,28 +1391,28 @@ begin
     wcHTTP2 :
     begin
       if Assigned(FRefStream) then begin
-        TWCHTTPStream(WCConn.RefRequest).Response.SerializeRefStream(FRefStream, true); //close stream
+        TWCHTTP2Stream(WCConn.RefRequest).Response.SerializeRefStream(FRefStream, true); //close stream
         ReleaseRefStream;
       end
       else
-        TWCHTTPStream(WCConn.RefRequest).Response.SerializeResponseData(Self, true); //close stream
+        TWCHTTP2Stream(WCConn.RefRequest).Response.SerializeResponseData(Self, true); //close stream
     end;
     wcHTTP1_1, wcHTTP1{$IFDEF WC_WEB_SOCKETS}, wcWebSocket {$ENDIF} :
     begin
-      if Assigned(WCConn.HTTPRefCon) then
+      if Assigned(WCConn.RefCon) then
       begin
         if Assigned(FRefStream) then
         begin
-          WCConn.HTTPRefCon.PushFrame(FRefStream);
+          WCConn.RefCon.PushFrame(FRefStream);
           ReleaseRefStream;
         end else
         begin
           If Assigned(ContentStream) then begin
-            WCConn.HTTPRefCon.PushFrame(ContentStream, 0, FreeContentStream);
+            WCConn.RefCon.PushFrame(ContentStream, 0, FreeContentStream);
             FreeContentStream := false;
           end
           else
-            WCConn.HTTPRefCon.PushFrame(Contents);
+            WCConn.RefCon.PushFrame(Contents);
         end;
       end else begin
         If Assigned(ContentStream) then
@@ -1424,9 +1424,9 @@ begin
   end;
 end;
 
-{ TWCConnection }
+{ TWCAppConnection }
 
-procedure TWCConnection.DoInitialize;
+procedure TWCAppConnection.DoInitialize;
 begin
   FProtocolVersion := wcUNK;
   FInputBuf := GetMem(WC_INITIAL_READ_BUFFER_SIZE);
@@ -1444,7 +1444,7 @@ begin
   {$endif}
 end;
 
-function TWCConnection.ReadLine: String;
+function TWCAppConnection.ReadLine: String;
 var aBuffer : AnsiString;
     OFFSET : Integer;
 
@@ -1507,7 +1507,7 @@ begin
   FInput.Position:= FInput.Position - Length(aBuffer);
 end;
 
-function TWCConnection.ReadReqHeaders: TWCRequest;
+function TWCAppConnection.ReadReqHeaders: TWCRequest;
 Var
   S, StartLine : String;
 begin
@@ -1533,7 +1533,7 @@ begin
   end;
 end;
 
-function TWCConnection.ConvertFromRefRequest(AReq: TWCRequestRefWrapper): TWCRequest;
+function TWCAppConnection.ConvertFromRefRequest(AReq: TWCRequestRefWrapper): TWCRequest;
 begin
   if not assigned(AReq) then Exit(nil);
   Result:=TWCRequest(TWCHttpServer(Server).CreateRequest);
@@ -1551,7 +1551,7 @@ begin
   end;
 end;
 
-procedure TWCConnection.ReadReqContent(ARequest: TWCRequest);
+procedure TWCAppConnection.ReadReqContent(ARequest: TWCRequest);
 Var
   P,L,R : integer;
   S : String;
@@ -1584,7 +1584,7 @@ begin
   ARequest.InitContent(S);
 end;
 
-procedure TWCConnection.ConsumeHeader(ARequest: TAbsHTTPConnectionRequest;
+procedure TWCAppConnection.ConsumeHeader(ARequest: TAbsHTTPConnectionRequest;
   AHeader: String);
 Var
   P : Integer;
@@ -1603,35 +1603,35 @@ begin
   ARequest.SetFieldByName(N,V);
 end;
 
-procedure TWCConnection.UnknownHeader({%H-}ARequest: TAbsHTTPConnectionRequest;
+procedure TWCAppConnection.UnknownHeader({%H-}ARequest: TAbsHTTPConnectionRequest;
   const {%H-}AHeader: String);
 begin
   // do nothing
 end;
 
-procedure TWCConnection.DoSocketAttach(ASocket: TSocketStream);
+procedure TWCAppConnection.DoSocketAttach(ASocket: TSocketStream);
 begin
   inherited DoSocketAttach(ASocket);
   Application.SocketsCollector.Add(SocketReference);
 end;
 
-constructor TWCConnection.Create(AServer: TAbsCustomHTTPServer;
+constructor TWCAppConnection.Create(AServer: TAbsCustomHTTPServer;
   ASocket: TSocketStream);
 begin
   inherited Create(AServer, ASocket);
   DoInitialize;
 end;
 
-constructor TWCConnection.CreateRefered(AServer: TAbsCustomHTTPServer;
-  ASocketRef: TWCHTTPSocketReference);
+constructor TWCAppConnection.CreateRefered(AServer: TAbsCustomHTTPServer;
+  ASocketRef: TWCSocketReference);
 begin
   inherited CreateRefered(AServer, ASocketRef);
   DoInitialize;
 end;
 
-function TWCConnection.ConsumeSocketData: Cardinal;
+function TWCAppConnection.ConsumeSocketData: Cardinal;
 var r : integer;
-    aHTTPRefCon : TWCHTTPRefConnection;
+    aRefCon : TWCRefConnection;
     h2openmode : THTTP2OpenMode;
     {$IFDEF WC_WEB_SOCKETS}
     wsopenmode : TWebSocketUpgradeOptions;
@@ -1639,13 +1639,13 @@ var r : integer;
 begin
   Result := WC_CONSUME_OK;
   try
-    aHTTPRefCon := TWCHttpServer(Server).HTTPRefConnections.GetByHandle(Socket.Handle);
+    aRefCon := TWCHttpServer(Server).RefConnections.GetByHandle(Socket.Handle);
     // if HTTPRefCon not nil, then reference to httprefcon automatically incremented
     // NOT need To increment here
-    if Assigned(aHTTPRefCon) then
+    if Assigned(aRefCon) then
     begin
-      HTTPRefCon := aHTTPRefCon;
-      FProtocolVersion := aHTTPRefCon.Protocol;
+      RefCon := aRefCon;
+      FProtocolVersion := aRefCon.Protocol;
     end;
 
     try
@@ -1688,11 +1688,11 @@ begin
                 if assigned(wsopenmode) then
                 begin
                   FProtocolVersion := wcWebSocket;
-                  HTTPRefCon := TWCHttpServer(Server).AttachNewWebSocketCon(SocketReference,
-                                                                            wsopenmode,
-                                                                            @(TWCHttpServer(Server).DoConnectToSocketRef),
-                                                                            @(TWCHttpServer(Server).DoSendData));
-                  HTTPRefCon.IncReference; // reference not incremented here, need to increment
+                  RefCon := TWCHttpServer(Server).AttachNewWebSocketCon(SocketReference,
+                                                                        wsopenmode,
+                                                                        @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                        @(TWCHttpServer(Server).DoSendData));
+                  RefCon.IncReference; // reference not incremented here, need to increment
                 end;
                 {$ENDIF}
                 //here can be implemented simple mechanism for transitioning
@@ -1700,14 +1700,14 @@ begin
                 //
                 //this mechanism is not implemented due to its rare use
               end else
-              if not Assigned(HTTPRefCon) then
+              if not Assigned(RefCon) then
               begin
                 if Pos('keep-alive', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
                 begin
-                  HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
-                                                                         @(TWCHttpServer(Server).DoConnectToSocketRef),
-                                                                         @(TWCHttpServer(Server).DoSendData));
-                  HTTPRefCon.IncReference; // reference not incremented here, need to increment
+                  RefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
+                                                                     @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                                     @(TWCHttpServer(Server).DoSendData));
+                  RefCon.IncReference; // reference not incremented here, need to increment
                 end;
               end;
             end;
@@ -1737,25 +1737,25 @@ begin
         // RFC 7540
         // consume socket data, pop new request
         Result := WC_CONSUME_OK;
-        if not Assigned(HTTPRefCon) then
+        if not Assigned(RefCon) then
         begin
-          HTTPRefCon := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
-                                                                h2openmode,
-                                                                @(TWCHttpServer(Server).DoConnectToSocketRef),
-                                                                @(TWCHttpServer(Server).DoSendData));
-          HTTPRefCon.IncReference; // reference not incremented here, need to increment
+          RefCon := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
+                                                            h2openmode,
+                                                            @(TWCHttpServer(Server).DoConnectToSocketRef),
+                                                            @(TWCHttpServer(Server).DoSendData));
+          RefCon.IncReference; // reference not incremented here, need to increment
         end;
         if (FInput.Size - FInput.Position) > 0 then
-           HTTPRefCon.ConsumeNextFrame(FInput);
-        RefRequest := TWCHTTP2Connection(HTTPRefCon).PopRequestedStream;
+           RefCon.ConsumeNextFrame(FInput);
+        RefRequest := TWCHTTP2Connection(RefCon).PopRequestedStream;
         if Assigned(RefRequest) then begin
           FRequest := ConvertFromRefRequest(RefRequest);
           // check Malformed Requests
-          if FRequest.ContentLength <> TWCHTTPStream(RefRequest).Request.DataBlockSize then
+          if FRequest.ContentLength <> TWCHTTP2Stream(RefRequest).Request.DataBlockSize then
           begin
-            TWCHTTP2Connection(HTTPRefCon).ResetStream(TWCHTTPStream(RefRequest).ID,
-                                                       H2E_PROTOCOL_ERROR);
-            TWCHTTP2Connection(HTTPRefCon).GoAway(H2E_PROTOCOL_ERROR);
+            TWCHTTP2Connection(RefCon).ResetStream(TWCHTTP2Stream(RefRequest).ID,
+                                                    H2E_PROTOCOL_ERROR);
+            TWCHTTP2Connection(RefCon).GoAway(H2E_PROTOCOL_ERROR);
             Result := WC_CONSUME_PROTOCOL_ERROR;
           end else
             FRequest.DecodeContent;
@@ -1767,8 +1767,8 @@ begin
       begin
         Result := WC_CONSUME_OK;
         if (FInput.Size - FInput.Position) > 0 then
-           HTTPRefCon.ConsumeNextFrame(FInput);
-        RefRequest := TWCWebSocketConnection(HTTPRefCon).PopReadyChunck;
+           RefCon.ConsumeNextFrame(FInput);
+        RefRequest := TWCWebSocketConnection(RefCon).PopReadyChunck;
         if Assigned(RefRequest) then
         begin
           if not assigned(FRequest) then
@@ -1778,10 +1778,10 @@ begin
       end;
       {$ENDIF}
     finally
-      if Assigned(HTTPRefCon) then
-         HTTPRefCon.ReleaseRead(not (Result in [WC_CONSUME_PROTOCOL_ERROR,
-                                                WC_CONSUME_WRONG_PROTOCOL,
-                                                WC_CONSUME_SOCKET_ERROR]));
+      if Assigned(RefCon) then
+         RefCon.ReleaseRead(not (Result in [WC_CONSUME_PROTOCOL_ERROR,
+                                            WC_CONSUME_WRONG_PROTOCOL,
+                                            WC_CONSUME_SOCKET_ERROR]));
     end;
     if Result = WC_CONSUME_OK then
     begin
@@ -1794,7 +1794,7 @@ begin
     On E : Exception do begin
       if Result in [WC_CONSUME_NO_DATA, WC_CONSUME_OK] then
         Result := WC_CONSUME_PROTOCOL_ERROR;
-      if Assigned(HTTPRefCon) then HTTPRefCon.ConnectionState:=wcDROPPED;
+      if Assigned(RefCon) then RefCon.ConnectionState:=wcDROPPED;
       if Assigned(FRequest) then FreeAndNil(FRequest);
       if Assigned(FResponse) then FreeAndNil(FResponse);
       HandleRequestError(E);
@@ -1802,7 +1802,7 @@ begin
   end;
 end;
 
-procedure TWCConnection.SetSessionParams(aClient: TWebClient;
+procedure TWCAppConnection.SetSessionParams(aClient: TWebClient;
   aSession: TSqliteWebSession);
 begin
   FClient := aClient;
@@ -1810,7 +1810,7 @@ begin
   FSession := aSession;
 end;
 
-destructor TWCConnection.Destroy;
+destructor TWCAppConnection.Destroy;
 {$ifdef DEBUG_STAT}
 var DT : Integer;
 {$endif}
@@ -1859,7 +1859,7 @@ begin
   Result := Connection.Response;
 end;
 
-constructor TWCPreAnalizeClientJob.Create(aConn: TWCConnection);
+constructor TWCPreAnalizeClientJob.Create(aConn: TWCAppConnection);
 begin
   FConn := aConn;
 end;
@@ -1960,7 +1960,7 @@ begin
   Result := Connection.Response;
 end;
 
-constructor TWCMainClientJob.Create(aConn: TWCConnection);
+constructor TWCMainClientJob.Create(aConn: TWCAppConnection);
 begin
   inherited Create(aConn.Client.Score);
   aConn.Client.UpdateScore;
@@ -2004,10 +2004,10 @@ begin
   FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
-  FHTTPRefConnections := TWCHTTPRefConnections.Create(nil);
-  FHTTPRefConnections.RegisterProtocolHelper(wcHTTP2, TWCHTTP2ServerHelper);
+  FRefConnections := TWCRefConnections.Create(nil);
+  FRefConnections.RegisterProtocolHelper(wcHTTP2, TWCHTTP2ServerHelper);
   {$IFDEF WC_WEB_SOCKETS}
-  FHTTPRefConnections.RegisterProtocolHelper(wcWebSocket, TWCWebSocketServerHelper);
+  FRefConnections.RegisterProtocolHelper(wcWebSocket, TWCWebSocketServerHelper);
   {$ENDIF}
 end;
 
@@ -2030,9 +2030,9 @@ procedure TWCHttpServer.CreateConnectionThread(Conn: TAbsHTTPConnection);
 var PreJob : TWCPreAnalizeClientJob;
 begin
   if assigned(Application.ServerAnalizeJobClass) then
-     PreJob := Application.ServerAnalizeJobClass.Create(TWCConnection(Conn))
+     PreJob := Application.ServerAnalizeJobClass.Create(TWCAppConnection(Conn))
   else
-     PreJob := TWCPreAnalizeClientJob.Create(TWCConnection(Conn));
+     PreJob := TWCPreAnalizeClientJob.Create(TWCAppConnection(Conn));
 
   CheckThreadPool;
 
@@ -2041,7 +2041,7 @@ end;
 
 function TWCHttpServer.CreateConnection(Data: TSocketStream): TAbsHTTPConnection;
 begin
-  Result:= TWCConnection.Create(Self, Data);
+  Result:= TWCAppConnection.Create(Self, Data);
   Data.IOTimeout := 10000;
 end;
 
@@ -2067,45 +2067,45 @@ begin
   inherited InitResponse(AResponse);
 end;
 
-function TWCHttpServer.AttachRefCon(aRefCon : TWCHTTPRefConnection
-  ) : TWCHTTPRefConnection;
+function TWCHttpServer.AttachRefCon(aRefCon : TWCRefConnection
+  ) : TWCRefConnection;
 begin
   Result := aRefCon;
   Application.GarbageCollector.Add(Result);
-  FHTTPRefConnections.AddConnection(Result);
+  FRefConnections.AddConnection(Result);
 end;
 
-function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCHTTPSocketReference;
-  aOpenMode: THTTP2OpenMode; aServerDoConsume: THttpRefSocketConsume;
-  aSendData: THttpRefSendData): TWCHTTP2Connection;
+function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCSocketReference;
+  aOpenMode: THTTP2OpenMode; aServerDoConsume: TRefSocketConsume;
+  aSendData: TRefSendData): TWCHTTP2Connection;
 begin
   Result := TWCHTTP2Connection(AttachRefCon(
-            TWCHTTP2Connection.Create(FHTTPRefConnections,
+            TWCHTTP2Connection.Create(FRefConnections,
                                       aSocket,
                                       aOpenMode,
                                       aServerDoConsume,
                                       aSendData)));
 end;
 
-function TWCHttpServer.AttachNewHTTP11Con(aSocket: TWCHTTPSocketReference;
-  aServerDoConsume: THttpRefSocketConsume; aSendData: THttpRefSendData
+function TWCHttpServer.AttachNewHTTP11Con(aSocket: TWCSocketReference;
+  aServerDoConsume: TRefSocketConsume; aSendData: TRefSendData
   ): TWCHTTP11Connection;
 begin
   Result := TWCHTTP11Connection(AttachRefCon(
-            TWCHTTP11Connection.Create(FHTTPRefConnections,
+            TWCHTTP11Connection.Create(FRefConnections,
                                        aSocket,
                                        aServerDoConsume,
                                        aSendData)));
 end;
 
 {$IFDEF WC_WEB_SOCKETS}
-function TWCHttpServer.AttachNewWebSocketCon(aSocket : TWCHTTPSocketReference;
+function TWCHttpServer.AttachNewWebSocketCon(aSocket : TWCSocketReference;
   aOpenMode : TWebSocketUpgradeOptions;
-  aServerDoConsume : THttpRefSocketConsume; aSendData : THttpRefSendData
+  aServerDoConsume : TRefSocketConsume; aSendData : TRefSendData
   ) : TWCWebSocketConnection;
 begin
   Result := TWCWebSocketConnection(AttachRefCon(
-            TWCWebSocketConnection.Create(FHTTPRefConnections,
+            TWCWebSocketConnection.Create(FRefConnections,
                                           aOpenMode,
                                           aSocket,
                                           aServerDoConsume,
@@ -2147,7 +2147,7 @@ end;
 
 function TWCHttpServer.GetHTTP2Settings: TWCHTTP2Settings;
 begin
-  Result := TWCHTTP2Helper(FHTTPRefConnections.Protocol[wcHTTP2]).Settings;
+  Result := TWCHTTP2Helper(FRefConnections.Protocol[wcHTTP2]).Settings;
 end;
 
 procedure TWCHttpServer.AddLinearJob(AJob: TLinearJob);
@@ -2187,7 +2187,7 @@ end;
 {$IFDEF WC_WEB_SOCKETS}
 function TWCHttpServer.GetWebSocketSettings: TWCWebSocketSettings;
 begin
-  Result := TWCWebSocketHelper(FHTTPRefConnections.Protocol[wcWebSocket]).Settings;
+  Result := TWCWebSocketHelper(FRefConnections.Protocol[wcWebSocket]).Settings;
 end;
 {$ENDIF}
 
@@ -2241,13 +2241,13 @@ begin
   Result := Active;
 end;
 
-procedure TWCHttpServer.DoConnectToSocketRef(SockRef: TWCHTTPSocketReference);
+procedure TWCHttpServer.DoConnectToSocketRef(SockRef: TWCSocketReference);
 Var
-  Con : TWCConnection;
+  Con : TWCAppConnection;
 begin
   SockRef.Lock;
   try
-    Con:=TWCConnection.CreateRefered(Self, SockRef);
+    Con:=TWCAppConnection.CreateRefered(Self, SockRef);
   finally
     SockRef.UnLock;
   end;
@@ -2255,7 +2255,7 @@ begin
   CreateConnectionThread(Con);
 end;
 
-procedure TWCHttpServer.DoSendData(aConnection: TWCHTTPRefConnection);
+procedure TWCHttpServer.DoSendData(aConnection: TWCRefConnection);
 begin
   AddLinearJob(TWCHttpRefSendDataJob.Create(aConnection));
 end;
@@ -2265,7 +2265,7 @@ begin
   if Assigned(FThreadPool) then FThreadPool.Free;
   FPoolsLocker.Free;
   FSSLLocker.Free;
-  FHTTPRefConnections.Free;
+  FRefConnections.Free;
   inherited Destroy;
 end;
 
@@ -2854,8 +2854,8 @@ begin
   WebContainer.ClearDeadClients;
   // dec references to all connections
   if assigned(ESServer) then begin
-    ESServer.HTTPRefConnections.CloseAll;
-    ESServer.HTTPRefConnections.RemoveDeadConnections(GetTickCount64, 0);
+    ESServer.RefConnections.CloseAll;
+    ESServer.RefConnections.RemoveDeadConnections(GetTickCount64, 0);
   end;
   // clear cache (referenced streams)
   WebContainer.ClearCache;
@@ -2907,7 +2907,7 @@ begin
     FSocketsReferences.CleanDead;
   end;
   //
-  ESServer.HTTPRefConnections.Idle(T);
+  ESServer.RefConnections.Idle(T);
   //
   Sleep(5);
   if FNeedShutdown.Value then
@@ -3301,7 +3301,7 @@ begin
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;
   GetWebHandler.AcceptIdleTimeout:=1;
-  ESServer.HTTPRefConnections.GarbageCollector := FReferences;
+  ESServer.RefConnections.GarbageCollector := FReferences;
 
   FStartStamp:= GetTickCount64;
   DoInfo('Server initialized');
@@ -3764,7 +3764,7 @@ end;
 procedure TWebClientsContainer.OnCreateNewSession(Sender: TObject);
 var ARequest : TWCRequest;
   Session : TSqliteWebSession;
-  Con : TWCConnection;
+  Con : TWCAppConnection;
   IpV4, IpV6 : String;
   SocketAddr : TSockAddr;
 begin

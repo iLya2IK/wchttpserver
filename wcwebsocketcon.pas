@@ -1,5 +1,5 @@
 {
- WCWebSockets:
+ WCWebSocketCon:
    Classes and other routings to deal with WebSocket connections,
    frames plus cross-protocols conversions WS <-> HTTP1.1 for
    fpHTTP/fpweb compability
@@ -13,14 +13,16 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wcwebsockets;
+unit wcwebsocketcon;
 
 {$mode objfpc}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, wchttp2server, BufferedStream,
+  Classes, SysUtils,
+  wcnetworking,
+  BufferedStream,
   ECommonObjs, OGLFastList,
   websocketconsts,
   fphttp, HTTPDefs;
@@ -63,7 +65,7 @@ type
 
   { TWCWSUpgradeHandshakeFrame }
 
-  TWCWSUpgradeHandshakeFrame = class(TWCHTTPRefProtoFrame)
+  TWCWSUpgradeHandshakeFrame = class(TWCRefProtoFrame)
   private
     FHandshakeStr : AnsiString;
   public
@@ -118,7 +120,7 @@ type
 
   { TWCWSFrameHeaderFrame }
 
-  TWCWSFrameHeaderFrame = class(TWCHTTPRefProtoFrame)
+  TWCWSFrameHeaderFrame = class(TWCRefProtoFrame)
   private
     FHeader : TWCWSFrameHeader;
   public
@@ -149,10 +151,10 @@ type
 
   TWCWSFrameHolder = class(TWCWSFrameHeaderFrame)
   private
-    FFrame     : TWCHTTPRefProtoFrame;
+    FFrame     : TWCRefProtoFrame;
   public
     constructor Create(aHeader : TWCWSFrameHeader;
-                       aFrame : TWCHTTPRefProtoFrame); overload;
+                       aFrame : TWCRefProtoFrame); overload;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
     function  Size : Int64; override;
@@ -199,7 +201,7 @@ type
     property IsComplete : Boolean read FComplete;
     property TotalSize : Int64 read GetTotalSize;
     property Data : TMemoryStream read FData;
-    procedure CopyToHTTP1Request(aReq1 : TWCHTTPConnectionRequest); override;
+    procedure CopyToHTTP1Request(aReq1 : TWCConnectionRequest); override;
     procedure PushData(aBuffer: Pointer;
                        aSize: Cardinal;
                        aMasked : Boolean;
@@ -248,11 +250,10 @@ type
 
   { TWCWebSocketConnection }
 
-  TWCWebSocketConnection = class(TWCHTTPRefConnection)
+  TWCWebSocketConnection = class(TWCRefConnection)
   private
     FInChuncks  : TWCWSIncomingChuncks;
     FOptions    : TWebSocketUpgradeOptions;
-    FLastError  : Word;
     function AddNewIncomingChunck(aOpCode : TWebSocketOpCode;
       const aExts : array of PWebSocketExt) : TWCWSIncomingChunck;
     function GetWebSocketSettings: TWCWebSocketSettings;
@@ -261,22 +262,21 @@ type
     function GetInitialWriteBufferSize : Cardinal; override;
     function CanExpandWriteBuffer({%H-}aCurSize, aNeedSize : Cardinal) : Boolean; override;
     function RequestsWaiting: Boolean; override;
-    procedure AfterFrameSent({%H-}fr: TWCHTTPRefProtoFrame); override;
+    procedure AfterFrameSent({%H-}fr: TWCRefProtoFrame); override;
   public
-    constructor Create(aOwner: TWCHTTPRefConnections;
+    constructor Create(aOwner: TWCRefConnections;
         aOpenMode : TWebSocketUpgradeOptions;
-        aSocket: TWCHTTPSocketReference;
-        aSocketConsume: THttpRefSocketConsume; aSendData: THttpRefSendData); overload;
+        aSocket: TWCSocketReference;
+        aSocketConsume: TRefSocketConsume; aSendData: TRefSendData); overload;
     destructor Destroy; override;
     procedure ConsumeNextFrame({%H-}Mem : TBufferedStream); override;
-    procedure PushFrame(fr : TWCHTTPRefProtoFrame); override;
+    procedure PushFrame(fr : TWCRefProtoFrame); override;
     procedure PushFrame(aOpCode: TWebSocketOpCode;
                         aBuffer: Pointer;
                         aSize: Cardinal;
                         aOwnBuffer: Boolean=true); overload;
     procedure Close(aError : Word; const aReason : UTF8String);
     function  PopReadyChunck : TWCWSIncomingChunck;
-    property LastError : Word read FLastError;
     property Options : TWebSocketUpgradeOptions read FOptions;
     property WebSocketSettings : TWCWebSocketSettings read GetWebSocketSettings;
     class function Protocol : TWCProtocolVersion; override;
@@ -323,6 +323,7 @@ end;
 
 constructor TWCWebSocketSettings.Create;
 begin
+  inherited Create;
   FAllowedExts := GetMem(WSEX_MIN_EXTS_SIZE);
   FAllowedExts^.Len := 0;
 end;
@@ -378,7 +379,7 @@ end;
 { TWCWSFrameHolder }
 
 constructor TWCWSFrameHolder.Create(aHeader: TWCWSFrameHeader;
-  aFrame: TWCHTTPRefProtoFrame);
+  aFrame: TWCRefProtoFrame);
 begin
   inherited Create(aHeader);
   FFrame := aFrame;
@@ -699,7 +700,7 @@ begin
 end;
 
 procedure TWCWSIncomingChunck.CopyToHTTP1Request(
-  aReq1: TWCHTTPConnectionRequest);
+  aReq1: TWCConnectionRequest);
 begin
   aReq1.Method := 'GET';
   Options.Lock;
@@ -880,7 +881,7 @@ begin
   Result := FInChuncks.HasReadyChunck;
 end;
 
-procedure TWCWebSocketConnection.AfterFrameSent(fr : TWCHTTPRefProtoFrame);
+procedure TWCWebSocketConnection.AfterFrameSent(fr : TWCRefProtoFrame);
 begin
   // do nothing
 end;
@@ -899,9 +900,9 @@ begin
   Result := TWCWebSocketHelper(Owner.Protocol[wcWebSocket]).Settings;
 end;
 
-constructor TWCWebSocketConnection.Create(aOwner : TWCHTTPRefConnections;
-  aOpenMode : TWebSocketUpgradeOptions; aSocket : TWCHTTPSocketReference;
-  aSocketConsume : THttpRefSocketConsume; aSendData : THttpRefSendData);
+constructor TWCWebSocketConnection.Create(aOwner : TWCRefConnections;
+  aOpenMode : TWebSocketUpgradeOptions; aSocket : TWCSocketReference;
+  aSocketConsume : TRefSocketConsume; aSendData : TRefSendData);
 begin
   inherited Create(aOwner, aSocket, aSocketConsume, aSendData);
   InitializeBuffers;
@@ -925,7 +926,7 @@ end;
 procedure TWCWebSocketConnection.ConsumeNextFrame(Mem : TBufferedStream);
 var
   Sz, fallbackpos: Int64;
-  err : Word;
+  err, w : Word;
   Buffer : Pointer;
   FrameHeader : TWCWSFrameHeader;
   S : TBufferedStream;
@@ -1066,8 +1067,8 @@ begin
               end;
             end;
             WSP_OPCODE_CLOSE : begin
-              S.Read(FLastError, WSP_CLOSE_MIN_SIZE);
-              FLastError := BETON(FLastError);
+              S.Read(w, WSP_CLOSE_MIN_SIZE);
+              FLastError := BETON(w);
               if FrameHeader.PayloadLength > WSP_CLOSE_MIN_SIZE then begin
                 {FErrorDataSize := FrameHeader.PayloadLength - WSP_CLOSE_MIN_SIZE;
                  if assigned(FErrorData) then
@@ -1117,7 +1118,7 @@ begin
   end;
 end;
 
-procedure TWCWebSocketConnection.PushFrame(fr: TWCHTTPRefProtoFrame);
+procedure TWCWebSocketConnection.PushFrame(fr: TWCRefProtoFrame);
 var hfr : TWCWSFrameHeaderFrame;
     aOpCode : TWebSocketOpCode;
 begin
@@ -1125,8 +1126,8 @@ begin
   if (fr is TWCWSFrameHeaderFrame) or (fr is TWCWSUpgradeHandshakeFrame) then
     inherited PushFrame(fr) else
   begin
-    if (fr is TWCHTTPStringFrame) or
-       (fr is TWCHTTPStringsFrame) then
+    if (fr is TWCStringFrame) or
+       (fr is TWCStringsFrame) then
       aOpCode := WSP_OPCODE_TEXT else
       aOpCode := WSP_OPCODE_BINARY;
     hfr := TWCWSFrameHolder.Create(TWCWSFrameHeader.Create(aOpCode, fr.Size), fr);

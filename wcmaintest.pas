@@ -12,7 +12,7 @@ interface
 uses
   SysUtils, Classes,
   wcapplication,
-  wchttp2server,
+  wcnetworking,
   SortedThreadPool,
   httpdefs, fpHTTP, httpprotocol,
   WCTestClient;
@@ -37,7 +37,7 @@ type
     FRID : cardinal;
     {$ENDIF}
   public
-    constructor Create(aConnection : TWCConnection;
+    constructor Create(aConnection : TWCAppConnection;
       aLastEventID: Cardinal); overload;
     procedure Execute; override;
     procedure UpdateScore; override;
@@ -51,7 +51,7 @@ type
   private
     FRID : Cardinal;
   public
-    constructor Create(aConnection : TWCConnection; aRID: Cardinal;
+    constructor Create(aConnection : TWCAppConnection; aRID: Cardinal;
       aWrappedJobClass: TWCMainClientJobClass); overload;
     procedure DoWrappedExecute; override;
   end;
@@ -89,7 +89,7 @@ end;
 {$IFDEF WC_WEB_SOCKETS}
 { TJSONRPCWrapperJob }
 
-constructor TJSONRPCWrapperJob.Create(aConnection : TWCConnection;
+constructor TJSONRPCWrapperJob.Create(aConnection : TWCAppConnection;
   aRID : Cardinal; aWrappedJobClass : TWCMainClientJobClass);
 begin
   inherited Create(aConnection, aWrappedJobClass);
@@ -194,7 +194,7 @@ end;
 
 { TWCSynchroJob }
 
-constructor TWCSynchroJob.Create(aConnection: TWCConnection;
+constructor TWCSynchroJob.Create(aConnection: TWCAppConnection;
   aLastEventID: Cardinal);
 begin
   inherited Create(aConnection);
@@ -256,7 +256,7 @@ begin
       if FStage = 1 then
       begin
         FStage := 2; // set here to react on exceptions and exits
-        if not Connection.HTTPRefCon.ConnectionAvaible then Exit;
+        if not Connection.RefCon.ConnectionAvaible then Exit;
         aClient := TWCTestWebClient(Client);
         if not assigned(aClient) then begin
           Application.SendError(Response, 405);
