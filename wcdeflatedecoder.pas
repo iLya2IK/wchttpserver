@@ -46,7 +46,7 @@ begin
     while true do begin
       infstream.avail_out := decompressChunckSize;
       infstream.next_out := @(NewBuffer[NewCount]);
-      ret := inflate(infstream, Z_NO_FLUSH);
+      ret := inflate(infstream,  Z_SYNC_FLUSH);
       if ret = Z_STREAM_ERROR then raise Exception.Create('inflate Z_STREAM_ERROR');
       if not (ret in [Z_OK, Z_STREAM_END]) then
       begin

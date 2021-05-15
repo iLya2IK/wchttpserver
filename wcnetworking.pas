@@ -62,6 +62,7 @@ type
   TWCRefProtoFrame = class
   public
     procedure SaveToStream(Str : TStream); virtual; abstract;
+    function Memory : Pointer; virtual; abstract;
     function Size : Int64; virtual; abstract;
   end;
 
@@ -73,6 +74,8 @@ type
   public
     constructor Create(const S : String);
     procedure SaveToStream(Str : TStream); override;
+    procedure SetStrLength(aNewLen : PtrInt);
+    function Memory : Pointer; override;
     function Size : Int64; override;
   end;
 
@@ -85,7 +88,9 @@ type
     constructor Create(Strs : TStrings);
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function Memory : Pointer; override;
     function Size : Int64; override;
+    property Stream : TMemoryStream read Strm;
   end;
 
   { TWCStreamFrame }
@@ -97,7 +102,9 @@ type
     constructor Create(Strm: TStream; Sz: Cardinal; Owned: Boolean);
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function Memory : Pointer; override;
     function Size : Int64; override;
+    property Stream : TStream read FStrm;
   end;
 
   { TWCRefStreamFrame }
@@ -111,6 +118,7 @@ type
     constructor Create(Strm : TReferencedStream); overload;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function Memory : Pointer; override;
     function Size : Int64; override;
   end;
 
@@ -397,9 +405,6 @@ type
                                          FGarbageCollector;
   end;
 
-const
-  HTTP1HeadersAllowed = [$0A,$0D,$20,$21,$24,$25,$27..$39,$40..$5A,$61..$7A];
-
 implementation
 
 const
@@ -519,6 +524,19 @@ begin
   FStrm.WriteTo(Str, Fpos, FSz);
 end;
 
+function TWCRefStreamFrame.Memory : Pointer;
+begin
+  if FStrm.Stream is TMemoryStream then
+  begin
+    Result := TMemoryStream(FStrm.Stream).Memory;
+  end else
+  if FStrm.Stream is TBufferedStream then
+  begin
+    Result := TBufferedStream(FStrm.Stream).Memory;
+  end else
+    Result := nil;
+end;
+
 function TWCRefStreamFrame.Size: Int64;
 begin
   Result := Fsz;
@@ -534,6 +552,16 @@ end;
 procedure TWCStringFrame.SaveToStream(Str: TStream);
 begin
   Str.WriteBuffer(FStr[1], Size);
+end;
+
+procedure TWCStringFrame.SetStrLength(aNewLen : PtrInt);
+begin
+  SetLength(FStr, aNewLen);
+end;
+
+function TWCStringFrame.Memory : Pointer;
+begin
+  Result := Pointer(@(FStr[1]));
 end;
 
 function TWCStringFrame.Size: Int64;
@@ -558,6 +586,11 @@ end;
 procedure TWCStringsFrame.SaveToStream(Str: TStream);
 begin
   Str.WriteBuffer(Strm.Memory^, Strm.Size);
+end;
+
+function TWCStringsFrame.Memory : Pointer;
+begin
+  Result := Strm.Memory;
 end;
 
 function TWCStringsFrame.Size: Int64;
@@ -587,6 +620,19 @@ end;
 procedure TWCStreamFrame.SaveToStream(Str: TStream);
 begin
   Str.CopyFrom(FStrm, 0);
+end;
+
+function TWCStreamFrame.Memory : Pointer;
+begin
+  if FStrm is TMemoryStream then
+  begin
+    Result := TMemoryStream(FStrm).Memory;
+  end else
+  if FStrm is TBufferedStream then
+  begin
+    Result := TBufferedStream(FStrm).Memory;
+  end else
+    Result := nil;
 end;
 
 function TWCStreamFrame.Size: Int64;

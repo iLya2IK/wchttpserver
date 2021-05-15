@@ -204,17 +204,24 @@ begin
   if InOutStream is TMemoryStream then
   begin
     Decode(TMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
-    InOutStream.Position := 0;
-    InOutStream.Size := Sz;
-    InOutStream.WriteBuffer(outBuffer^, Sz);
-    Freemem(outBuffer);
+    if Assigned(outBuffer) then
+    begin
+      InOutStream.Position := 0;
+      InOutStream.Size := Sz;
+      InOutStream.WriteBuffer(outBuffer^, Sz);
+      InOutStream.Position := 0;
+      Freemem(outBuffer);
+    end;
   end
   else
   if InOutStream is TBufferedStream then
   begin
     Decode(TBufferedStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
-    Freemem(TBufferedStream(InOutStream).Memory);
-    TBufferedStream(InOutStream).SetPointer(outBuffer, Sz);
+    if Assigned(outBuffer) then
+    begin
+      Freemem(TBufferedStream(InOutStream).Memory);
+      TBufferedStream(InOutStream).SetPointer(outBuffer, Sz);
+    end;
   end
   else
     raise Exception.Create(SErrStreamTypeNotSupported);

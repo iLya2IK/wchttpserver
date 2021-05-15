@@ -25,11 +25,13 @@ uses
   BufferedStream,
   ECommonObjs, OGLFastList,
   websocketconsts,
-  fphttp, HTTPDefs;
+  fphttp, HTTPDefs,
+  zlib;
 
 type
 
   TWCWebSocketSettings = class;
+  TWCWebSocketConnection = class;
 
   { TWebSocketUpgradeOptions }
 
@@ -43,9 +45,14 @@ type
     FSecWebSocketVersion: AnsiString;
     FSecWebSocketExts : AnsiString;
     FNumVersion : Word;
-    FExtensions : PWebSocketExts;
-    function GetExt(index : integer): PWebSocketExt;
-    function GetExtCount: Integer;
+    FOfferExts, FResponseExts : PWebSocketExts;
+    FDeflateExt : PWebSocketExt;
+    function GetOfferExt(index : integer): PWebSocketExt;
+    function GetOfferExtByName(const index : ansistring) : PWebSocketExt;
+    function GetOfferExtCount: Integer;
+    function GetResponseExt(index : integer): PWebSocketExt;
+    function GetResponseExtByName(const index : ansistring) : PWebSocketExt;
+    function GetResponseExtCount: Integer;
   public
     constructor Create(aRequest : TRequest; const aSubProtocol : String;
                                 aCurVersion : Word;
@@ -59,8 +66,14 @@ type
     property Extensions: AnsiString read FSecWebSocketExts;
     property NumVersion : Word read FNumVersion;
     property Request : TRequest read FInitialRequest;
-    property ExtCount : Integer read GetExtCount;
-    property Ext[index : integer] : PWebSocketExt read GetExt;
+    property OfferExtCount : Integer read GetOfferExtCount;
+    property OfferExt[index : integer] : PWebSocketExt read GetOfferExt;
+    property OfferExtByName[const index : ansistring] : PWebSocketExt read GetOfferExtByName;
+    property ResponseExtCount : Integer read GetResponseExtCount;
+    property ResponseExt[index : integer] : PWebSocketExt read GetResponseExt;
+    property ResponseExtByName[const index : ansistring] : PWebSocketExt read GetResponseExtByName;
+    //
+    property DeflateExt : PWebSocketExt read FDeflateExt;
   end;
 
   { TWCWSUpgradeHandshakeFrame }
@@ -72,6 +85,7 @@ type
     constructor Create(aOptions : TWebSocketUpgradeOptions); overload;
     procedure SaveToStream(Str : TStream); override;
     function  Size : Int64; override;
+    function  Memory : Pointer; override;
   end;
 
   { TWCWSFrameHeader }
@@ -127,6 +141,7 @@ type
     constructor Create(aHeader : TWCWSFrameHeader);
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function  Memory : Pointer; override;
     function  Size : Int64; override;
   end;
 
@@ -144,6 +159,7 @@ type
                        aOwnBuffer : Boolean = true); overload;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function  Memory : Pointer; override;
     function  Size : Int64; override;
   end;
 
@@ -157,6 +173,7 @@ type
                        aFrame : TWCRefProtoFrame); overload;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function  Memory : Pointer; override;
     function  Size : Int64; override;
   end;
 
@@ -165,22 +182,20 @@ type
   TWCWSChunck = class(TWCRequestRefWrapper)
   private
     FOpCode     : TWebSocketOpCode;
-    FExtensions : PWebSocketExts;
-    FOptions    : TWebSocketUpgradeOptions;
-    function GetExt(index : integer): PWebSocketExt;
-    function GetExtCount: Integer;
+    FRSV        : Byte;
+    FConnection : TWCWebSocketConnection;
+    function GetOptions : TWebSocketUpgradeOptions;
   public
-    constructor Create(aOptions : TWebSocketUpgradeOptions;
+    constructor Create(aConn : TWCWebSocketConnection;
                        aOpCode : TWebSocketOpCode;
-                       const Exts : Array of PWebSocketExt); virtual;
+                       aRSV : Byte); virtual;
     destructor Destroy; override;
     function GetReqContentStream : TStream; override;
     function IsReqContentStreamOwn : Boolean; override;
     property OpCode : TWebSocketOpCode read FOpCode;
-    property Options : TWebSocketUpgradeOptions read FOptions;
-    // extensions
-    property ExtCount : Integer read GetExtCount;
-    property Ext[index : integer] : PWebSocketExt read GetExt;
+    property RSV : Byte read FRSV;
+    property Options : TWebSocketUpgradeOptions read GetOptions;
+    property Connection : TWCWebSocketConnection read FConnection;
   end;
 
   { TWCWSIncomingChunck }
@@ -191,9 +206,9 @@ type
     FComplete   : Boolean;
     function GetTotalSize: Int64;
   public
-    constructor Create(aOptions : TWebSocketUpgradeOptions;
+    constructor Create(aConn : TWCWebSocketConnection;
                        aOpCode : TWebSocketOpCode;
-                       const Exts : Array of PWebSocketExt); override;
+                       aRSV : Byte); override;
     destructor Destroy; override;
     function GetReqContentStream : TStream; override;
     function IsReqContentStreamOwn : Boolean; override;
@@ -223,15 +238,9 @@ type
   { TWCWebSocketServerSettings }
 
   TWCWebSocketSettings = class(TNetCustomLockedObject)
-  private
-    FAllowedExts : PWebSocketExts;
-    function GetAllowedExtCount: Integer;
-    function GetExt(index : integer): PWebSocketExt;
   public
     constructor Create;
     destructor Destroy; override;
-    property AllowedExtCount : Integer read GetAllowedExtCount;
-    property AllowedExt[index : integer] : PWebSocketExt read GetExt;
   end;
 
   { TWCWebSocketHelper }
@@ -248,15 +257,64 @@ type
   TWCWebSocketServerHelper = class(TWCWebSocketHelper)
   end;
 
+  { TThreadSafeZlibStream }
+
+  TThreadSafeZlibStream = class(TNetCustomLockedObject)
+  private
+    FStream       : z_streamp;
+    FWindowSize   : Smallint;
+    FBufferSize   : PtrInt;
+    FBuffer       : PByte;
+    FbufferInc    : PtrInt;
+    FEnabled      : Boolean;
+    function GetInitialized : Boolean;
+  public
+    constructor Create; overload;
+    function Init(windowsize : SmallInt) : Integer; virtual; abstract;
+    function Next(aBuffer : Pointer; Sz : PtrInt;
+                       out NewCount : PtrInt) : Integer; virtual; abstract;
+    procedure  Finish; virtual; abstract;
+    property Buffer : PByte read FBuffer;
+    property Initialized : Boolean read GetInitialized;
+    property Enabled : Boolean read FEnabled write FEnabled;
+    destructor Destroy; override;
+  end;
+
+  { TThreadSafeInflate }
+
+  TThreadSafeInflate = class(TThreadSafeZlibStream)
+  public
+    function Init(windowsize : SmallInt) : Integer; override;
+    function Next(aBuffer : Pointer; Sz : PtrInt;
+                       out NewCount : PtrInt) : Integer; override;
+    procedure Finish; override;
+  end;
+
+  { TThreadSafeDeflate }
+
+  TThreadSafeDeflate = class(TThreadSafeZlibStream)
+  public
+    function Init(windowsize : SmallInt) : Integer; override;
+    function Next(aBuffer : Pointer; Sz : PtrInt;
+                       out NewCount : PtrInt) : Integer; override;
+    procedure Finish; override;
+  end;
+
   { TWCWebSocketConnection }
 
   TWCWebSocketConnection = class(TWCRefConnection)
   private
-    FInChuncks  : TWCWSIncomingChuncks;
-    FOptions    : TWebSocketUpgradeOptions;
+    FInChuncks     : TWCWSIncomingChuncks;
+    FOptions       : TWebSocketUpgradeOptions;
+    FInflateStream : TThreadSafeInflate;
+    FDeflateStream : TThreadSafeDeflate;
     function AddNewIncomingChunck(aOpCode : TWebSocketOpCode;
-      const aExts : array of PWebSocketExt) : TWCWSIncomingChunck;
+                                  aRSV : Byte) : TWCWSIncomingChunck;
     function GetWebSocketSettings: TWCWebSocketSettings;
+    function InitZLibStream(Strm : TThreadSafeZlibStream; aExt : PWebSocketExt
+      ) : Integer;
+    procedure DecodeStream(aStream : TMemoryStream);
+    procedure EncodeFramePayload(aFrame : TWCWSFrameHolder);
   protected
     function GetInitialReadBufferSize : Cardinal; override;
     function GetInitialWriteBufferSize : Cardinal; override;
@@ -277,6 +335,8 @@ type
                         aOwnBuffer: Boolean=true); overload;
     procedure Close(aError : Word; const aReason : UTF8String);
     function  PopReadyChunck : TWCWSIncomingChunck;
+    property InflateStream : TThreadSafeInflate read FInflateStream;
+    property DeflateStream : TThreadSafeDeflate read FDeflateStream;
     property Options : TWebSocketUpgradeOptions read FOptions;
     property WebSocketSettings : TWCWebSocketSettings read GetWebSocketSettings;
     class function Protocol : TWCProtocolVersion; override;
@@ -295,6 +355,217 @@ const
   WEBSOCKET_INITIAL_WRITE_BUFFER_SIZE = $FFFF;
   WEBSOCKET_MAX_WRITE_BUFFER_SIZE     = $9600000;
 
+{ TThreadSafeDeflate }
+
+function TThreadSafeDeflate.Init(windowsize : SmallInt) : Integer;
+begin
+  Lock;
+  try
+    if not Initialized then
+    begin
+      FStream := AllocMem(sizeof(z_stream));
+      FStream^.zalloc := nil;
+      FStream^.zfree := nil;
+      FStream^.opaque := nil;
+      FStream^.avail_in := 0;
+      FStream^.next_in := nil;
+
+      if windowsize < 0 then FWindowSize := 0 else
+                             FWindowSize := windowsize;
+      if FWindowSize = 0 then windowsize := 15;
+      Result := deflateInit2(FStream^, Z_DEFAULT_COMPRESSION,
+                                       Z_DEFLATED, -windowsize,
+                                       7, Z_DEFAULT_STRATEGY);
+      if Result <> Z_OK then Exit;
+    end else
+      Result := Z_OK;
+  finally
+    UnLock;
+  end;
+end;
+
+function TThreadSafeDeflate.Next(aBuffer : Pointer; Sz : PtrInt; out
+  NewCount : PtrInt) : Integer;
+const CHUNCK_START_SZ = 1024;
+      CHUNCK_MAX_SZ   = 4096;
+var have : PtrInt;
+begin
+  Lock;
+  try
+    if FWindowSize = 0 then deflateReset(FStream^);
+    FStream^.avail_in := Sz;
+    FStream^.next_in := aBuffer;
+
+    NewCount := 0;
+    if not Assigned(FBuffer) then
+    begin
+      FBuffer := AllocMem(CHUNCK_START_SZ);
+      FBufferSize :=  CHUNCK_START_SZ;
+      FBufferInc  :=  CHUNCK_START_SZ;
+    end;
+
+    while true do begin
+      FStream^.avail_out := FBufferSize;
+      FStream^.next_out := @(FBuffer[NewCount]);
+      Result := deflate(FStream^,  Z_SYNC_FLUSH);
+      if Result = Z_STREAM_ERROR then Exit;
+      if not ((Result = Z_BUF_ERROR) or (Result in [Z_OK, Z_STREAM_END])) then
+      begin
+        Finish;
+        Exit;
+      end;
+      have := FBufferSize - FStream^.avail_out;
+      Inc(NewCount, have);
+      if (FStream^.avail_out = 0) or (Result = Z_BUF_ERROR) then begin
+        FBufferSize := FBufferSize + FBufferInc;
+        FBuffer := ReAllocMem(FBuffer, FBufferSize);
+        FBufferInc := FBufferInc shl 1;
+        if FBufferInc > CHUNCK_MAX_SZ then
+           FBufferInc := CHUNCK_MAX_SZ;
+      end else begin
+        Result := Z_OK;
+        Break;
+      end;
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeDeflate.Finish;
+begin
+  Lock;
+  try
+    if Assigned(FStream) then
+    begin
+      zlib.deflateEnd(FStream^);
+      FreeMemAndNil(FStream);
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+{ TThreadSafeZlibStream }
+
+function TThreadSafeZlibStream.GetInitialized : Boolean;
+begin
+  Lock;
+  try
+    Result := Assigned(FStream);
+  finally
+    UnLock;
+  end;
+end;
+
+constructor TThreadSafeZlibStream.Create;
+begin
+  inherited Create;
+  FStream := nil;
+  FBuffer := nil;
+  FBufferInc := 1;
+  FBufferSize := 0;
+  FWindowSize := 0;
+  FEnabled := false;
+end;
+
+destructor TThreadSafeZlibStream.Destroy;
+begin
+  if Assigned(FBuffer) then
+    FreeMemAndNil(FBuffer);
+  Finish;
+  inherited Destroy;
+end;
+
+{ TThreadSafeInflate }
+
+function TThreadSafeInflate.Init(windowsize : SmallInt) : Integer;
+begin
+  Lock;
+  try
+    if not Initialized then
+    begin
+      FStream := AllocMem(sizeof(z_stream));
+      FStream^.zalloc := nil;
+      FStream^.zfree := nil;
+      FStream^.opaque := nil;
+      FStream^.avail_in := 0;
+      FStream^.next_in := nil;
+
+      if windowsize < 0 then FWindowSize := 0 else
+                             FWindowSize := windowsize;
+      if FWindowSize = 0 then windowsize := 15;
+      Result := inflateInit2(FStream^, -windowsize);
+      if Result <> Z_OK then Exit;
+    end else
+      Result := Z_OK;
+  finally
+    UnLock;
+  end;
+end;
+
+function TThreadSafeInflate.Next(aBuffer : Pointer; Sz : PtrInt; out
+  NewCount : PtrInt) : Integer;
+const CHUNCK_START_SZ = 1024;
+      CHUNCK_MAX_SZ   = 65536;
+var have : PtrInt;
+begin
+  Lock;
+  try
+    if FWindowSize = 0 then inflateReset(FStream^);
+    FStream^.avail_in := Sz;
+    FStream^.next_in := aBuffer;
+
+    NewCount := 0;
+    if not Assigned(FBuffer) then
+    begin
+      FBuffer := AllocMem(CHUNCK_START_SZ);
+      FBufferSize :=  CHUNCK_START_SZ;
+      FBufferInc  :=  CHUNCK_START_SZ;
+    end;
+
+    while true do begin
+      FStream^.avail_out := FBufferSize;
+      FStream^.next_out := @(FBuffer[NewCount]);
+      Result := inflate(FStream^,  Z_NO_FLUSH);
+      if Result = Z_STREAM_ERROR then Exit;
+      if not ((Result = Z_BUF_ERROR) or (Result in [Z_OK, Z_STREAM_END])) then
+      begin
+        Finish;
+        Exit;
+      end;
+      have := FBufferSize - FStream^.avail_out;
+      Inc(NewCount, have);
+      if (FStream^.avail_out = 0) or (Result = Z_BUF_ERROR) then begin
+        FBufferSize := FBufferSize + FBufferInc;
+        FBuffer := ReAllocMem(FBuffer, FBufferSize);
+        FBufferInc := FBufferInc shl 1;
+        if FBufferInc > CHUNCK_MAX_SZ then
+           FBufferInc := CHUNCK_MAX_SZ;
+      end else begin
+        Result := Z_OK;
+        Break;
+      end;
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadSafeInflate.Finish;
+begin
+  Lock;
+  try
+    if Assigned(FStream) then
+    begin
+      zlib.inflateEnd(FStream^);
+      FreeMemAndNil(FStream);
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
 { TWCWebSocketHelper }
 
 constructor TWCWebSocketHelper.Create;
@@ -309,44 +580,73 @@ begin
   inherited Destroy;
 end;
 
+function doResponsePMCDeflate(Ext : PWebSocketExt; Data : Pointer) : AnsiString;
+begin
+  Result := WSEX_PMCEDEFLATE;
+  if Assigned(Ext^.OptByName(WSEX_PMCED_CLIENT_NO_TAKEOVER)) then
+    Result := Result + ';' + WSEX_PMCED_CLIENT_NO_TAKEOVER;
+  if Assigned(Ext^.OptByName(WSEX_PMCED_SERVER_NO_TAKEOVER)) then
+    Result := Result + ';' + WSEX_PMCED_SERVER_NO_TAKEOVER;
+end;
+
 { TWCWebSocketSettings }
-
-function TWCWebSocketSettings.GetAllowedExtCount: Integer;
-begin
-  Result := FAllowedExts^.Len;
-end;
-
-function TWCWebSocketSettings.GetExt(index : integer): PWebSocketExt;
-begin
-  Result := FAllowedExts^.Exts[index];
-end;
 
 constructor TWCWebSocketSettings.Create;
 begin
   inherited Create;
-  FAllowedExts := GetMem(WSEX_MIN_EXTS_SIZE);
-  FAllowedExts^.Len := 0;
+  WebSocketRegisterExt(WSEX_PMCEDEFLATE, @doResponsePMCDeflate, Self);
 end;
 
 destructor TWCWebSocketSettings.Destroy;
 begin
-  DoneWebSocketExts(FAllowedExts, False);
+  WebSocketUnregisterAllExts;
   inherited Destroy;
 end;
 
 { TWebSocketUpgradeOptions }
 
-function TWebSocketUpgradeOptions.GetExt(index : integer): PWebSocketExt;
+function TWebSocketUpgradeOptions.GetOfferExt(index : integer): PWebSocketExt;
 begin
-  if assigned(FExtensions) then
-    Result := FExtensions^.Exts[index] else
+  if assigned(FOfferExts) then
+    Result := FOfferExts^.Exts^[index] else
     Result := nil;
 end;
 
-function TWebSocketUpgradeOptions.GetExtCount: Integer;
+function TWebSocketUpgradeOptions.GetOfferExtByName(const index : ansistring
+  ) : PWebSocketExt;
 begin
-  if assigned(FExtensions) then
-    Result := FExtensions^.Len else
+  if assigned(FOfferExts) then
+    Result := FOfferExts^.ExtByName(index) else
+    Result := nil;
+end;
+
+function TWebSocketUpgradeOptions.GetOfferExtCount: Integer;
+begin
+  if assigned(FOfferExts) then
+    Result := FOfferExts^.Len else
+    Result := 0;
+end;
+
+function TWebSocketUpgradeOptions.GetResponseExt(index : integer
+  ) : PWebSocketExt;
+begin
+  if assigned(FResponseExts) then
+    Result := FResponseExts^.Exts^[index] else
+    Result := nil;
+end;
+
+function TWebSocketUpgradeOptions.GetResponseExtByName(const index : ansistring
+  ) : PWebSocketExt;
+begin
+  if assigned(FResponseExts) then
+    Result := FResponseExts^.ExtByName(index) else
+    Result := nil;
+end;
+
+function TWebSocketUpgradeOptions.GetResponseExtCount : Integer;
+begin
+  if assigned(FResponseExts) then
+    Result := FResponseExts^.Len else
     Result := 0;
 end;
 
@@ -355,16 +655,22 @@ constructor TWebSocketUpgradeOptions.Create(aRequest: TRequest;
   );
 begin
   inherited Create;
-  FExtensions := nil;
+  FOfferExts := nil;
+  FResponseExts := nil;
   FSecWebSocketProtocol_Allow := aRequest.GetCustomHeader(WS_Sec_WebSocket_Protocol);
   FSecWebSocketProtocol := aSubProtocol;
   FSecWebSocketKey := aRequest.GetCustomHeader(WS_Sec_WebSocket_Key);
   FSecWebSocketVersion := aRequest.GetCustomHeader(WS_Sec_WebSocket_Version);
   FNumVersion := aCurVersion;
   FSecWebSocketAccept := GetWebSocketAcceptKey(FSecWebSocketKey);
-  //todo : implement extensions
   //aSettings.Exts | WS_Sec_WebSocket_Extensions
-  FSecWebSocketExts := '';//aReq.GetCustomHeader(WS_Sec_WebSocket_Extensions);
+  FSecWebSocketExts := WebSocketGetResponseExt(FOfferExts,
+                    aRequest.GetCustomHeader(WS_Sec_WebSocket_Extensions));
+  If Length(FSecWebSocketExts) > 0 then
+     ParseWebSocketExts(FResponseExts, FSecWebSocketExts);
+
+  FDeflateExt := ResponseExtByName[WSEX_PMCEDEFLATE];
+
   FInitialRequest := TRequest.Create;
   CopyHTTPRequest(FInitialRequest, aRequest);
 end;
@@ -372,7 +678,8 @@ end;
 destructor TWebSocketUpgradeOptions.Destroy;
 begin
   if assigned(FInitialRequest) then FInitialRequest.Free;
-  if assigned(FExtensions) then DoneWebSocketExts(FExtensions, False);
+  if assigned(FOfferExts) then DoneWebSocketExts(FOfferExts, False);
+  if assigned(FResponseExts) then DoneWebSocketExts(FResponseExts, False);
   inherited Destroy;
 end;
 
@@ -395,6 +702,11 @@ procedure TWCWSFrameHolder.SaveToStream(Str: TStream);
 begin
   inherited SaveToStream(Str);
   FFrame.SaveToStream(Str);
+end;
+
+function TWCWSFrameHolder.Memory : Pointer;
+begin
+  Result := FFrame.Memory;
 end;
 
 function TWCWSFrameHolder.Size: Int64;
@@ -426,6 +738,11 @@ begin
     Str.WriteBuffer(FBuffer^, FBufferSize);
 end;
 
+function TWCWSControlFrame.Memory : Pointer;
+begin
+  Result := nil;
+end;
+
 function TWCWSControlFrame.Size: Int64;
 begin
   Result:=(inherited Size) + FBufferSize;
@@ -451,43 +768,29 @@ begin
   Result := Length(FHandshakeStr);
 end;
 
+function TWCWSUpgradeHandshakeFrame.Memory : Pointer;
+begin
+  Result := nil;
+end;
+
 { TWCWSChunck }
 
-function TWCWSChunck.GetExt(index : integer): PWebSocketExt;
+function TWCWSChunck.GetOptions : TWebSocketUpgradeOptions;
 begin
-  if assigned(FExtensions) then
-    Result := FExtensions^.Exts[index] else
-    Result := nil;
+  Result := FConnection.Options;
 end;
 
-function TWCWSChunck.GetExtCount: Integer;
-begin
-  if assigned(FExtensions) then
-    Result := FExtensions^.Len else
-    Result := 0;
-end;
-
-constructor TWCWSChunck.Create(aOptions : TWebSocketUpgradeOptions;
-  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketExt);
-var i : integer;
+constructor TWCWSChunck.Create(aConn : TWCWebSocketConnection;
+  aOpCode : TWebSocketOpCode; aRSV : Byte);
 begin
   inherited Create;
-  FOptions := aOptions;
+  FConnection := aConn;
   FOpCode := aOpCode;
-  if Length(Exts) > 0 then
-  begin
-    FExtensions := InitWebSocketExts(Length(Exts));
-    for i := 0 to high(Exts) do
-    begin
-      FExtensions^.Exts[i] := Exts[i];
-    end;
-  end else
-    FExtensions := nil;
+  FRSV := aRSV;
 end;
 
 destructor TWCWSChunck.Destroy;
 begin
-  if Assigned(FExtensions) then DoneWebSocketExts(FExtensions, True);
   inherited Destroy;
 end;
 
@@ -554,7 +857,7 @@ procedure TWCWSFrameHeader.Initialize(aIsFin: Boolean; aRSVMask: Byte;
   aOpCode: TWebSocketOpCode; aIsMasked: Boolean; aPayloadSize: Int64;
   aMaskingKey: Cardinal);
 begin
-  FHeaderToSend := nil;
+  if assigned(FHeaderToSend) then FreeMemAndNil(FHeaderToSend);
   FParseError := false;
   FFin:= aIsFin;
   FRSVMask:= aRSVMask;
@@ -659,6 +962,11 @@ begin
   FHeader.SaveToStream(Str);
 end;
 
+function TWCWSFrameHeaderFrame.Memory : Pointer;
+begin
+  Result := nil;
+end;
+
 function TWCWSFrameHeaderFrame.Size: Int64;
 begin
   Result := FHeader.ActualHeaderSize;
@@ -671,10 +979,10 @@ begin
   Result := Data.Size;
 end;
 
-constructor TWCWSIncomingChunck.Create(aOptions : TWebSocketUpgradeOptions;
-  aOpCode : TWebSocketOpCode; const Exts : array of PWebSocketExt);
+constructor TWCWSIncomingChunck.Create(aConn : TWCWebSocketConnection;
+  aOpCode : TWebSocketOpCode; aRSV : Byte);
 begin
-  inherited Create(aOptions, aOpCode, Exts);
+  inherited Create(aConn, aOpCode, aRSV);
   FData := TMemoryStream.Create;
 end;
 
@@ -695,7 +1003,24 @@ begin
 end;
 
 procedure TWCWSIncomingChunck.Complete;
+var aDataSize : PtrInt;
 begin
+  aDataSize := TotalSize;
+  //The message is concatenated and complete
+  //Working with extensions
+  if Connection.InflateStream.Enabled then
+  begin
+    if ((FRSV and $4) > 0) and (aDataSize > 0) then
+    begin
+      { Append 4 octets of 0x00 0x00 0xff 0xff to the
+        tail end of the payload of the message. }
+      FData.SetSize(aDataSize + WSEX_PMCED_FINAL_OCTETS_LEN);
+      Move(WSEX_PMCED_FINAL_OCTETS[0],
+           Pointer(FData.Memory + aDataSize)^,
+           WSEX_PMCED_FINAL_OCTETS_LEN);
+      Connection.DecodeStream(FData);
+    end;
+  end;
   FComplete := true;
 end;
 
@@ -748,10 +1073,11 @@ begin
     end;
     while rs > 0 do
     begin
-      Dec(rs);
-      PByte(wrloc)^ := PByte(loc)^ xor ((BEMaskKey shr (rs shl 3)) and $FF);
+      PByte(wrloc)^ := PByte(loc)^ xor Byte(BEMaskKey and $ff);
+      BEMaskKey := ((BEMaskKey and $ffffff) shr 8);
       Inc(PByte(wrloc));
       Inc(PByte(loc));
+      Dec(rs);
     end;
     FData.Position := FData.Position + aSize;
   end else
@@ -886,10 +1212,10 @@ begin
   // do nothing
 end;
 
-function TWCWebSocketConnection.AddNewIncomingChunck(aOpCode: TWebSocketOpCode;
-  const aExts: array of PWebSocketExt): TWCWSIncomingChunck;
+function TWCWebSocketConnection.AddNewIncomingChunck(
+  aOpCode : TWebSocketOpCode; aRSV : Byte) : TWCWSIncomingChunck;
 begin
-  Result := TWCWSIncomingChunck.Create(FOptions, aOpCode, aExts);
+  Result := TWCWSIncomingChunck.Create(Self, aOpCode, aRSV);
   Result.IncReference;
   FInChuncks.PushChunck(Result);
   Owner.GarbageCollector.Add(Result);
@@ -898,6 +1224,170 @@ end;
 function TWCWebSocketConnection.GetWebSocketSettings: TWCWebSocketSettings;
 begin
   Result := TWCWebSocketHelper(Owner.Protocol[wcWebSocket]).Settings;
+end;
+
+function TWCWebSocketConnection.InitZLibStream(Strm : TThreadSafeZlibStream;
+  aExt : PWebSocketExt) : Integer;
+var
+  aWindowStr, aTakeOverStr : AnsiString;
+  windowsize : Smallint;
+  opt : PWebSocketExtOption;
+  inExt : PWebSocketExt;
+begin
+  if not Assigned(aExt) then Exit(Z_VERSION_ERROR);
+  if not Strm.Initialized then
+  begin
+    if Strm is TThreadSafeInflate then
+    begin
+      aWindowStr := WSEX_PMCED_CLIENT_MAX_WINDOW;
+      aTakeOverStr := WSEX_PMCED_CLIENT_NO_TAKEOVER;
+    end else
+    begin
+      aWindowStr := WSEX_PMCED_SERVER_MAX_WINDOW;
+      aTakeOverStr := WSEX_PMCED_SERVER_NO_TAKEOVER;
+    end;
+    opt := aExt^.OptByName(aWindowStr);
+    if assigned(opt) then windowsize := opt^.Value else
+    begin
+      windowsize := 0;
+      opt := aExt^.OptByName(aTakeOverStr);
+      if not Assigned(opt) then
+      begin
+        inExt := Options.OfferExtByName[WSEX_PMCEDEFLATE];
+        if Assigned(inExt) then
+        begin
+          opt := inExt^.OptByName(aWindowStr);
+          if Assigned(opt) then
+          begin
+            windowsize := opt^.Value;
+          end else
+            windowsize := 15;
+        end;
+      end;
+    end;
+    Result := Strm.Init(windowsize);
+  end else
+    Result := Z_OK;
+end;
+
+procedure TWCWebSocketConnection.DecodeStream(aStream : TMemoryStream);
+var ret : integer;
+    NewCount : PtrInt;
+begin
+  ret := Z_OK;
+  FInflateStream.Lock;
+  try
+    try
+      ret := InitZLibStream(FInflateStream, Options.DeflateExt);
+      if ret <> Z_OK then Exit;
+
+      try
+        ret := FInflateStream.Next(aStream.Memory, aStream.Size, NewCount);
+      finally
+        if ret = Z_OK then
+        begin
+          aStream.SetSize(NewCount);
+          aStream.Position := 0;
+          aStream.WriteBuffer(FInflateStream.Buffer^, NewCount);
+          aStream.Position := 0;
+        end;
+      end;
+    except
+      Close(WSE_WRONG_DATA_FORMAT, '');
+    end;
+  finally
+    FInflateStream.UnLock;
+    if ret <> Z_OK then
+      Close(WSE_WRONG_DATA_FORMAT, '');
+  end;
+end;
+
+procedure TWCWebSocketConnection.EncodeFramePayload(aFrame : TWCWSFrameHolder);
+var ret      : integer;
+    NewCount : PtrInt;
+    Stream   : TStream;
+    TmpBuf   : Pointer;
+    fr       : TWCRefProtoFrame;
+begin
+  ret := Z_OK;
+  FDeflateStream.Lock;
+  try
+    try
+      fr := aFrame.FFrame;
+      if not Assigned(fr) then Exit;
+
+      ret := InitZLibStream(FDeflateStream, Options.DeflateExt);
+      if ret <> Z_OK then Exit;
+
+      if (fr.Size < 8) or
+         ((FDeflateStream.FWindowSize = 0) and
+          (fr.Size < 256)) then Exit;
+
+      try
+        if Assigned(fr.Memory) then
+          ret := FDeflateStream.Next(fr.Memory, fr.Size, NewCount) else
+        begin
+          Stream := TBufferedStream.Create;
+          try
+            TmpBuf := GetMem(fr.Size);
+            TBufferedStream(Stream).SetPointer(TmpBuf, fr.Size);
+            fr.SaveToStream(Stream);
+            ret := FDeflateStream.Next(TBufferedStream(Stream).Memory,
+                                       fr.Size, NewCount);
+          finally
+            Stream.Free;
+            FreeMemAndNil(TmpBuf);
+          end;
+        end;
+      finally
+        if ret = Z_OK then
+        begin
+          Dec(NewCount, WSEX_PMCED_FINAL_OCTETS_LEN);
+          if NewCount > 0 then
+          begin
+            if (fr is TWCStreamFrame) and
+               (TWCStreamFrame(fr).Stream is TMemoryStream) then
+            begin
+              Stream := TWCStreamFrame(fr).Stream;
+            end else
+            if fr is TWCStringsFrame then
+            begin
+              Stream := TWCStringsFrame(fr).Stream;
+            end else
+            if fr is TWCStringFrame then
+            begin
+              TWCStringFrame(fr).SetStrLength(NewCount);
+              Move(FDeflateStream.Buffer^, fr.Memory^, NewCount);
+              Stream := nil;
+            end else
+            begin
+              Stream := TMemoryStream.Create;
+              Fr.Free;
+              fr := TWCStreamFrame.Create(Stream, NewCount, true);
+              aFrame.FFrame := fr;
+            end;
+
+            if assigned(Stream) then
+            begin
+              TMemoryStream(Stream).SetSize(NewCount);
+              TMemoryStream(Stream).Position := 0;
+              TMemoryStream(Stream).WriteBuffer(FDeflateStream.Buffer^, NewCount);
+              TMemoryStream(Stream).Position := 0;
+            end;
+
+            with aFrame.FHeader do
+              Initialize(IsFin, RSVMask or $4, OpCode, IsMasked, fr.Size, 0);
+          end;
+        end;
+      end;
+    except
+      Close(WSE_WRONG_DATA_FORMAT, '');
+    end;
+  finally
+    FDeflateStream.UnLock;
+    if ret <> Z_OK then
+      Close(WSE_WRONG_DATA_FORMAT, '');
+  end;
 end;
 
 constructor TWCWebSocketConnection.Create(aOwner : TWCRefConnections;
@@ -910,6 +1400,11 @@ begin
   FOptions := aOpenMode;
   FInChuncks := TWCWSIncomingChuncks.Create;
 
+  FInflateStream := TThreadSafeInflate.Create;
+  FInflateStream.Enabled := Assigned(FOptions.DeflateExt);
+  FDeflateStream := TThreadSafeDeflate.Create;
+  FDeflateStream.Enabled := Assigned(FOptions.DeflateExt);
+
   {send handshake}
   if assigned(aOpenMode) then begin
     PushFrame(TWCWSUpgradeHandshakeFrame.Create(FOptions));
@@ -920,6 +1415,8 @@ destructor TWCWebSocketConnection.Destroy;
 begin
   FInChuncks.Free;
   if assigned(FOptions) then FreeAndNil(FOptions);
+  FreeAndNil(FInflateStream);
+  FreeAndNil(FDeflateStream);
   inherited Destroy;
 end;
 
@@ -1043,7 +1540,8 @@ begin
           case FrameHeader.OpCode of
             WSP_OPCODE_TEXT,
             WSP_OPCODE_BINARY : begin
-              ActualChunck := AddNewIncomingChunck(FrameHeader.OpCode, []);
+              ActualChunck := AddNewIncomingChunck(FrameHeader.OpCode,
+                                                   FrameHeader.RSVMask);
               ActualChunck.IncReference;
               ActualChunck.PushData(Pointer(S.Memory + S.Position),
                                     FrameHeader.PayloadLength,
@@ -1131,6 +1629,8 @@ begin
       aOpCode := WSP_OPCODE_TEXT else
       aOpCode := WSP_OPCODE_BINARY;
     hfr := TWCWSFrameHolder.Create(TWCWSFrameHeader.Create(aOpCode, fr.Size), fr);
+    if FDeflateStream.Enabled then
+      EncodeFramePayload(TWCWSFrameHolder(hfr));
     inherited PushFrame(hfr);
   end;
 end;

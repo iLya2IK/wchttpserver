@@ -37,6 +37,7 @@ uses
   BufferedStream,
   uhpack,
   http2consts,
+  http1utils,
   http2http1conv
   {$ifdef DEBUG_STAT}
   , wcdebug_vars
@@ -70,6 +71,7 @@ type
     constructor Create(aFrameType: Byte; aStr: TWCHTTP2Stream; aFrameFlags: Byte);
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
+    function Memory : Pointer; override;
     function Size : Int64; override;
   end;
   
@@ -82,6 +84,7 @@ type
     constructor Create(aFrameType: Byte;
       aStream: TWCHTTP2Stream; aFrameFlags: Byte;
       aData: Pointer; aDataSize: Cardinal; aOwnPayload: Boolean = true); overload;
+    function Memory : Pointer; override;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
   end;
@@ -98,6 +101,7 @@ type
                        aData : TReferencedStream;
                        aStrmPos : Int64;
                        aDataSize : Cardinal);
+    function Memory : Pointer; override;
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
   end;
@@ -107,6 +111,7 @@ type
   TWCHTTP2AdvFrame = class(TWCRefProtoFrame)
   public
     procedure SaveToStream(Str : TStream); override;
+    function Memory : Pointer; override;
     function Size : Int64; override;
   end;
 
@@ -118,6 +123,7 @@ type
   public
     constructor Create(Mode : THTTP2OpenMode);
     procedure SaveToStream(Str : TStream); override;
+    function Memory : Pointer; override;
     function Size : Int64; override;
   end;
 
@@ -910,6 +916,20 @@ begin
     Str.WriteBuffer(Buffer^, BufferSize);
 end;
 
+function TWCHTTP2UpgradeResponseFrame.Memory : Pointer;
+begin
+  case FMode of
+    h2oUpgradeToH2C : begin
+      Result := @(HTTP2UpgradeBlockH2C[1]);
+    end;
+    h2oUpgradeToH2 : begin
+      Result := @(HTTP2UpgradeBlockH2[1]);
+    end;
+  else
+    Result := nil;
+  end;
+end;
+
 function TWCHTTP2UpgradeResponseFrame.Size: Int64;
 begin
   case FMode of
@@ -929,6 +949,11 @@ end;
 procedure TWCHTTP2AdvFrame.SaveToStream(Str: TStream);
 begin
   Str.WriteBuffer(HTTP2Preface, H2P_PREFACE_SIZE);
+end;
+
+function TWCHTTP2AdvFrame.Memory : Pointer;
+begin
+  Result := @(HTTP2Preface[0]);
 end;
 
 function TWCHTTP2AdvFrame.Size: Int64;
@@ -1416,6 +1441,11 @@ begin
   Header.SaveToStream(Str);
 end;
 
+function TWCHTTP2Frame.Memory : Pointer;
+begin
+  Result := nil;
+end;
+
 function TWCHTTP2Frame.Size: Int64;
 begin
   Result := H2P_FRAME_HEADER_SIZE + Header.PayloadLength;
@@ -1430,6 +1460,11 @@ begin
   Header.PayloadLength := aDataSize;
   Payload:= aData;
   OwnPayload:= aOwnPayload;
+end;
+
+function TWCHTTP2DataFrame.Memory : Pointer;
+begin
+  Result := Payload;
 end;
 
 destructor TWCHTTP2DataFrame.Destroy;
@@ -1456,6 +1491,19 @@ begin
   aData.IncReference;
   FStrm := aData;
   Fpos:= aStrmPos;
+end;
+
+function TWCHTTP2RefFrame.Memory : Pointer;
+begin
+  if FStrm.Stream is TMemoryStream then
+  begin
+    Result := TMemoryStream(FStrm.Stream).Memory;
+  end else
+  if FStrm.Stream is TBufferedStream then
+  begin
+    Result := TBufferedStream(FStrm.Stream).Memory;
+  end else
+    Result := nil;
 end;
 
 destructor TWCHTTP2RefFrame.Destroy;
