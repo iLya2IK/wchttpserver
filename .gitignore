@@ -5,11 +5,13 @@
 *.obj
 *.compiled
 *.rsj
-/lib/
-/backup/
+/src/lib/
+/demo/lib/
+/src/backup/
+/demo/backup/
 /testing/
 /example/
-/openssl/backup/
+/src/openssl/backup/
 *.key
 *.crt
 *.dbg
@@ -18,7 +20,7 @@
 *.exe
 *.lps
 *.sh
-!/openssl/certgen.sh
+!/demo/openssl/certgen.sh
 *.db
 *.gz
 *.zip

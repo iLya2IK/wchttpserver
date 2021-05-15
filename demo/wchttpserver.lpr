@@ -56,8 +56,6 @@ uses
   Classes,
   SysUtils,
   Interfaces,
-  { you can add units after this }
-  extopenssl,
   {$IFDEF LOAD_DYNAMICALLY}
   SQLite3Dyn,
   {$ENDIF}

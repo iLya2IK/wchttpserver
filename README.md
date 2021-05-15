@@ -1,4 +1,4 @@
-![alt text](https://github.com/iLya2IK/wchttpserver/blob/main/wclogo_c.svg?raw=true)
+![alt text](https://github.com/iLya2IK/wchttpserver/blob/main/icons/wclogo_c.svg?raw=true)
 
 # wchttpserver
 HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)
@@ -39,13 +39,7 @@ Free Pascal (v3.2.0) + Lazarus (v2.0.10)
 1. SQLite
 2. OpenSSL (v1.1.0 or higher)
 3. Zlib
-4. CommonUtils - you can download sources [here](https://github.com/iLya2IK/commonutils). 
-```
-Note: unpack the CommonUtils archive into the same directory as the server directory:
-example: 
-your wchttpserver dir:     /home/projects/wchttpserver
-then your commonutils dir: /home/projects/commonutils
-```
+4. CommonUtils - you can download sources [here](https://github.com/iLya2IK/commonutils)
 
 # Copyrights
 * [fcl-web (fpWeb) - part of Free Pascal's Free Component Library (FCL), focusing on web (related) application development](https://wiki.lazarus.freepascal.org/fcl-web)
