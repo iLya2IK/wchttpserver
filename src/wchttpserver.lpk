@@ -2,7 +2,6 @@
 <CONFIG>
   <Package Version="4">
     <Name Value="wchttpserver"/>
-    <Type Value="RunAndDesignTime"/>
     <CompilerOptions>
       <Version Value="11"/>
       <SearchPaths>
