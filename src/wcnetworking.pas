@@ -31,7 +31,7 @@ uses
   Classes, SysUtils,
   ECommonObjs, OGLFastList,
   fphttp, HTTPDefs, httpprotocol, abstracthttpserver,
-  BufferedStream,
+  BufferedStream, extmemorystream,
   ssockets,
   sockets
   {$ifdef unix}
@@ -83,14 +83,14 @@ type
 
   TWCStringsFrame = class(TWCRefProtoFrame)
   private
-    Strm : TMemoryStream;
+    Strm : TExtMemoryStream;
   public
     constructor Create(Strs : TStrings);
     destructor Destroy; override;
     procedure SaveToStream(Str : TStream); override;
     function Memory : Pointer; override;
     function Size : Int64; override;
-    property Stream : TMemoryStream read Strm;
+    property Stream : TExtMemoryStream read Strm;
   end;
 
   { TWCStreamFrame }
@@ -466,7 +466,10 @@ begin
     Result := FRequestRef.GetReqContentStream;
     OwnStream := not FRequestRef.IsReqContentStreamOwn;
   end else
-    Result := inherited UpdateStreamValue;
+  begin
+    Result := TExtMemoryStream.Create;
+    OwnStream := true;
+  end;
 end;
 
 constructor TWCContent.Create;
@@ -526,6 +529,10 @@ end;
 
 function TWCRefStreamFrame.Memory : Pointer;
 begin
+  if FStrm.Stream is TExtMemoryStream then
+  begin
+    Result := TExtMemoryStream(FStrm.Stream).Memory;
+  end else
   if FStrm.Stream is TMemoryStream then
   begin
     Result := TMemoryStream(FStrm.Stream).Memory;
@@ -573,7 +580,7 @@ end;
 
 constructor TWCStringsFrame.Create(Strs: TStrings);
 begin
-  Strm := TMemoryStream.Create;
+  Strm := TExtMemoryStream.Create;
   Strs.SaveToStream(Strm);
 end;
 
@@ -603,9 +610,13 @@ end;
 constructor TWCStreamFrame.Create(Strm: TStream; Sz: Cardinal;
   Owned: Boolean);
 begin
+  if not Assigned(Strm) then
+  begin
+    FStrm := TExtMemoryStream.Create(Sz);
+  end else
   if Owned then FStrm := Strm else
   begin
-     FStrm := TMemoryStream.Create;
+     FStrm := TExtMemoryStream.Create(Sz);
      FStrm.CopyFrom(Strm, Sz);
      FStrm.Position:=0;
   end;
@@ -624,6 +635,10 @@ end;
 
 function TWCStreamFrame.Memory : Pointer;
 begin
+  if FStrm is TExtMemoryStream then
+  begin
+    Result := TExtMemoryStream(FStrm).Memory;
+  end else
   if FStrm is TMemoryStream then
   begin
     Result := TMemoryStream(FStrm).Memory;

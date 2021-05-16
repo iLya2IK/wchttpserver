@@ -35,6 +35,7 @@ uses
   fphttp, HTTPDefs, httpprotocol, abstracthttpserver,
   wcnetworking,
   BufferedStream,
+  extmemorystream,
   uhpack,
   http2consts,
   http1utils,
@@ -131,10 +132,10 @@ type
 
   TWCHTTP2Block = class
   private
-    FData          : TMemoryStream;
+    FData          : TExtMemoryStream;
     FConnection    : TWCHTTP2Connection;
     FStream        : TWCHTTP2Stream;
-    function GetDataBlock : TMemoryStream;
+    function GetDataBlock : TExtMemoryStream;
     function GetDataBlockSize : Integer;
   public
     constructor Create(aConnection : TWCHTTP2Connection;
@@ -145,7 +146,7 @@ type
     procedure PushData(Strm: TStream; startAt: Int64); overload;
     procedure PushData(Strings: TStrings); overload;
     property  Stream : TWCHTTP2Stream read FStream;
-    property  Data : TMemoryStream read GetDataBlock;
+    property  Data : TExtMemoryStream read GetDataBlock;
     property  DataBlockSize : Integer read GetDataBlockSize;
   end;
 
@@ -208,7 +209,7 @@ type
 
   TWCHTTP2ResponseHeaderPusher = class
   private
-    FMem : TMemoryStream;
+    FMem : TExtMemoryStream;
     FHPackEncoder : TThreadSafeHPackEncoder;
   protected
     property HPackEncoder : TThreadSafeHPackEncoder read FHPackEncoder write FHPackEncoder;
@@ -1014,8 +1015,7 @@ constructor TWCHTTP2ResponseHeaderPusher.Create(
 begin
   aHPackEncoder.IncReference;
   FHPackEncoder := aHPackEncoder;
-  FMem := TMemoryStream.Create;
-  FMem.SetSize(4128);
+  FMem := TExtMemoryStream.Create(4128);
 end;
 
 destructor TWCHTTP2ResponseHeaderPusher.Destroy;
@@ -1495,6 +1495,10 @@ end;
 
 function TWCHTTP2RefFrame.Memory : Pointer;
 begin
+  if FStrm.Stream is TExtMemoryStream then
+  begin
+    Result := TExtMemoryStream(FStrm.Stream).Memory;
+  end else
   if FStrm.Stream is TMemoryStream then
   begin
     Result := TMemoryStream(FStrm.Stream).Memory;
@@ -1590,7 +1594,7 @@ begin
   PushData(Pointer(@(ToSend[1])), L);
 end;
 
-function TWCHTTP2Block.GetDataBlock : TMemoryStream;
+function TWCHTTP2Block.GetDataBlock : TExtMemoryStream;
 begin
   Result := FData;
 end;
@@ -1603,7 +1607,7 @@ end;
 constructor TWCHTTP2Block.Create(aConnection: TWCHTTP2Connection;
   aStream: TWCHTTP2Stream);
 begin
-  FData := TMemoryStream.Create;
+  FData := TExtMemoryStream.Create;
   FConnection := aConnection;
   FStream := aStream;
 end;

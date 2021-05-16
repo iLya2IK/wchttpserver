@@ -18,7 +18,7 @@ unit wcdecoders;
 interface
 
 uses
-  Classes, SysUtils, StringHashList, ECommonObjs, BufferedStream;
+  Classes, SysUtils, StringHashList, ECommonObjs, BufferedStream, extmemorystream;
 
 type
 
@@ -201,6 +201,13 @@ var outBuffer : PByte;
     Sz : PtrInt;
 begin
   if not Assigned(InOutStream) then Exit;
+  if InOutStream is TExtMemoryStream then
+  begin
+    Decode(TExtMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
+    if Assigned(outBuffer) then
+      TExtMemoryStream(InOutStream).SetPointer(outBuffer, Sz);
+  end
+  else
   if InOutStream is TMemoryStream then
   begin
     Decode(TMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);

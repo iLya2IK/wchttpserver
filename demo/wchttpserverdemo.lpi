@@ -81,7 +81,7 @@
     </RequiredPackages>
     <Units Count="4">
       <Unit0>
-        <Filename Value="wchttpserver.lpr"/>
+        <Filename Value="wchttpserverdemo.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit0>
       <Unit1>

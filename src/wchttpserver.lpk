@@ -2,17 +2,20 @@
 <CONFIG>
   <Package Version="4">
     <Name Value="wchttpserver"/>
+    <Author Value="Copyright (c) 2020-2021, Ilya Medvedkov"/>
     <CompilerOptions>
       <Version Value="11"/>
       <SearchPaths>
-        <OtherUnitFiles Value="openssl"/>
+        <OtherUnitFiles Value="openssl;protocols;fpwebabstract"/>
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <Other>
         <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP  -dWC_WEB_SOCKETS"/>
       </Other>
     </CompilerOptions>
-    <Version Minor="9" Build="1"/>
+    <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)"/>
+    <License Value="LGPL v2"/>
+    <Version Minor="9" Build="2"/>
     <Files Count="19">
       <Item1>
         <Filename Value="openssl/extopenssl.pp"/>
@@ -27,68 +30,69 @@
         <UnitName Value="openssl"/>
       </Item3>
       <Item4>
-        <Filename Value="abstracthttpserver.pas"/>
-        <UnitName Value="abstracthttpserver"/>
-      </Item4>
-      <Item5>
-        <Filename Value="custabshttpapp.pas"/>
-        <UnitName Value="custabshttpapp"/>
-      </Item5>
-      <Item6>
-        <Filename Value="http1utils.pas"/>
-        <UnitName Value="http1utils"/>
-      </Item6>
-      <Item7>
-        <Filename Value="http2consts.pas"/>
-        <UnitName Value="http2consts"/>
-      </Item7>
-      <Item8>
-        <Filename Value="http2http1conv.pas"/>
-        <UnitName Value="http2http1conv"/>
-      </Item8>
-      <Item9>
         <Filename Value="wcappconfig.inc"/>
         <Type Value="Include"/>
-      </Item9>
-      <Item10>
+      </Item4>
+      <Item5>
         <Filename Value="wcapplication.pas"/>
         <UnitName Value="wcapplication"/>
-      </Item10>
-      <Item11>
+      </Item5>
+      <Item6>
         <Filename Value="wcconfig.pas"/>
         <UnitName Value="wcconfig"/>
-      </Item11>
-      <Item12>
+      </Item6>
+      <Item7>
         <Filename Value="wcdebug_vars.pas"/>
         <UnitName Value="wcdebug_vars"/>
-      </Item12>
-      <Item13>
+      </Item7>
+      <Item8>
         <Filename Value="wcdecoders.pas"/>
         <UnitName Value="wcdecoders"/>
-      </Item13>
-      <Item14>
+      </Item8>
+      <Item9>
         <Filename Value="wcdeflatedecoder.pas"/>
         <UnitName Value="wcdeflatedecoder"/>
-      </Item14>
-      <Item15>
+      </Item9>
+      <Item10>
         <Filename Value="wchttp2con.pas"/>
         <UnitName Value="wchttp2con"/>
-      </Item15>
-      <Item16>
+      </Item10>
+      <Item11>
         <Filename Value="wcnetworking.pas"/>
         <UnitName Value="wcnetworking"/>
-      </Item16>
-      <Item17>
+      </Item11>
+      <Item12>
         <Filename Value="wcutils.pas"/>
         <UnitName Value="wcutils"/>
-      </Item17>
-      <Item18>
+      </Item12>
+      <Item13>
         <Filename Value="wcwebsocketcon.pas"/>
         <UnitName Value="wcwebsocketcon"/>
+      </Item13>
+      <Item14>
+        <Filename Value="protocols/http1utils.pas"/>
+        <UnitName Value="http1utils"/>
+      </Item14>
+      <Item15>
+        <Filename Value="protocols/http2consts.pas"/>
+        <UnitName Value="http2consts"/>
+      </Item15>
+      <Item16>
+        <Filename Value="protocols/http2http1conv.pas"/>
+        <UnitName Value="http2http1conv"/>
+      </Item16>
+      <Item17>
+        <Filename Value="protocols/websocketconsts.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="websocketconsts"/>
+      </Item17>
+      <Item18>
+        <Filename Value="fpwebabstract/abstracthttpserver.pas"/>
+        <UnitName Value="abstracthttpserver"/>
       </Item18>
       <Item19>
-        <Filename Value="websocketconsts.pas"/>
-        <UnitName Value="websocketconsts"/>
+        <Filename Value="fpwebabstract/custabshttpapp.pas"/>
+        <UnitName Value="custabshttpapp"/>
       </Item19>
     </Files>
     <RequiredPkgs Count="3">

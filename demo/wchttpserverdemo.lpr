@@ -1,8 +1,8 @@
 {
   This project file is the example how can be realized WCHTTPServer
   Project contains:
-  wchttpserver.lpi, 
-  wchttpserver.lpr, 
+  wchttpserverdemo.lpi, 
+  wchttpserverdemo.lpr, 
   wctestclient.pas, 
   wcservertestjobs.pas, 
   wcmaintest.pas, 
@@ -21,8 +21,8 @@
 
   How to write your own server?
 
-  * Rewrite wchttpserver.lpr - write here locations for your own 
-    files (certificates, keys, mime file, site files, session 
+  * Rewrite wchttpserverdemo.lpr - write here locations for your 
+    own files (certificates, keys, mime file, site files, session 
     database, log database, list of using ciphers, list of 
     necessary protocols, initial values for http/2 headers, num of 
     threads) or do it more clever way - by external config file 
@@ -43,7 +43,7 @@
 
 }
 
-program wchttpserver;
+program wchttpserverdemo;
 
 {$mode objfpc}{$H+}
 {$DEFINE UseCThreads}

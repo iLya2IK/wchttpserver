@@ -26,7 +26,7 @@ The project builds on fpWeb modules and extends them to increase functionality:
 * Command-line to start testing server: "wchttpserver {PORTNUM} [-debug]" (PORTNUM - is a number of the listening port - 8080 for example)
 
 # How to write your own server?
-* Rewrite wchttpserver.lpr - write here locations for your own files (certificates, keys, mime file, site files, session database, log database, list of using ciphers, list of necessary protocols, initial values for http/2 headers, num of threads) or do it by editing external config file "server.cfg".
+* Rewrite wchttpserverdemo.lpr - write here locations for your own files (certificates, keys, mime file, site files, session database, log database, list of using ciphers, list of necessary protocols, initial values for http/2 headers, num of threads) or do it by editing external config file "server.cfg".
 * Rewrite wcmaintest.pas - write here your own TWCPreAnalizeClientJob descendant class to implement the task which pre-analyzing requests and creating corresponding async tasks. Adwise you to using data trees like in example to realize such pre-analyzing task. 
 * Rewrite wctestclient.pas - implement here your own descendant class for TWebClient where add your own properties and functionality (just look how this is done in example file).
 * Rewrite wcservertestjobs.pas - write your own server's async tasks here (descendant classes for TWCMainClientJob). Every task is connected to the requesting client.

@@ -8,10 +8,10 @@ unit wchttpserver;
 interface
 
 uses
-  extopenssl, extopensslsockets, openssl, abstracthttpserver, custabshttpapp, 
-  http1utils, http2consts, http2http1conv, wcapplication, wcconfig, 
+  extopenssl, extopensslsockets, openssl, wcapplication, wcconfig, 
   wcdebug_vars, wcdecoders, wcdeflatedecoder, wchttp2con, wcnetworking, 
-  wcutils, wcwebsocketcon, websocketconsts;
+  wcutils, wcwebsocketcon, http1utils, http2consts, http2http1conv, 
+  abstracthttpserver, custabshttpapp;
 
 implementation
 

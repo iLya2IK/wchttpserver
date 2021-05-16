@@ -22,7 +22,7 @@ interface
 uses
   Classes, SysUtils,
   wcnetworking,
-  BufferedStream,
+  BufferedStream, extmemorystream,
   ECommonObjs, OGLFastList,
   websocketconsts,
   fphttp, HTTPDefs,
@@ -202,7 +202,7 @@ type
 
   TWCWSIncomingChunck = class(TWCWSChunck)
   private
-    FData       : TMemoryStream;
+    FData       : TExtMemoryStream;
     FComplete   : Boolean;
     function GetTotalSize: Int64;
   public
@@ -215,7 +215,7 @@ type
     procedure Complete;
     property IsComplete : Boolean read FComplete;
     property TotalSize : Int64 read GetTotalSize;
-    property Data : TMemoryStream read FData;
+    property Data : TExtMemoryStream read FData;
     procedure CopyToHTTP1Request(aReq1 : TWCConnectionRequest); override;
     procedure PushData(aBuffer: Pointer;
                        aSize: Cardinal;
@@ -313,7 +313,7 @@ type
     function GetWebSocketSettings: TWCWebSocketSettings;
     function InitZLibStream(Strm : TThreadSafeZlibStream; aExt : PWebSocketExt
       ) : Integer;
-    procedure DecodeStream(aStream : TMemoryStream);
+    procedure DecodeStream(aStream : TExtMemoryStream);
     procedure EncodeFramePayload(aFrame : TWCWSFrameHolder);
   protected
     function GetInitialReadBufferSize : Cardinal; override;
@@ -983,7 +983,7 @@ constructor TWCWSIncomingChunck.Create(aConn : TWCWebSocketConnection;
   aOpCode : TWebSocketOpCode; aRSV : Byte);
 begin
   inherited Create(aConn, aOpCode, aRSV);
-  FData := TMemoryStream.Create;
+  FData := TExtMemoryStream.Create;
 end;
 
 destructor TWCWSIncomingChunck.Destroy;
@@ -1270,7 +1270,7 @@ begin
     Result := Z_OK;
 end;
 
-procedure TWCWebSocketConnection.DecodeStream(aStream : TMemoryStream);
+procedure TWCWebSocketConnection.DecodeStream(aStream : TExtMemoryStream);
 var ret : integer;
     NewCount : PtrInt;
 begin
@@ -1285,12 +1285,7 @@ begin
         ret := FInflateStream.Next(aStream.Memory, aStream.Size, NewCount);
       finally
         if ret = Z_OK then
-        begin
-          aStream.SetSize(NewCount);
-          aStream.Position := 0;
-          aStream.WriteBuffer(FInflateStream.Buffer^, NewCount);
-          aStream.Position := 0;
-        end;
+          aStream.CopyMemory(FInflateStream.Buffer^, NewCount);
       end;
     except
       Close(WSE_WRONG_DATA_FORMAT, '');
@@ -1346,7 +1341,8 @@ begin
           if NewCount > 0 then
           begin
             if (fr is TWCStreamFrame) and
-               (TWCStreamFrame(fr).Stream is TMemoryStream) then
+               ((TWCStreamFrame(fr).Stream is TExtMemoryStream) or
+                (TWCStreamFrame(fr).Stream is TMemoryStream)) then
             begin
               Stream := TWCStreamFrame(fr).Stream;
             end else
@@ -1361,13 +1357,16 @@ begin
               Stream := nil;
             end else
             begin
-              Stream := TMemoryStream.Create;
               Fr.Free;
-              fr := TWCStreamFrame.Create(Stream, NewCount, true);
+              fr := TWCStreamFrame.Create(nil, NewCount, true);
+              Stream := TWCStreamFrame(fr).Stream;
               aFrame.FFrame := fr;
             end;
 
-            if assigned(Stream) then
+            if (Stream is TExtMemoryStream) then
+              TExtMemoryStream(Stream).CopyMemory(FDeflateStream.Buffer^, NewCount)
+            else
+            if (Stream is TMemoryStream) then
             begin
               TMemoryStream(Stream).SetSize(NewCount);
               TMemoryStream(Stream).Position := 0;

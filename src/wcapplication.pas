@@ -38,6 +38,7 @@ uses
   ssockets,
   gzstream,
   wcdecoders,
+  extmemorystream,
   BufferedStream,
   SortedThreadPool,
   RegExpr,
@@ -1200,7 +1201,8 @@ begin
     aDecoder := Application.ClientDecoders[ContentEncoding];
     if assigned(aDecoder) then
     begin
-      if (ContentObject.Stream is TMemoryStream) or
+      if (ContentObject.Stream is TExtMemoryStream) or
+         (ContentObject.Stream is TMemoryStream) or
          (ContentObject.Stream is TBufferedStream) then
         aDecoder.DecodeStream(ContentObject.Stream) else
       begin
@@ -2444,9 +2446,10 @@ begin
     AResponse.Content:=S;
 end;
 
-procedure TWebClient.ResponseStream(AResponse : TAbsHTTPConnectionResponse; Str : TStream;
-  StrSize : Int64;
-  OwnStream : Boolean);
+procedure TWebClient.ResponseStream(AResponse : TAbsHTTPConnectionResponse;
+                                    Str : TStream;
+                                    StrSize : Int64;
+                                    OwnStream : Boolean);
 var
   deflateStream : TDefcompressionstream;
   NeedCompress : Boolean;
@@ -3538,7 +3541,7 @@ begin
         F:=TFileStream.Create(FLoc, fmOpenRead or fmShareDenyWrite);
         try
           FSize:=F.Size;
-          TMemoryStream(FCache.Stream).SetSize(FSize);
+          TExtMemoryStream(FCache.Stream).SetSize(FSize);
           FCache.Stream.Position := 0;
           FCache.Stream.CopyFrom(F, FSize);
         finally
