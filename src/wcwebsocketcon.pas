@@ -1247,7 +1247,8 @@ begin
       aTakeOverStr := WSEX_PMCED_SERVER_NO_TAKEOVER;
     end;
     opt := aExt^.OptByName(aWindowStr);
-    if assigned(opt) then windowsize := opt^.Value else
+    if assigned(opt) then
+      windowsize := opt^.AsInteger(15) else
     begin
       windowsize := 0;
       opt := aExt^.OptByName(aTakeOverStr);
@@ -1259,7 +1260,7 @@ begin
           opt := inExt^.OptByName(aWindowStr);
           if Assigned(opt) then
           begin
-            windowsize := opt^.Value;
+            windowsize := opt^.AsInteger(15);
           end else
             windowsize := 15;
         end;

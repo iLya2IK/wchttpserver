@@ -41,6 +41,8 @@ public
   procedure SetVariantStr(const Str : String);
   property Name : String read GetName write SetName;
   property Value : Variant read GetValue write SetValue;
+  function AsInteger(aDefault : Integer) : Integer;
+  function AsString(const aDefault: AnsiString): AnsiString;
 end;
 PWebSocketExtOption = ^TWebSocketExtOption;
 TWebSocketExtOptions = Array [0..255] of PWebSocketExtOption;
@@ -193,7 +195,7 @@ begin
   try
     Encoder:=TBase64EncodingStream.create(outstream);
     try
-      Encoder.Write(sha1, 20);
+      Encoder.Write(PByte(@sha1)^, 20);
     finally
       Encoder.Free;
     end;
@@ -593,6 +595,19 @@ begin
   if TryStrToBool(Str, B) then
     FValue^ := B else
     FValue^ := Str;
+end;
+
+function TWebSocketExtOption.AsInteger(aDefault: Integer): Integer;
+begin
+  if VarIsNull(FValue^) or (not VarIsOrdinal(FValue^)) then
+     Result := aDefault else
+     Result := FValue^;
+end;
+
+function TWebSocketExtOption.AsString(const aDefault: AnsiString): AnsiString;
+begin
+  if VarIsNull(FValue^) then Result := aDefault else
+     Result := VarToStr(FValue^);
 end;
 
 { TWebSocketExts }
