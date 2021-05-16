@@ -45,11 +45,11 @@ Benchmark program - [h2load](https://nghttp2.org/documentation/h2load.1.html). T
 ********************************************************
 | protocol |  cookie  | num connections | speed, req/s |
 ***********+**********+*****************+***************
-| http/1.1 | unset    |     one         |    10.08     |
-| http/2   | unset    |     one         |    22.59     |
-| http/1.1 | set      |     one         |    54.49     |
-| http/2   | set      |     one         |    140.34    |
-| http/1.1 | set      |     six         |    332.54    |
+| http/1.1 | unset    |     one         |    12.60     |
+| http/2   | unset    |     one         |    19.70     |
+| http/1.1 | set      |     one         |    50.61     |
+| http/2   | set      |     one         |    149.37    |
+| http/1.1 | set      |     six         |    317.93    |
 ********************************************************
 ```
 
@@ -72,15 +72,15 @@ Cipher: ECDHE-RSA-AES256-GCM-SHA384
 Server Temp Key: X25519 253 bits
 Application protocol: h2
 
-finished in 17.22s, 1858.68 req/s, 1.54MB/s
+finished in 16.93s, 1889.72 req/s, 1.95MB/s
 requests: 32000 total, 32000 started, 32000 done, 32000 succeeded, 0 failed, 0 errored, 0 timeout
 status codes: 32000 2xx, 0 3xx, 0 4xx, 0 5xx
-traffic: 26.46MB (27746560) total, 126.38KB (129408) headers (space savings 95.01%), 25.79MB (27040000) data
+traffic: 32.96MB (34562336) total, 126.16KB (129184) headers (space savings 95.25%), 32.29MB (33856000) data
                      min         max         mean         sd        +/- sd
-time for request:    16.59ms    327.96ms    150.22ms     35.42ms    77.80%
-time for connect:     7.17ms       1.96s       1.15s    618.49ms    62.50%
-time to 1st byte:    59.55ms       2.00s       1.20s    629.72ms    62.50%
-req/s           :      58.09       72.88       61.87        4.42    81.25%
+time for request:    13.35ms    736.76ms    149.03ms     55.56ms    89.53%
+time for connect:    13.39ms       1.93s       1.14s    599.26ms    65.63%
+time to 1st byte:    62.68ms       1.96s       1.18s    604.35ms    65.63%
+req/s           :      59.06       71.18       62.32        4.12    81.25%
 ```
 
 > h2load -n32000 -c32 -t8 -m1 --h1 --header=connection:keep-alive --header=cookie:cid=11  https://localhost:8080
@@ -101,13 +101,13 @@ Cipher: ECDHE-RSA-AES256-GCM-SHA384
 Server Temp Key: X25519 253 bits
 Application protocol: http/1.1
  
-finished in 29.06s, 1101.26 req/s, 1.01MB/s
+finished in 28.49s, 1123.25 req/s, 1.26MB/s
 requests: 32000 total, 32000 started, 32000 done, 32000 succeeded, 0 failed, 0 errored, 0 timeout
 status codes: 32000 2xx, 0 3xx, 0 4xx, 0 5xx
-traffic: 29.39MB (30816000) total, 2.53MB (2656000) headers (space savings 0.00%), 25.79MB (27040000) data
+traffic: 36.01MB (37760000) total, 2.66MB (2784000) headers (space savings 0.00%), 32.29MB (33856000) data
                      min         max         mean         sd        +/- sd
-time for request:     7.99ms    208.16ms     26.31ms      5.94ms    93.71%
-time for connect:     8.22ms       3.08s       1.25s    943.18ms    62.50%
-time to 1st byte:    99.48ms       3.12s       1.31s    913.25ms    62.50%
-req/s           :      34.42       38.74       36.31        1.25    62.50%
+time for request:     8.25ms    132.36ms     26.24ms      5.01ms    94.38%
+time for connect:     8.35ms       1.89s    920.98ms    602.20ms    62.50%
+time to 1st byte:    39.63ms       1.91s    957.78ms    611.37ms    65.63%
+req/s           :      35.10       38.89       36.85        1.17    68.75%
 ```

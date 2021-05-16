@@ -56,6 +56,8 @@ type
   TWCConnectionState = (wcCONNECTED, wcHALFCLOSED, wcDROPPED, wcDEAD);
   TWCProtocolVersion = (wcUNK, wcHTTP1, wcHTTP1_1, wcHTTP2
                        {$IFDEF WC_WEB_SOCKETS}, wcWebSocket{$ENDIF});
+  TWCConsumeResult   = (wccrOK, wccrProtocolError, wccrNoData,
+                        wccrWrongProtocol, wccrSocketError);
 
   { TWCHTTPRefProtoFrame }
 
@@ -303,7 +305,7 @@ type
         aSocket: TWCSocketReference;
         aSocketConsume: TRefSocketConsume; aSendData: TRefSendData); virtual;
     procedure ConsumeNextFrame(Mem : TBufferedStream); virtual; abstract;
-    procedure ReleaseRead(WithSuccess: Boolean); virtual;
+    procedure ReleaseRead(ConsumeResult: TWCConsumeResult); virtual;
     procedure SendFrames; virtual;
     destructor Destroy; override;
     class function Protocol : TWCProtocolVersion; virtual; abstract;
@@ -1479,18 +1481,23 @@ begin
   FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
 end;
 
-procedure TWCRefConnection.ReleaseRead(WithSuccess : Boolean);
+procedure TWCRefConnection.ReleaseRead(ConsumeResult : TWCConsumeResult);
 begin
   FDataReading.Value := false;
   {$ifdef SOCKET_EPOLL_MODE}
   FOwner.ResetReadingSocket(FSocketRef);
   {$endif}
-  if WithSuccess then
+  if (ConsumeResult in [wccrProtocolError, wccrWrongProtocol,
+                        wccrSocketError]) then
   begin
-    Refresh(GetTickCount64);
-    RelaxDelayValue(FReadDelay);
-  end else
     HoldDelayValue(FReadDelay);
+  end else begin
+    if ConsumeResult = wccrOK then
+    begin
+      Refresh(GetTickCount64);
+      RelaxDelayValue(FReadDelay);
+    end;
+  end;
 end;
 
 destructor TWCRefConnection.Destroy;

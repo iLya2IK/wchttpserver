@@ -92,7 +92,7 @@ type
   public
     Constructor Create(AServer : TAbsCustomHTTPServer; ASocket : TSocketStream); override;
     Constructor CreateRefered(AServer : TAbsCustomHTTPServer; ASocketRef : TWCSocketReference); override;
-    function ConsumeSocketData : Cardinal;
+    function ConsumeSocketData : TWCConsumeResult;
     procedure SetSessionParams(aClient : TWebClient; aSession : TSqliteWebSession);
     destructor Destroy; override;
     property Response : TWCResponse read FResponse;
@@ -704,12 +704,6 @@ const
 
   WC_MAX_MAIN_THREADS = 32;
   WC_MAX_PREP_THREADS = 32;
-
-  WC_CONSUME_OK              = 0;
-  WC_CONSUME_PROTOCOL_ERROR  = 1;
-  WC_CONSUME_NO_DATA         = 2;
-  WC_CONSUME_WRONG_PROTOCOL  = 3;
-  WC_CONSUME_SOCKET_ERROR    = 4;
 
 {$I wcappconfig.inc}
 
@@ -1631,7 +1625,7 @@ begin
   DoInitialize;
 end;
 
-function TWCAppConnection.ConsumeSocketData: Cardinal;
+function TWCAppConnection.ConsumeSocketData: TWCConsumeResult;
 var r : integer;
     aRefCon : TWCRefConnection;
     h2openmode : THTTP2OpenMode;
@@ -1639,7 +1633,7 @@ var r : integer;
     wsopenmode : TWebSocketUpgradeOptions;
     {$ENDIF}
 begin
-  Result := WC_CONSUME_OK;
+  Result := wccrOK;
   try
     aRefCon := TWCHttpServer(Server).RefConnections.GetByHandle(Socket.Handle);
     // if HTTPRefCon not nil, then reference to httprefcon automatically incremented
@@ -1653,7 +1647,7 @@ begin
     try
       r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
       If r < 0 then begin
-        Result := WC_CONSUME_SOCKET_ERROR;
+        Result := wccrSocketError;
         Raise ESocketError.Create(WCSocketReadError);
       end;
       FInput.SetPointer(FInputBuf, r);  //resize buffered stream
@@ -1715,7 +1709,7 @@ begin
             end;
 
             if FProtocolVersion = wcUNK then
-              Result := WC_CONSUME_WRONG_PROTOCOL else
+              Result := wccrWrongProtocol else
             begin
               if FProtocolVersion in [wcHTTP1, wcHTTP1_1] then
               begin
@@ -1725,20 +1719,20 @@ begin
                   FRequest.DecodeContent;
                 end;
               end;
-              Result := WC_CONSUME_OK;
+              Result := wccrOK;
             end;
           end else begin
             FProtocolVersion:= wcUNK;
-            Result := WC_CONSUME_WRONG_PROTOCOL;
+            Result := wccrWrongProtocol;
           end;
-        end else Result := WC_CONSUME_WRONG_PROTOCOL;
-      end else Result := WC_CONSUME_NO_DATA;
+        end else Result := wccrWrongProtocol;
+      end else Result := wccrNoData;
       if FProtocolVersion = wcHTTP2 then
       begin
         // read http/2 frames
         // RFC 7540
         // consume socket data, pop new request
-        Result := WC_CONSUME_OK;
+        Result := wccrOK;
         if not Assigned(RefCon) then
         begin
           RefCon := TWCHttpServer(Server).AttachNewHTTP2Con(SocketReference,
@@ -1758,16 +1752,16 @@ begin
             TWCHTTP2Connection(RefCon).ResetStream(TWCHTTP2Stream(RefRequest).ID,
                                                     H2E_PROTOCOL_ERROR);
             TWCHTTP2Connection(RefCon).GoAway(H2E_PROTOCOL_ERROR);
-            Result := WC_CONSUME_PROTOCOL_ERROR;
+            Result := wccrProtocolError;
           end else
             FRequest.DecodeContent;
         end else
-          Result := WC_CONSUME_NO_DATA;
+          Result := wccrNoData;
       end;
       {$IFDEF WC_WEB_SOCKETS}
       if FProtocolVersion = wcWebSocket then
       begin
-        Result := WC_CONSUME_OK;
+        Result := wccrOK;
         if (FInput.Size - FInput.Position) > 0 then
            RefCon.ConsumeNextFrame(FInput);
         RefRequest := TWCWebSocketConnection(RefCon).PopReadyChunck;
@@ -1776,16 +1770,14 @@ begin
           if not assigned(FRequest) then
             FRequest := ConvertFromRefRequest(RefRequest);
         end else
-          Result := WC_CONSUME_NO_DATA;
+          Result := wccrNoData;
       end;
       {$ENDIF}
     finally
       if Assigned(RefCon) then
-         RefCon.ReleaseRead(not (Result in [WC_CONSUME_PROTOCOL_ERROR,
-                                            WC_CONSUME_WRONG_PROTOCOL,
-                                            WC_CONSUME_SOCKET_ERROR]));
+         RefCon.ReleaseRead(Result);
     end;
-    if Result = WC_CONSUME_OK then
+    if Result = wccrOK then
     begin
       // Create Response
       FResponse:= TWCResponse(TWCHttpServer(Server).CreateResponse(FRequest));
@@ -1794,8 +1786,8 @@ begin
     end;
   Except
     On E : Exception do begin
-      if Result in [WC_CONSUME_NO_DATA, WC_CONSUME_OK] then
-        Result := WC_CONSUME_PROTOCOL_ERROR;
+      if Result in [wccrNoData, wccrOK] then
+        Result := wccrProtocolError;
       if Assigned(RefCon) then RefCon.ConnectionState:=wcDROPPED;
       if Assigned(FRequest) then FreeAndNil(FRequest);
       if Assigned(FResponse) then FreeAndNil(FResponse);
@@ -1878,7 +1870,7 @@ procedure TWCPreAnalizeClientJob.Execute;
 var ASynThread : TWCMainClientJob;
     aClient : TWebClient;
     aSession : TSqliteWebSession;
-    aConsumeResult : Cardinal;
+    aConsumeResult : TWCConsumeResult;
 begin
   try
      {$ifdef DEBUG_STAT}
@@ -1887,7 +1879,7 @@ begin
      if not (Assigned(FConn) and TWCHttpServer(FConn.Server).ServerActive) then
        Exit;
      aConsumeResult := FConn.ConsumeSocketData;
-     if aConsumeResult = WC_CONSUME_OK then begin
+     if aConsumeResult = wccrOK then begin
        aSession := WebContainer.CreateSession(Request);
        if Assigned(aSession) then
        begin
