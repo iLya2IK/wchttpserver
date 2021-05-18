@@ -1,3 +1,16 @@
+{
+ WebSocketConsts: Basic websocket protocol constants, structures and utils
+   according RFC 6455, RFC 7692
+
+   Part of WCHTTPServer project
+
+   Copyright (c) 2021 by Ilya Medvedkov
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+}
+
 unit websocketconsts;
 
 {$mode objfpc}{$H+}

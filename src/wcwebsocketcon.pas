@@ -580,7 +580,7 @@ begin
   inherited Destroy;
 end;
 
-function doResponsePMCDeflate(Ext : PWebSocketExt; Data : Pointer) : AnsiString;
+function doResponsePMCDeflate(Ext : PWebSocketExt; {%H-}Data : Pointer) : AnsiString;
 begin
   Result := WSEX_PMCEDEFLATE;
   if Assigned(Ext^.OptByName(WSEX_PMCED_CLIENT_NO_TAKEOVER)) then

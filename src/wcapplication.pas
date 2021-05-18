@@ -24,8 +24,10 @@ uses
   ECommonObjs,
   wcnetworking,
   fpwebfile, fpmimetypes,
-  fphttp, HTTPDefs, httpprotocol, http2consts,
-  abstracthttpserver, wchttp2con,
+  fphttp, HTTPDefs, httpprotocol, http1utils,
+  http2consts,
+  abstracthttpserver,
+  wchttp2con,
   extopenssl,
   custweb, custabshttpapp,
   sqlitewebsession,
@@ -541,9 +543,11 @@ type
     procedure Initialize;  virtual;
     function SaveNewState(aState: TWebClientState; const aNewState: String;
       oldHash: Cardinal; ignoreHash: boolean=false): Boolean;
-    procedure ResponseString(AResponse : TAbsHTTPConnectionResponse; const S : String); virtual;
-    procedure ResponseStream(AResponse : TAbsHTTPConnectionResponse; Str : TStream; StrSize : Int64;
-      OwnStream : Boolean); virtual;
+    procedure CompressStream(AResponse : TAbsHTTPConnectionResponse; Str : TStream;
+      StrSize : Int64; OwnStream : Boolean; ignoreLimits : Boolean = false);
+  virtual;
+    procedure CompressString(AResponse : TAbsHTTPConnectionResponse;
+      const S : String; ignoreLimits : Boolean = false); virtual;
     property CUID : String read FCUID;
     property StateHash[index : TWebClientState] : Cardinal read GetStateHash;
     property AcceptGzip : Boolean read GetAcceptGZip write SetAcceptGZip;
@@ -1367,7 +1371,7 @@ begin
     end;
     wcHTTP1_1, wcHTTP1 :
     begin
-      S:=Format('HTTP/1.1 %3d %s'#13#10,[Code,GetStatusCode(Code)]);
+      S:=Format('HTTP/1.1 %3d %s'#13#10,[Code,HTTP1GetStatusCode(Code)]);
       For I:=0 to Headers.Count-1 do
         S:=S+Headers[i]+#13#10;
       // Last line in headers is empty.
@@ -2422,26 +2426,29 @@ begin
     Result := False;
 end;
 
-procedure TWebClient.ResponseString(AResponse: TAbsHTTPConnectionResponse; const S: String);
+procedure TWebClient.CompressString(AResponse: TAbsHTTPConnectionResponse;
+                                               const S: String;
+                                               ignoreLimits : Boolean = false);
 var
   StrBuffer : TBufferedStream;
   L : Longint;
 begin
   L := Length(S);
-  if (L > Application.CompressLimit) and
+  if ((L > Application.CompressLimit) or ignoreLimits) and
      ({$IFDEF ALLOW_STREAM_GZIP} AcceptGzip or {$ENDIF}AcceptDeflate) then
   begin
     StrBuffer := TBufferedStream.Create;
     StrBuffer.SetPointer(@(S[1]), L);
-    ResponseStream(AResponse, StrBuffer, L, true);
+    CompressStream(AResponse, StrBuffer, L, true);
   end  else
     AResponse.Content:=S;
 end;
 
-procedure TWebClient.ResponseStream(AResponse : TAbsHTTPConnectionResponse;
+procedure TWebClient.CompressStream(AResponse : TAbsHTTPConnectionResponse;
                                     Str : TStream;
                                     StrSize : Int64;
-                                    OwnStream : Boolean);
+                                    OwnStream : Boolean;
+                                    ignoreLimits : Boolean = false);
 var
   deflateStream : TDefcompressionstream;
   NeedCompress : Boolean;
@@ -2449,11 +2456,11 @@ var
   gzStream : TGzCompressionstream;
   {$ENDIF}
 begin
-  NeedCompress:= StrSize > Application.CompressLimit;
+  NeedCompress:= (StrSize > Application.CompressLimit) or ignoreLimits;
   {$IFDEF ALLOW_STREAM_GZIP}
   if AcceptGzip and NeedCompress then
   begin
-    AResponse.ContentStream := TMemoryStream.Create;
+    AResponse.ContentStream := TExtMemoryStream.Create;
     gzStream := Tgzcompressionstream.create(cldefault, AResponse.ContentStream);
     try
       gzStream.CopyFrom(Str, StrSize);
@@ -2468,7 +2475,7 @@ begin
   {$ENDIF}
   if AcceptDeflate and NeedCompress then
   begin
-    AResponse.ContentStream := TMemoryStream.Create;
+    AResponse.ContentStream := TExtMemoryStream.Create;
     deflateStream := Tdefcompressionstream.create(cldefault, AResponse.ContentStream);
     try
       deflateStream.CopyFrom(Str, StrSize);

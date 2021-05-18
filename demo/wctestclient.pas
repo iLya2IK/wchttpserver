@@ -1,6 +1,6 @@
 {
   This file is a part of example.
-  look more in WCHTTPServer.lpr
+  look more in WCHTTPServerDemo.lpr
 }
 
 unit WCTestClient;

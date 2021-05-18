@@ -159,6 +159,11 @@ type
 
 Implementation
 
+{$ifdef CGIDEBUG}
+uses
+  dbugintf;
+{$endif}
+
 { TEmbeddedAbsHttpServer }
 
 procedure TEmbeddedAbsHttpServer.InitRequest(ARequest: TAbsHTTPConnectionRequest);
@@ -171,11 +176,6 @@ procedure TEmbeddedAbsHttpServer.InitResponse(AResponse: TAbsHTTPConnectionRespo
 begin
   WebHandler.InitResponse(AResponse);
 end;
-
-{$ifdef CGIDEBUG}
-uses
-  dbugintf;
-{$endif}
 
 { TCustomAbsHTTPApplication }
 
