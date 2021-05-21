@@ -106,7 +106,9 @@ TWebSocketExtRegistered = packed record
   Name     : AnsiString;
   Callback : PWebSocketExtCallback;
   Data     : Pointer;
+  Enabled  : Boolean;
 end;
+PWebSocketExtRegistered = ^TWebSocketExtRegistered;
 
 TWebSocketFrameHeader = Array [0..13] of Byte;
 PWebSocketFrameHeader = ^TWebSocketFrameHeader;
@@ -183,6 +185,7 @@ procedure DoneWebSocketExts(var aExts : PWebSocketExts; OnlyTemp : Boolean);
 procedure ParseWebSocketExts(var aExts : PWebSocketExts;
                                           const aStringToParse : AnsiString);
 procedure PushWebSocketExt(var aExts : PWebSocketExts; aExt : PWebSocketExt);
+function  WebSocketGetExt(const Str : AnsiString) : PWebSocketExtRegistered;
 function  WebSocketGetExtId(const Str : AnsiString) : TWebSocketExtID;
 procedure WebSocketRegisterExt(const aName : AnsiString;
                                           aCallback : PWebSocketExtCallback;
@@ -451,39 +454,51 @@ begin
   aExts^.PushExt(aExt);
 end;
 
-function WebSocketGetExtId(const Str : AnsiString) : TWebSocketExtID;
+function WebSocketGetExt(const Str : AnsiString) : PWebSocketExtRegistered;
 var i : integer;
 begin
   for i := 0 to High(ExtsRegistered) do
   begin
     if SameStr(Str, ExtsRegistered[i].Name) then
     begin
-      Exit(ExtsRegistered[i].ID);
+      Exit(@(ExtsRegistered[i]));
     end;
   end;
-  Result := WSEX_NOTREGISTERED;
+  Result := nil;
+end;
+
+function WebSocketGetExtId(const Str : AnsiString) : TWebSocketExtID;
+var extObj : PWebSocketExtRegistered;
+begin
+  extObj := WebSocketGetExt(Str);
+  if assigned(extObj) and extObj^.Enabled then
+    Result := extObj^.ID else
+    Result := WSEX_NOTREGISTERED;
 end;
 
 procedure WebSocketRegisterExt(const aName : AnsiString;
   aCallback : PWebSocketExtCallback; aData : Pointer);
 var
-  i : TWebSocketExtID;
+  extObj : PWebSocketExtRegistered;
+  aid : TWebSocketExtID;
 begin
-  i := WebSocketGetExtId(aName);
-  if i = WSEX_NOTREGISTERED then
+  extObj := WebSocketGetExt(aName);
+  if not Assigned(extObj) then
   begin
-    i := Length(ExtsRegistered) + 1;
-    SetLength(ExtsRegistered, i);
-    with ExtsRegistered[i - 1] do
+    aid := Length(ExtsRegistered) + 1;
+    SetLength(ExtsRegistered, aid);
+    with ExtsRegistered[aid - 1] do
     begin
-      ID := i;
+      ID := aid;
       Name := aName;
       Callback := aCallback;
       Data := aData;
+      Enabled := true;
     end;
   end else
   begin
-    ExtsRegistered[i - 1].Callback := aCallback;
+    extObj^.Callback := aCallback;
+    extObj^.Data := aData;
   end;
 end;
 

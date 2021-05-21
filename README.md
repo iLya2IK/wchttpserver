@@ -18,7 +18,7 @@ The project builds on fpWeb modules and extends them to increase functionality:
 
 # What project contains?
 * Source files with abstract classes, structures, and commonly used utils. 
-* Example - the HTTP/2 server (wchttpserver.lpi, wchttpserver.lpr, wctestclient.pas, wcservertestjobs.pas, wcmaintest.pas, server.cfg, sample site ./webclienttest/*).
+* Example - the HTTP/2 server (wchttpserverdemo.lpi, wchttpserverdemo.lpr, wctestclient.pas, wcservertestjobs.pas, wcmaintest.pas, server.cfg, sample site ./webclienttest/*).
 
 # How to deal with the example?
 * Build it using the necessary development environment and libraries or download precompiled release.

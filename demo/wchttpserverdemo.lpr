@@ -160,6 +160,10 @@ begin
     Add(H2SET_HEADER_TABLE_SIZE, HTTP2_SET_INITIAL_VALUES[H2SET_HEADER_TABLE_SIZE]);
   end;
 
+  {$IFDEF WC_WEB_SOCKETS}
+  Conf.SetDefaultValue(CFG_WEBSOCKET_SUB_PROTO, 'chat');
+  {$ENDIF}
+
   Application.ServerAnalizeJobClass:= WCMainTest.TWCPreThread;
   Application.WebClientClass:= WCTestClient.TWCTestWebClient;
   //

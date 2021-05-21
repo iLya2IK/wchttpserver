@@ -607,7 +607,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure  ClearCache;
-    function CreateSession(ARequest : TWCRequest) : TSqliteWebSession;
+    function   CreateSession(ARequest : TWCRequest) : TSqliteWebSession;
     //
     procedure OnCreateNewSession(Sender : TObject);
     function  AddClient(ARequest : TAbsHTTPConnectionRequest; const ClientID : String): TWebClient;
@@ -617,7 +617,7 @@ type
     procedure ClearDeadClients;
     procedure DoMaintainingStep;
     //
-    function GetWebCachedItem(const aURI : String) : TWebCachedItem;
+    function  GetWebCachedItem(const aURI : String) : TWebCachedItem;
     procedure UpdateCachedWebItemsWithTemplates;
     //
     property  Sessions : TSqliteSessionFactory read FSessions;
@@ -1010,6 +1010,15 @@ begin
     if assigned(WebContainer) then
       WebContainer.UpdateCachedWebItemsWithTemplates;
   end;
+  {$IFDEF WC_WEB_SOCKETS}
+  d := aConfig.FindPath(HashToConfig(CFG_WEBSOCKET_SEC)^.NAME_STR + '.' +
+                        HashToConfig(CFG_WEBSOCKET_DEFLATE_EXT)^.NAME_STR);
+  if assigned(d) and (d is TJSONObject) then begin
+    if assigned(Application) then
+      Application.ESServer.WebSocketSettings.ConfigExtFromJson(WSEX_PMCEDEFLATE,
+                                                           TJSONObject(d));
+  end;
+  {$ENDIF}
 end;
 
 destructor TWCHTTPConfig.Destroy;
@@ -1019,7 +1028,11 @@ begin
 end;
 
 procedure TWCHTTPConfig.DoInitialize();
-var MainSec, SSLSec, WFSec, ClientsSec, Http2Sec, MaintSec : TWCConfigRecord;
+var MainSec, SSLSec, WFSec, ClientsSec, Http2Sec,
+    {$IFDEF WC_WEB_SOCKETS}
+    WebSocketSec,
+    {$ENDIF}
+    MaintSec : TWCConfigRecord;
 begin
   FMimeTemplates := TWCHTTPMimeTemplates.Create;
   OnConfigLoaded := @DoConfigLoaded;
@@ -1066,6 +1079,11 @@ begin
   Http2Sec.AddValue(CFG_H2SET_INITIAL_WINDOW_SIZE   , wccrInteger);
   Http2Sec.AddValue(CFG_H2SET_MAX_FRAME_SIZE        , wccrInteger);
   Http2Sec.AddValue(CFG_H2SET_MAX_HEADER_LIST_SIZE  , wccrInteger);
+
+  {$IFDEF WC_WEB_SOCKETS}
+  WebSocketSec := Root.AddSection(HashToConfig(CFG_WEBSOCKET_SEC)^.NAME_STR);
+  WebSocketSec.AddValue(CFG_WEBSOCKET_SUB_PROTO     , wccrString);
+  {$ENDIF}
 
   MaintSec := Root.AddSection(HashToConfig(CFG_MAINTAIN_SEC)^.NAME_STR);
   MaintSec.AddValue(CFG_SHUTDOWN, False);
@@ -2768,6 +2786,10 @@ begin
     CFG_H2SET_MAX_HEADER_LIST_SIZE: begin
       ESServer.HTTP2Settings.Add((Sender.HashName shr 4) and $0f, Sender.Value);
     end;
+    {$IFDEF WC_WEB_SOCKETS}
+    CFG_WEBSOCKET_SUB_PROTO:
+      ESServer.WebSocketSettings.SubProtocols := Sender.Value;
+    {$ENDIF}
     //Web files
     CFG_COMPRESS_LIMIT :
       CompressLimit:= Sender.Value;

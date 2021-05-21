@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="4">
+    <Name Value="openssl_ext_ilya2ik"/>
+    <Author Value="Copyright (c) 2020-2021, Ilya Medvedkov"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <SearchPaths>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)/"/>
+      </SearchPaths>
+    </CompilerOptions>
+    <Description Value="Extended version of FPC OpenSSL module to support TLS v1.2-1.3"/>
+    <License Value="LGPL v2.1"/>
+    <Version Major="1"/>
+    <Files Count="3">
+      <Item1>
+        <Filename Value="extopenssl.pp"/>
+        <UnitName Value="extopenssl"/>
+      </Item1>
+      <Item2>
+        <Filename Value="extopensslsockets.pp"/>
+        <UnitName Value="extopensslsockets"/>
+      </Item2>
+      <Item3>
+        <Filename Value="openssl.pas"/>
+        <UnitName Value="openssl"/>
+      </Item3>
+    </Files>
+    <RequiredPkgs Count="1">
+      <Item1>
+        <PackageName Value="FCL"/>
+      </Item1>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>

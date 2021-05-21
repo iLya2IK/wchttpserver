@@ -334,7 +334,7 @@ function startWebSocketSynTimer() {
     needToReconnect = true;
     CUR_MODE = MODE_WEB_SOCKET;
     // Создаёт WebSocket - подключение.
-    synwstimer = new WebSocket('wss://localhost:8080', 'chat');
+    synwstimer = new WebSocket('wss://localhost:8080', 'jsonrpc');
     synwstimer.addEventListener('open', function (event) { 
         create_jsonrpc_req("./wcDoSynchronizeWebSocket.json", {lstId: 0}, true, 
                            msg=>{      

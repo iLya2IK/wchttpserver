@@ -1,32 +1,32 @@
 const
-  CFG_MAIN_SEC       = $01;
-  CFG_SITE_FOLDER    = $11;
-  CFG_SERVER_NAME    = $21;
-  CFG_MAIN_URI       = $31;
-  CFG_SESSIONS_LOC   = $41;
-  CFG_CLIENTS_DB     = $51;
-  CFG_LOG_DB         = $61;
-  CFG_MIME_NAME      = $71;
-  CFG_MAIN_THREAD_CNT= $81;
-  CFG_PRE_THREAD_CNT = $91;
-  CFG_JOB_TO_JOB_WAIT= $A1;
-  CFG_JOB_TO_JOB_WAIT_ADAPT_MIN= $B1;
-  CFG_JOB_TO_JOB_WAIT_ADAPT_MAX= $C1;
-  CFG_OPENSSL_SEC      = $02;
-  CFG_USE_SSL          = $12;
-  CFG_HOST_NAME        = $22;
-  CFG_SSL_LOC          = $32;
-  CFG_SSL_VER          = $42;
-  CFG_PRIVATE_KEY      = $52;
-  CFG_CERTIFICATE      = $62;
-  CFG_TLSKEY_LOG       = $72;
-  CFG_ALPN_USE_HTTP2   = $82;
-  CFG_SSL_CIPHER       = $92;
-  CFG_CLIENTS_SEC           = $03;
-  CFG_CLIENT_COOKIE_MAX_AGE = $13;
-  CFG_CLIENT_TIMEOUT        = $23;
-  CFG_CLIENT_ALLOW_ENCODE   = $33;
-  CFG_HTTP2_SEC        = $04;
+  CFG_MAIN_SEC                     = $01;
+  CFG_SITE_FOLDER                  = $11;
+  CFG_SERVER_NAME                  = $21;
+  CFG_MAIN_URI                     = $31;
+  CFG_SESSIONS_LOC                 = $41;
+  CFG_CLIENTS_DB                   = $51;
+  CFG_LOG_DB                       = $61;
+  CFG_MIME_NAME                    = $71;
+  CFG_MAIN_THREAD_CNT              = $81;
+  CFG_PRE_THREAD_CNT               = $91;
+  CFG_JOB_TO_JOB_WAIT              = $A1;
+  CFG_JOB_TO_JOB_WAIT_ADAPT_MIN    = $B1;
+  CFG_JOB_TO_JOB_WAIT_ADAPT_MAX    = $C1;
+  CFG_OPENSSL_SEC                  = $02;
+  CFG_USE_SSL                      = $12;
+  CFG_HOST_NAME                    = $22;
+  CFG_SSL_LOC                      = $32;
+  CFG_SSL_VER                      = $42;
+  CFG_PRIVATE_KEY                  = $52;
+  CFG_CERTIFICATE                  = $62;
+  CFG_TLSKEY_LOG                   = $72;
+  CFG_ALPN_USE_HTTP2               = $82;
+  CFG_SSL_CIPHER                   = $92;
+  CFG_CLIENTS_SEC                  = $03;
+  CFG_CLIENT_COOKIE_MAX_AGE        = $13;
+  CFG_CLIENT_TIMEOUT               = $23;
+  CFG_CLIENT_ALLOW_ENCODE          = $33;
+  CFG_HTTP2_SEC                    = $04;
   CFG_H2SET_HEADER_TABLE_SIZE      = $14;
   CFG_H2SET_ENABLE_PUSH            = $24;
   CFG_H2SET_MAX_CONCURRENT_STREAMS = $34;
@@ -40,14 +40,18 @@ const
   CFG_MIME_TEMPLATES               = $45;
   CFG_MAINTAIN_SEC                 = $06;
   CFG_SHUTDOWN                     = $16;
+  CFG_WEBSOCKET_SEC                = $07;
+  CFG_WEBSOCKET_SUB_PROTO          = $17;
+  CFG_WEBSOCKET_DEFLATE_EXT        = $27;
 
   WC_CFG_CONFIGURATION : TWCConfiguration = (
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAIN_SEC;     Name:'Main'   ),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_OPENSSL_SEC;  Name:'OpenSSL'),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_CLIENTS_SEC;  Name:'Clients'),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_HTTP2_SEC;    Name:'Http2'),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_WEBFILES_SEC; Name:'WebFiles'),
-    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAINTAIN_SEC; Name:'Maintaining'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAIN_SEC;      Name:'Main'   ),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_OPENSSL_SEC;   Name:'OpenSSL'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_CLIENTS_SEC;   Name:'Clients'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_HTTP2_SEC;     Name:'Http2'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_WEBSOCKET_SEC; Name:'WebSocket'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_WEBFILES_SEC;  Name:'WebFiles'),
+    (ParentHash:CFG_ROOT_HASH; Hash:CFG_MAINTAIN_SEC;  Name:'Maintaining'),
 
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_SITE_FOLDER    ;Name:'SiteFolder'    ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_SERVER_NAME    ;Name:'ServerName'    ),
@@ -79,6 +83,8 @@ const
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_INITIAL_WINDOW_SIZE    ; Name:'INITIAL_WINDOW_SIZE'   ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_FRAME_SIZE         ; Name:'MAX_FRAME_SIZE'        ),
     (ParentHash:CFG_HTTP2_SEC; Hash:CFG_H2SET_MAX_HEADER_LIST_SIZE   ; Name:'MAX_HEADER_LIST_SIZE'  ),
+    (ParentHash:CFG_WEBSOCKET_SEC; Hash:CFG_WEBSOCKET_SUB_PROTO    ; Name:'SubProtocols'   ),
+    (ParentHash:CFG_WEBSOCKET_SEC; Hash:CFG_WEBSOCKET_DEFLATE_EXT  ; Name:'PMCEDeflate'    ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_COMPRESS_LIMIT;       Name:'CompressLimitByte' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES;         Name:'WebFilesIgnore' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES; Name:'WebFilesExcludeIgnore' ),

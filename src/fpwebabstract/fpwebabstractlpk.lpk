@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="4">
+    <Name Value="fpwebabstractlpk"/>
+    <Author Value="Copyright (c) 2020-2021, Ilya Medvedkov"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <SearchPaths>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+    </CompilerOptions>
+    <Description Value="Abstract implementation of TCustomHttpApplication and THttpServer based on custhttpapp/fphttpserver and replace it."/>
+    <License Value="LGPL v2.1"/>
+    <Version Major="1"/>
+    <Files Count="2">
+      <Item1>
+        <Filename Value="abstracthttpserver.pas"/>
+        <UnitName Value="abstracthttpserver"/>
+      </Item1>
+      <Item2>
+        <Filename Value="custabshttpapp.pas"/>
+        <UnitName Value="custabshttpapp"/>
+      </Item2>
+    </Files>
+    <RequiredPkgs Count="1">
+      <Item1>
+        <PackageName Value="openssl_ext_ilya2ik"/>
+      </Item1>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>

@@ -14,96 +14,76 @@
       </Other>
     </CompilerOptions>
     <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)"/>
-    <License Value="LGPL v2"/>
-    <Version Minor="9" Build="2"/>
-    <Files Count="19">
+    <License Value="LGPL v2.1"/>
+    <Version Minor="9" Build="3"/>
+    <Files Count="14">
       <Item1>
-        <Filename Value="openssl/extopenssl.pp"/>
-        <UnitName Value="extopenssl"/>
-      </Item1>
-      <Item2>
-        <Filename Value="openssl/extopensslsockets.pp"/>
-        <UnitName Value="extopensslsockets"/>
-      </Item2>
-      <Item3>
-        <Filename Value="openssl/openssl.pas"/>
-        <UnitName Value="openssl"/>
-      </Item3>
-      <Item4>
         <Filename Value="wcappconfig.inc"/>
         <Type Value="Include"/>
-      </Item4>
-      <Item5>
+      </Item1>
+      <Item2>
         <Filename Value="wcapplication.pas"/>
         <UnitName Value="wcapplication"/>
-      </Item5>
-      <Item6>
+      </Item2>
+      <Item3>
         <Filename Value="wcconfig.pas"/>
         <UnitName Value="wcconfig"/>
-      </Item6>
-      <Item7>
+      </Item3>
+      <Item4>
         <Filename Value="wcdebug_vars.pas"/>
         <UnitName Value="wcdebug_vars"/>
-      </Item7>
-      <Item8>
+      </Item4>
+      <Item5>
         <Filename Value="wcdecoders.pas"/>
         <UnitName Value="wcdecoders"/>
-      </Item8>
-      <Item9>
+      </Item5>
+      <Item6>
         <Filename Value="wcdeflatedecoder.pas"/>
         <UnitName Value="wcdeflatedecoder"/>
-      </Item9>
-      <Item10>
+      </Item6>
+      <Item7>
         <Filename Value="wchttp2con.pas"/>
         <UnitName Value="wchttp2con"/>
-      </Item10>
-      <Item11>
+      </Item7>
+      <Item8>
         <Filename Value="wcnetworking.pas"/>
         <UnitName Value="wcnetworking"/>
-      </Item11>
-      <Item12>
+      </Item8>
+      <Item9>
         <Filename Value="wcutils.pas"/>
         <UnitName Value="wcutils"/>
-      </Item12>
-      <Item13>
+      </Item9>
+      <Item10>
         <Filename Value="wcwebsocketcon.pas"/>
         <UnitName Value="wcwebsocketcon"/>
-      </Item13>
-      <Item14>
+      </Item10>
+      <Item11>
         <Filename Value="protocols/http1utils.pas"/>
         <UnitName Value="http1utils"/>
-      </Item14>
-      <Item15>
+      </Item11>
+      <Item12>
         <Filename Value="protocols/http2consts.pas"/>
         <UnitName Value="http2consts"/>
-      </Item15>
-      <Item16>
+      </Item12>
+      <Item13>
         <Filename Value="protocols/http2http1conv.pas"/>
         <UnitName Value="http2http1conv"/>
-      </Item16>
-      <Item17>
+      </Item13>
+      <Item14>
         <Filename Value="protocols/websocketconsts.pas"/>
         <AddToUsesPkgSection Value="False"/>
         <UnitName Value="websocketconsts"/>
-      </Item17>
-      <Item18>
-        <Filename Value="fpwebabstract/abstracthttpserver.pas"/>
-        <UnitName Value="abstracthttpserver"/>
-      </Item18>
-      <Item19>
-        <Filename Value="fpwebabstract/custabshttpapp.pas"/>
-        <UnitName Value="custabshttpapp"/>
-      </Item19>
+      </Item14>
     </Files>
     <RequiredPkgs Count="3">
       <Item1>
-        <PackageName Value="commonutils_ilya2ik"/>
+        <PackageName Value="weblaz"/>
       </Item1>
       <Item2>
-        <PackageName Value="weblaz"/>
+        <PackageName Value="commonutils_ilya2ik"/>
       </Item2>
       <Item3>
-        <PackageName Value="FCL"/>
+        <PackageName Value="fpwebabstractlpk"/>
       </Item3>
     </RequiredPkgs>
     <UsageOptions>

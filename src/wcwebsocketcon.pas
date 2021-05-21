@@ -26,7 +26,7 @@ uses
   ECommonObjs, OGLFastList,
   websocketconsts,
   fphttp, HTTPDefs,
-  zlib;
+  zlib, fpjson;
 
 type
 
@@ -235,12 +235,21 @@ type
     destructor Destroy; override;
   end;
 
-  { TWCWebSocketServerSettings }
+  { TWCWebSocketSettings }
 
   TWCWebSocketSettings = class(TNetCustomLockedObject)
+  private
+    FSubProtocols : TThreadStringList;
+    function GetSubProtocols : String;
+    procedure SetSubProtocols(const AValue : String);
   public
     constructor Create;
     destructor Destroy; override;
+
+    function  DefineSubProtocol(const ClientsList : AnsiString) : AnsiString;
+
+    procedure ConfigExtFromJson(const aExt : AnsiString; obj : TJSONObject);
+    property  SubProtocols : String read GetSubProtocols write SetSubProtocols;
   end;
 
   { TWCWebSocketHelper }
@@ -591,16 +600,72 @@ end;
 
 { TWCWebSocketSettings }
 
+function TWCWebSocketSettings.GetSubProtocols : String;
+begin
+  Result :=  FSubProtocols.DelimitedText;
+end;
+
+procedure TWCWebSocketSettings.SetSubProtocols(const AValue : String);
+begin
+  FSubProtocols.DelimitedText := AValue;
+end;
+
 constructor TWCWebSocketSettings.Create;
 begin
   inherited Create;
+  FSubProtocols := TThreadStringList.Create;
+  FSubProtocols.Delimiter := ',';
   WebSocketRegisterExt(WSEX_PMCEDEFLATE, @doResponsePMCDeflate, Self);
 end;
 
 destructor TWCWebSocketSettings.Destroy;
 begin
   WebSocketUnregisterAllExts;
+  FSubProtocols.Free;
   inherited Destroy;
+end;
+
+function TWCWebSocketSettings.DefineSubProtocol(const ClientsList : AnsiString
+  ) : AnsiString;
+var clientsProtos : TStringList;
+    i, j : integer;
+    s : AnsiString;
+begin
+  Result := '';
+  if Length(ClientsList) = 0 then Exit;
+  clientsProtos := TStringList.Create;
+  try
+    clientsProtos.Delimiter := ',';
+    clientsProtos.DelimitedText := ClientsList;
+    for i := 0 to FSubProtocols.Count-1 do
+    begin
+      s := Trim(FSubProtocols[i]);
+      for j := 0 to clientsProtos.Count-1 do
+      begin
+        if SameStr(s, Trim(clientsProtos[j])) then
+        begin
+          Result := s;
+          Exit;
+        end;
+      end;
+    end;
+  finally
+    clientsProtos.Free;
+  end;
+end;
+
+procedure TWCWebSocketSettings.ConfigExtFromJson(const aExt : AnsiString;
+  obj : TJSONObject);
+var extObj : PWebSocketExtRegistered;
+    en : Boolean;
+begin
+  if not assigned(obj) then exit;
+  extObj := WebSocketGetExt(aExt);
+  if Assigned(extObj) then
+  begin
+    en := obj.Get('enabled', true);
+    extObj^.Enabled := en;
+  end;
 end;
 
 { TWebSocketUpgradeOptions }
@@ -1406,9 +1471,8 @@ begin
   FDeflateStream.Enabled := Assigned(FOptions.DeflateExt);
 
   {send handshake}
-  if assigned(aOpenMode) then begin
+  if assigned(aOpenMode) then
     PushFrame(TWCWSUpgradeHandshakeFrame.Create(FOptions));
-  end;
 end;
 
 destructor TWCWebSocketConnection.Destroy;
@@ -1690,8 +1754,9 @@ begin
   if Length(aReq.GetCustomHeader(WS_Sec_WebSocket_Key)) < WSP_MIN_KEY_LEN then
     Exit;
 
-  //todo: create handler to determine protocol subversion from selector
-  subproto := 'chat';
+  subproto := aSettings.DefineSubProtocol(aReq.GetCustomHeader(WS_Sec_WebSocket_Protocol));
+  if Length(subproto) = 0 then
+    Exit;
 
   Result := TWebSocketUpgradeOptions.Create(aReq, subproto, cur_version, aSettings);
 end;
