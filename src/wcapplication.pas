@@ -128,6 +128,7 @@ type
     property  Request : TWCRequest read GetRequest;
     property  Response : TWCResponse read GetResponse;
     property  Client : TWebClient read GetClient;
+    property  Params : TFastHashList read FParams;
     property  Param[index : LongWord] : Variant read GetParam write SetParam;
     property  ParPtr[index : LongWord] : PVariant read GetParPtr;
     property  ResponseReadyToSend : Boolean read FResponseReadyToSend write
