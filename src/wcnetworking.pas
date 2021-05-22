@@ -1,5 +1,5 @@
 {
- WCNetworking:
+ wcNetworking:
    Classes and other routings to deal with referenced connections,
    sockets, frames and streams
 
@@ -12,7 +12,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wcnetworking;
+unit wcNetworking;
 
 {$mode objfpc}{$H+}
 {$modeswitch advancedrecords}
@@ -30,8 +30,8 @@ interface
 uses
   Classes, SysUtils,
   ECommonObjs, OGLFastList,
-  fphttp, HTTPDefs, httpprotocol, abstracthttpserver,
-  BufferedStream, extmemorystream,
+  fphttp, HTTPDefs, httpprotocol, AbstractHTTPServer,
+  BufferedStream, ExtMemoryStream,
   ssockets,
   sockets
   {$ifdef unix}

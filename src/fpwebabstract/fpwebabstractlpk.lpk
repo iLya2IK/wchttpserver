@@ -15,11 +15,11 @@
     <Files Count="2">
       <Item1>
         <Filename Value="abstracthttpserver.pas"/>
-        <UnitName Value="abstracthttpserver"/>
+        <UnitName Value="AbstractHTTPServer"/>
       </Item1>
       <Item2>
         <Filename Value="custabshttpapp.pas"/>
-        <UnitName Value="custabshttpapp"/>
+        <UnitName Value="CustAbsHTTPApp"/>
       </Item2>
     </Files>
     <RequiredPkgs Count="1">

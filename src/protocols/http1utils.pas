@@ -11,7 +11,7 @@
 }
 
 
-unit http1utils;
+unit HTTP1Utils;
 
 {$mode objfpc}{$H+}
 

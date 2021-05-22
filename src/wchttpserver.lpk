@@ -6,11 +6,11 @@
     <CompilerOptions>
       <Version Value="11"/>
       <SearchPaths>
-        <OtherUnitFiles Value="openssl;protocols;fpwebabstract"/>
+        <OtherUnitFiles Value="protocols"/>
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <Other>
-        <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP  -dWC_WEB_SOCKETS"/>
+        <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dWC_WEB_SOCKETS"/>
       </Other>
     </CompilerOptions>
     <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)"/>
@@ -72,7 +72,7 @@
       <Item14>
         <Filename Value="protocols/websocketconsts.pas"/>
         <AddToUsesPkgSection Value="False"/>
-        <UnitName Value="websocketconsts"/>
+        <UnitName Value="WebsocketConsts"/>
       </Item14>
     </Files>
     <RequiredPkgs Count="3">

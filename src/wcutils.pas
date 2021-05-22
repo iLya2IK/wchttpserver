@@ -112,6 +112,7 @@ begin
   if not Assigned(src) then Exit;
   dest.URL := src.URL;
   dest.PathInfo := src.PathInfo;
+  dest.QueryString := src.QueryString;
   for h := hhAccept to high(THeader) do
   begin
     dest.SetHeader(h, src.GetHeader(h));

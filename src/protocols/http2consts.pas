@@ -11,7 +11,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit http2consts;
+unit HTTP2Consts;
 
 {$mode objfpc}{$H+}
 {$modeswitch advancedrecords}

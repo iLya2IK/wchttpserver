@@ -1,5 +1,5 @@
 {
- WCApplication:
+ wcApplication:
    Custom application class to integrate with LCL
 
    Part of WCHTTPServer project
@@ -11,7 +11,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wcapplication;
+unit wcApplication;
 
 {$mode objfpc}{$H+}
 
@@ -20,32 +20,33 @@ interface
 uses
   Classes,
   StringHashList,
+  OGLFastVariantHash,
   SysUtils, DateUtils,
   ECommonObjs,
-  wcnetworking,
+  wcNetworking,
   fpwebfile, fpmimetypes,
-  fphttp, HTTPDefs, httpprotocol, http1utils,
-  http2consts,
-  abstracthttpserver,
-  wchttp2con,
-  extopenssl,
-  custweb, custabshttpapp,
-  sqlitewebsession,
-  sqlitelogger,
+  fphttp, HTTPDefs, httpprotocol, HTTP1Utils,
+  HTTP2Consts,
+  AbstractHTTPServer,
+  wcHTTP2Con,
+  ExtOpenSSL,
+  custweb, CustAbsHTTPApp,
+  SqliteWebSession,
+  SqliteLogger,
   jsonscanner, jsonparser, fpjson,
-  wcconfig,
+  wcConfig,
   ExtSqlite3DS,
   variants,
   sockets,
   ssockets,
   gzstream,
-  wcdecoders,
-  extmemorystream,
+  wcDecoders,
+  ExtMemoryStream,
   BufferedStream,
   SortedThreadPool,
   RegExpr,
   {$ifdef DEBUG_STAT}
-  wcdebug_vars,
+  wcDebug_vars,
   {$endif}
   AvgLvlTree
   {$ifdef unix}
@@ -55,8 +56,8 @@ uses
   {$endif}
   {$endif}
   {$ifdef WC_WEB_SOCKETS}
-  , wcwebsocketcon
-  , websocketconsts
+  , wcWebsocketCon
+  , WebsocketConsts
   {$endif}
   ;
 
@@ -110,11 +111,15 @@ type
   private
     FConn : TWCAppConnection;
     FResponseReadyToSend : Boolean;
+    FParams : TFastHashList;
     function GetClient: TWebClient;
+    function GetParPtr(index : LongWord): PVariant;
+    function GetParam(index : LongWord): Variant;
     function GetRequest: TWCRequest;
     function GetResponse: TWCResponse;
+    procedure SetParam(index : LongWord; AValue: Variant);
+    function FindOrAddParamId(aId : LongWord) : integer;
   public
-    P1, P2 : Variant;
     constructor Create(aConn : TWCAppConnection); overload;
     destructor Destroy; override;
     procedure Execute; override;
@@ -123,6 +128,8 @@ type
     property  Request : TWCRequest read GetRequest;
     property  Response : TWCResponse read GetResponse;
     property  Client : TWebClient read GetClient;
+    property  Param[index : LongWord] : Variant read GetParam write SetParam;
+    property  ParPtr[index : LongWord] : PVariant read GetParPtr;
     property  ResponseReadyToSend : Boolean read FResponseReadyToSend write
                                                  FResponseReadyToSend;
   end;
@@ -140,7 +147,7 @@ type
     destructor Destroy; override;
     procedure Execute; override;
     procedure DoWrappedExecute; virtual; abstract;
-    property WrappedJob : TWCMainClientJob read FWrappedJob;
+    property  WrappedJob : TWCMainClientJob read FWrappedJob;
   end;
 
   { TWCPreAnalizeClientJob }
@@ -1966,6 +1973,18 @@ begin
   Result := Connection.Client;
 end;
 
+function TWCMainClientJob.GetParPtr(index: LongWord): PVariant;
+begin
+  index := FindOrAddParamId(index);
+  Result := @( FParams.AtPosPt[index]^.Data );
+end;
+
+function TWCMainClientJob.GetParam(index: LongWord): Variant;
+begin
+  index := FindOrAddParamId(index);
+  Result := FParams.AtPosPt[index]^.Data;
+end;
+
 function TWCMainClientJob.GetRequest: TWCRequest;
 begin
   Result := Connection.Request;
@@ -1976,12 +1995,26 @@ begin
   Result := Connection.Response;
 end;
 
+procedure TWCMainClientJob.SetParam(index: LongWord; AValue: Variant);
+begin
+  index := FindOrAddParamId(index);
+  FParams.AtPosPt[index]^.Data := AValue;
+end;
+
+function TWCMainClientJob.FindOrAddParamId(aId: LongWord): integer;
+begin
+  Result := FParams.FindIndexOf(aId);
+  if Result < 0 then
+    Result := FParams.Add(aId, null);
+end;
+
 constructor TWCMainClientJob.Create(aConn: TWCAppConnection);
 begin
   inherited Create(aConn.Client.Score);
   aConn.Client.UpdateScore;
   FConn := aConn;
   FResponseReadyToSend := true;
+  FParams := TFastHashList.Create;
 end;
 
 destructor TWCMainClientJob.Destroy;
@@ -1990,6 +2023,7 @@ begin
     FConn.Free;
     FConn := nil;
   end;
+  FParams.Free;
   inherited Destroy;
 end;
 

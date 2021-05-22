@@ -1,5 +1,5 @@
 {
- WCHTTP2Con
+ wcHTTP2Con
    Classes and other routings to deal with HTTP2 connections,
    frames and streams
    plus cross-protocols conversions HTTP2 <-> HTTP1.1 for
@@ -14,34 +14,26 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wchttp2con;
+unit wcHTTP2Con;
 
 {$mode objfpc}{$H+}
 {$modeswitch advancedrecords}
-{$ifdef linux}
-{epoll mode appeared thanks to the lNet project
- CopyRight (C) 2004-2008 Ales Katona}
-{$define socket_epoll_mode}
-{.$define socket_select_mode}
-{$else}
-{$define socket_select_mode}
-{$endif}
 
 interface
 
 uses
   Classes, SysUtils,
   ECommonObjs, OGLFastList,
-  fphttp, HTTPDefs, httpprotocol, abstracthttpserver,
-  wcnetworking,
+  fphttp, HTTPDefs, httpprotocol, AbstractHTTPServer,
+  wcNetworking,
   BufferedStream,
-  extmemorystream,
+  ExtMemoryStream,
   uhpack,
-  http2consts,
-  http1utils,
-  http2http1conv
+  HTTP2Consts,
+  HTTP1Utils,
+  HTTP2HTTP1Conv
   {$ifdef DEBUG_STAT}
-  , wcdebug_vars
+  , wcDebug_vars
   {$endif};
 
 type

@@ -13,14 +13,14 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit extopensslsockets;
+unit ExtOpenSSLSockets;
 
 {$mode objfpc}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, sockets, ssockets, sslsockets, sslbase, openssl, extopenssl;
+  Classes, SysUtils, sockets, ssockets, sslsockets, sslbase, openssl, ExtOpenSSL;
 
 Type
 

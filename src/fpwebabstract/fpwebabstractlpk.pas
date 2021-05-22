@@ -8,7 +8,7 @@ unit fpwebabstractlpk;
 interface
 
 uses
-  abstracthttpserver, custabshttpapp;
+  AbstractHTTPServer, CustAbsHTTPApp;
 
 implementation
 

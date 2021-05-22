@@ -11,7 +11,7 @@ interface
 
 uses
   Classes, SysUtils,
-  wcapplication;
+  wcApplication;
 
 type
   TWCTestClientState = (csDisconnected, csConnected);

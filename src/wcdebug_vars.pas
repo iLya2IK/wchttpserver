@@ -1,4 +1,4 @@
-unit wcdebug_vars;
+unit wcDebug_vars;
 
 {$mode objfpc}{$H+}
 

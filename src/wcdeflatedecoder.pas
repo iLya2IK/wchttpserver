@@ -1,11 +1,11 @@
-unit wcdeflatedecoder;
+unit wcDeflateDecoder;
 
 {$mode objfpc}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, wcdecoders, zlib;
+  Classes, SysUtils, wcDecoders, zlib;
 
 type
   { TWCDeflateClientDecoder }

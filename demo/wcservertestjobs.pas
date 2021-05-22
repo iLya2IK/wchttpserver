@@ -13,7 +13,7 @@ uses
   Classes, SysUtils, variants,
   httpdefs, httpprotocol,
   jsonscanner, jsonparser, fpjson,
-  WCMainTest, WCTestClient, wcapplication;
+  WCMainTest, WCTestClient, wcApplication;
 
 type
   { TESConnectToServer }
@@ -148,9 +148,9 @@ end;
 
 procedure TWCGetInteger.Execute;
 begin
-  if ESWGetHeaderContent(Request.Content, cSPos, P1, 0) then
+  if ESWGetHeaderContent(Request.Content, cSPos, ParPtr[1]^, 0) then
   begin
-    Response.Content:= IntToStr(TWCTestWebClient(Client).GetClientInt(P1));
+    Response.Content:= IntToStr(TWCTestWebClient(Client).GetClientInt(Param[1]));
   end else
     Response.Content := '0';
   inherited Execute;

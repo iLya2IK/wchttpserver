@@ -8,7 +8,7 @@ unit openssl_ext_ilya2ik;
 interface
 
 uses
-  extopenssl, extopensslsockets, openssl;
+  ExtOpenSSL, extopensslsockets, openssl;
 
 implementation
 

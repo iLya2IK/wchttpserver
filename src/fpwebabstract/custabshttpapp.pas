@@ -13,14 +13,14 @@
 }
 
 
-unit custabshttpapp;
+unit CustAbsHTTPApp;
 
 {$mode objfpc}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, httpdefs, custweb, ssockets, abstracthttpserver;
+  Classes, SysUtils, httpdefs, custweb, ssockets, AbstractHTTPServer;
 
 type
   TCustomAbsHTTPApplication = Class;

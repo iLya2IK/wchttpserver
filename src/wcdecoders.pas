@@ -1,5 +1,5 @@
 {
- WCDecoders:
+ wcDecoders:
    Abstract classes for decoding client messages
 
    Part of WCHTTPServer project
@@ -11,14 +11,15 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wcdecoders;
+unit wcDecoders;
 
 {$mode objfpc}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, StringHashList, ECommonObjs, BufferedStream, extmemorystream;
+  Classes, SysUtils, StringHashList,
+  ECommonObjs, BufferedStream, ExtMemoryStream;
 
 type
 

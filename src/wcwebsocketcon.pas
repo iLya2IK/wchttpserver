@@ -1,5 +1,5 @@
 {
- WCWebSocketCon:
+ wcWebsocketCon:
    Classes and other routings to deal with WebSocket connections,
    frames plus cross-protocols conversions WS <-> HTTP1.1 for
    fpHTTP/fpweb compability
@@ -13,7 +13,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wcwebsocketcon;
+unit wcWebsocketCon;
 
 {$mode objfpc}{$H+}
 
@@ -21,10 +21,10 @@ interface
 
 uses
   Classes, SysUtils,
-  wcnetworking,
-  BufferedStream, extmemorystream,
+  wcNetworking,
+  BufferedStream, ExtMemoryStream,
   ECommonObjs, OGLFastList,
-  websocketconsts,
+  WebsocketConsts,
   fphttp, HTTPDefs,
   zlib, fpjson;
 

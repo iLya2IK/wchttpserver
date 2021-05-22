@@ -15,15 +15,15 @@
     <Files Count="3">
       <Item1>
         <Filename Value="extopenssl.pp"/>
-        <UnitName Value="extopenssl"/>
+        <UnitName Value="ExtOpenSSL"/>
       </Item1>
       <Item2>
         <Filename Value="extopensslsockets.pp"/>
-        <UnitName Value="extopensslsockets"/>
+        <UnitName Value="ExtOpenSSLSockets"/>
       </Item2>
       <Item3>
         <Filename Value="openssl.pas"/>
-        <UnitName Value="openssl"/>
+        <UnitName Value="OpenSSL"/>
       </Item3>
     </Files>
     <RequiredPkgs Count="1">

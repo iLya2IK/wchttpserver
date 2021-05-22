@@ -11,8 +11,8 @@ interface
 
 uses
   SysUtils, Classes,
-  wcapplication,
-  wcnetworking,
+  wcApplication,
+  wcNetworking,
   SortedThreadPool,
   httpdefs, fpHTTP, httpprotocol,
   WCTestClient;

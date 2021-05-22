@@ -1,5 +1,5 @@
 {
- WCConfig:
+ wcConfig:
    Custom application config class, structures and utils
 
    Part of WCHTTPServer project
@@ -11,7 +11,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit wcconfig;
+unit wcConfig;
 
 {$mode objfpc}{$H+}
 {$modeswitch advancedrecords}

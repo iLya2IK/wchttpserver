@@ -1,5 +1,5 @@
 {
- WebSocketConsts: Basic websocket protocol constants, structures and utils
+ WebsocketConsts: Basic websocket protocol constants, structures and utils
    according RFC 6455, RFC 7692
 
    Part of WCHTTPServer project
@@ -11,7 +11,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit websocketconsts;
+unit WebsocketConsts;
 
 {$mode objfpc}{$H+}
 {$modeswitch advancedrecords}
@@ -196,7 +196,7 @@ procedure WebSocketUnregisterAllExts;
 
 implementation
 
-uses http1utils;
+uses HTTP1Utils;
 
 var ExtsRegistered : Array of TWebSocketExtRegistered;
 

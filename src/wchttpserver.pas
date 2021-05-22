@@ -8,9 +8,9 @@ unit wchttpserver;
 interface
 
 uses
-  wcapplication, wcconfig, wcdebug_vars, wcdecoders, wcdeflatedecoder, 
-  wchttp2con, wcnetworking, wcutils, wcwebsocketcon, http1utils, http2consts, 
-  http2http1conv;
+  wcApplication, wcConfig, wcDebug_vars, wcDecoders, wcDeflateDecoder, 
+  wcHTTP2Con, wcNetworking, wcutils, wcWebsocketCon, HTTP1Utils, HTTP2Consts, 
+  HTTP2HTTP1Conv;
 
 implementation
 

@@ -1,5 +1,5 @@
 {
- HTTP2Http1Conv:
+ HTTP2HTTP1Conv:
    HTTP2 to HTTP1.1 and backward conversions
    according RFC 7540, 7541
 
@@ -12,7 +12,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit http2http1conv;
+unit HTTP2HTTP1Conv;
 
 {$mode objfpc}{$H+}
 

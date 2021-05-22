@@ -12,7 +12,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit extopenssl;
+unit ExtOpenSSL;
 
 {$mode objfpc}{$H+}
 {$DEFINE DUMPCERT}

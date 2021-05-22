@@ -12,7 +12,7 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 }
 
-unit abstracthttpserver;
+unit AbstractHTTPServer;
 
 {$mode objfpc}{$H+}
 
@@ -20,7 +20,7 @@ interface
 
 uses
   Classes, SysUtils, sockets,
-  sslbase, extopenssl,
+  sslbase, ExtOpenSSL,
   sslsockets, ssockets, resolve,
   httpdefs;
 
