@@ -531,17 +531,9 @@ end;
 
 function TWCRefStreamFrame.Memory : Pointer;
 begin
-  if FStrm.Stream is TExtMemoryStream then
+  if FStrm.Stream is TCustomMemoryStream then
   begin
-    Result := TExtMemoryStream(FStrm.Stream).Memory;
-  end else
-  if FStrm.Stream is TMemoryStream then
-  begin
-    Result := TMemoryStream(FStrm.Stream).Memory;
-  end else
-  if FStrm.Stream is TBufferedStream then
-  begin
-    Result := TBufferedStream(FStrm.Stream).Memory;
+    Result := TCustomMemoryStream(FStrm.Stream).Memory;
   end else
     Result := nil;
 end;
@@ -637,17 +629,9 @@ end;
 
 function TWCStreamFrame.Memory : Pointer;
 begin
-  if FStrm is TExtMemoryStream then
+  if FStrm is TCustomMemoryStream then
   begin
-    Result := TExtMemoryStream(FStrm).Memory;
-  end else
-  if FStrm is TMemoryStream then
-  begin
-    Result := TMemoryStream(FStrm).Memory;
-  end else
-  if FStrm is TBufferedStream then
-  begin
-    Result := TBufferedStream(FStrm).Memory;
+    Result := TCustomMemoryStream(FStrm).Memory;
   end else
     Result := nil;
 end;
@@ -1562,8 +1546,8 @@ begin
     FWriteBuffer.Lock;
     try
       CurBuffer := FWriteBuffer.Value;
-      WrBuf.SetPointer(Pointer(CurBuffer + FWriteTailSize),
-                                             FWriteBufferSize - FWriteTailSize);
+      WrBuf.SetPtr(Pointer(CurBuffer + FWriteTailSize),
+                                           FWriteBufferSize - FWriteTailSize);
       FFramesToSend.Lock;
       try
         it := FFramesToSend.ListBegin;
@@ -1584,7 +1568,7 @@ begin
                  FWriteBuffer.Realloc(CurBuffer);
                  FWriteBufferSize := Sz;
                  Sz := WrBuf.Position;
-                 WrBuf.SetPointer(Pointer(CurBuffer + FWriteTailSize),
+                 WrBuf.SetPtr(Pointer(CurBuffer + FWriteTailSize),
                                              FWriteBufferSize - FWriteTailSize);
                  WrBuf.Position := Sz;
                end else
@@ -1794,7 +1778,7 @@ begin
       WriteTo.Size := L;
       Exit(false);
     end;
-    WriteTo.SetPointer(ReadBuffer.Value, L);
+    WriteTo.SetPtr(ReadBuffer.Value, L);
     WriteTo.Position:= Offset;
   end;
 end;

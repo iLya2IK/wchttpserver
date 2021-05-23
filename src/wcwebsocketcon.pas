@@ -1391,7 +1391,7 @@ begin
           Stream := TBufferedStream.Create;
           try
             TmpBuf := GetMem(fr.Size);
-            TBufferedStream(Stream).SetPointer(TmpBuf, fr.Size);
+            TBufferedStream(Stream).SetPtr(TmpBuf, fr.Size);
             fr.SaveToStream(Stream);
             ret := FDeflateStream.Next(TBufferedStream(Stream).Memory,
                                        fr.Size, NewCount);
@@ -1517,7 +1517,7 @@ begin
         err := WSE_UNEXPECTED;
         Exit;
       end;
-      S.SetPointer(ReadBuffer.Value, Sz);
+      S.SetPtr(ReadBuffer.Value, Sz);
 
       err := WSE_NO_ERROR;
       while true do

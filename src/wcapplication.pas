@@ -1225,9 +1225,7 @@ begin
     aDecoder := Application.ClientDecoders[ContentEncoding];
     if assigned(aDecoder) then
     begin
-      if (ContentObject.Stream is TExtMemoryStream) or
-         (ContentObject.Stream is TMemoryStream) or
-         (ContentObject.Stream is TBufferedStream) then
+      if (ContentObject.Stream is TCustomMemoryStream) then
         aDecoder.DecodeStream(ContentObject.Stream) else
       begin
         // maybe not best solution for large content blocks
@@ -1457,7 +1455,7 @@ begin
   FProtocolVersion := wcUNK;
   FInputBuf := GetMem(WC_INITIAL_READ_BUFFER_SIZE);
   FInput  := TBufferedStream.Create;
-  FInput.SetPointer(FInputBuf, WC_INITIAL_READ_BUFFER_SIZE);
+  FInput.SetPtr(FInputBuf, WC_INITIAL_READ_BUFFER_SIZE);
   FRequest := nil;
   FResponse := nil;
   FClient := nil;
@@ -1680,7 +1678,7 @@ begin
         Result := wccrSocketError;
         Raise ESocketError.Create(WCSocketReadError);
       end;
-      FInput.SetPointer(FInputBuf, r);  //resize buffered stream
+      FInput.SetPtr(FInputBuf, r);  //resize buffered stream
 
       if FInput.Size > 0 then
       begin
@@ -2491,7 +2489,7 @@ begin
      ({$IFDEF ALLOW_STREAM_GZIP} AcceptGzip or {$ENDIF}AcceptDeflate) then
   begin
     StrBuffer := TBufferedStream.Create;
-    StrBuffer.SetPointer(@(S[1]), L);
+    StrBuffer.SetPtr(@(S[1]), L);
     CompressStream(AResponse, StrBuffer, L, true);
   end  else
     AResponse.Content:=S;

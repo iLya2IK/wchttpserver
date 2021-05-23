@@ -202,33 +202,28 @@ var outBuffer : PByte;
     Sz : PtrInt;
 begin
   if not Assigned(InOutStream) then Exit;
-  if InOutStream is TExtMemoryStream then
+  if InOutStream is TCustomMemoryStream then
   begin
     Decode(TExtMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
-    if Assigned(outBuffer) then
-      TExtMemoryStream(InOutStream).SetPtr(outBuffer, Sz);
-  end
-  else
-  if InOutStream is TMemoryStream then
-  begin
-    Decode(TMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
-    if Assigned(outBuffer) then
-    begin
-      InOutStream.Position := 0;
-      InOutStream.Size := Sz;
-      InOutStream.WriteBuffer(outBuffer^, Sz);
-      InOutStream.Position := 0;
-      Freemem(outBuffer);
-    end;
-  end
-  else
-  if InOutStream is TBufferedStream then
-  begin
-    Decode(TBufferedStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
-    if Assigned(outBuffer) then
-    begin
-      Freemem(TBufferedStream(InOutStream).Memory);
-      TBufferedStream(InOutStream).SetPointer(outBuffer, Sz);
+    if Assigned(outBuffer) then begin
+      if InOutStream is TExtMemoryStream then
+      begin
+        TExtMemoryStream(InOutStream).SetPtr(outBuffer, Sz);
+      end
+      else
+      if InOutStream is TBufferedStream then
+      begin
+        Freemem(TBufferedStream(InOutStream).Memory);
+        TBufferedStream(InOutStream).SetPtr(outBuffer, Sz);
+      end
+      else
+      begin
+        InOutStream.Position := 0;
+        InOutStream.Size := Sz;
+        InOutStream.WriteBuffer(outBuffer^, Sz);
+        InOutStream.Position := 0;
+        Freemem(outBuffer);
+      end
     end;
   end
   else

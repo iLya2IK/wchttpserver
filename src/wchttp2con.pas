@@ -1487,18 +1487,9 @@ end;
 
 function TWCHTTP2RefFrame.Memory : Pointer;
 begin
-  if FStrm.Stream is TExtMemoryStream then
-  begin
-    Result := TExtMemoryStream(FStrm.Stream).Memory;
-  end else
-  if FStrm.Stream is TMemoryStream then
-  begin
-    Result := TMemoryStream(FStrm.Stream).Memory;
-  end else
-  if FStrm.Stream is TBufferedStream then
-  begin
-    Result := TBufferedStream(FStrm.Stream).Memory;
-  end else
+  if FStrm.Stream is TCustomMemoryStream then
+    Result := TCustomMemoryStream(FStrm.Stream).Memory
+  else
     Result := nil;
 end;
 
@@ -1711,8 +1702,7 @@ begin
   aDecoder.IncReference;
   readbuf := TBufferedStream.Create;
   try
-    readbuf.SetPointer(Pointer(S.Memory + S.Position),
-                       aSz);
+    readbuf.SetPtr(Pointer(S.Memory + S.Position), aSz);
     try
       aDecoder.Decode(readbuf);
       if (FrameHeader.FrameFlag and H2FL_END_HEADERS) > 0 then
@@ -1771,7 +1761,7 @@ begin
         err := H2E_INTERNAL_ERROR;
         Exit;
       end;
-      S.SetPointer(ReadBuffer.Value, Sz);
+      S.SetPtr(ReadBuffer.Value, Sz);
 
       err := H2E_NO_ERROR;
       while true do
