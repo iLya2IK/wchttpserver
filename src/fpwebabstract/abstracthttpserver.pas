@@ -476,11 +476,9 @@ end;
 
 procedure TAbsHTTPConnectionRequest.InitPostVars;
 Var
-  Cl : Integer;
   CT : String;
 begin
-  CL:=ContentLength;
-  if CL > 0 then
+  if ContentLength > 0 then
   begin
     CT:=ContentType;
     if Pos('MULTIPART/FORM-DATA',Uppercase(CT)) > 0 then

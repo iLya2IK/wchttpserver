@@ -206,7 +206,7 @@ begin
   begin
     Decode(TExtMemoryStream(InOutStream).Memory, InOutStream.Size, outBuffer, Sz);
     if Assigned(outBuffer) then
-      TExtMemoryStream(InOutStream).SetPointer(outBuffer, Sz);
+      TExtMemoryStream(InOutStream).SetPtr(outBuffer, Sz);
   end
   else
   if InOutStream is TMemoryStream then
