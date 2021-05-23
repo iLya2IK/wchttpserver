@@ -1568,7 +1568,7 @@ begin
     Result.SetConnection(Self);
     AReq.CopyToHTTP1Request(Result);
     TWCContent(Result.ContentObject).RequestRef := aReq;
-    Result.InitRequestVars;
+    Result.InitRequestVars(False);
     Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
     Result.ServerPort := TWCHttpServer(Server).Port;
   except
@@ -1701,7 +1701,7 @@ begin
           FRequest:= ReadReqHeaders;
           if Assigned(FRequest) then
           begin
-            FRequest.InitRequestVars;
+            FRequest.InitRequestVars(True);
             //check here if http1.1 upgrade to other protocol
             if SameStr(FRequest.ProtocolVersion, '1.1') then
             begin

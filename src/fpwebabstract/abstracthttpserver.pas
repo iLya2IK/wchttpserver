@@ -103,7 +103,8 @@ Type
     procedure SetContentClass(AValue: TAbsHTTPContentClass);
     procedure SetContent(AValue: RawByteString);
   protected
-    Procedure InitRequestVars; override;
+    Procedure InitPostVars; override;
+    Procedure InitRequestVars(CheckContent : Boolean); virtual; overload;
     Procedure SetConnection(AConnection : TAbsHTTPConnection);
   public
     Constructor Create; override;
@@ -473,8 +474,25 @@ begin
     FAbsContent.RawString := AValue;
 end;
 
+procedure TAbsHTTPConnectionRequest.InitPostVars;
+Var
+  Cl : Integer;
+  CT : String;
+begin
+  CL:=ContentLength;
+  if CL > 0 then
+  begin
+    CT:=ContentType;
+    if Pos('MULTIPART/FORM-DATA',Uppercase(CT)) > 0 then
+      ProcessMultiPart(ContentStream, CT, ContentFields)
+    else if Pos('APPLICATION/X-WWW-FORM-URLENCODED',Uppercase(CT)) > 0 then
+      ProcessUrlEncoded(ContentStream, ContentFields)
+    else
+      HandleUnknownEncoding(CT, ContentStream)
+  end;
+end;
 
-procedure TAbsHTTPConnectionRequest.InitRequestVars;
+procedure TAbsHTTPConnectionRequest.InitRequestVars(CheckContent: Boolean);
 Var
   P : Integer;
   S : String;
@@ -485,7 +503,16 @@ begin
     SetHTTPVariable(hvQuery,Copy(S,P+1,Length(S)-P));
   if Assigned(FConnection) and FConnection.LookupHostNames then
     SetHTTPVariable(hvRemoteHost,GetHostNameByAddress(RemoteAddress));
-  inherited InitRequestVars;
+  // Always process QUERYSTRING.
+  InitGetVars;
+  if CheckContent then
+  begin
+    S:=Method;
+    // POST and PUT, force post var treatment.
+    // To catch other methods we do not treat specially, we'll do the same if contentlength>0
+    if (CompareText(S,'POST')=0) or (CompareText(S,'PUT')=0) or (ContentLength>0) then
+       InitPostVars;
+  end;
 end;
 
 procedure TAbsHTTPConnectionRequest.SetConnection(

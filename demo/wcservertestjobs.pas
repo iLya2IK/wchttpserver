@@ -148,7 +148,7 @@ end;
 
 procedure TWCGetInteger.Execute;
 begin
-  if ESWGetHeaderContent(Request.Content, cSPos, ParPtr[1]^, 0) then
+  if DecodeJsonParams(Request.Content, cSPos, ParPtr[1]^, 0) then
   begin
     Response.Content:= IntToStr(TWCTestWebClient(Client).GetClientInt(Param[1]));
   end else

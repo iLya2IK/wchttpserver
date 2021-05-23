@@ -29,20 +29,20 @@ Type
   PParamsVariantArray = ^TParamsVariantArray;
 
 
-function ESWGetHeaderContent(const H : String; const P1S, P2S : String;
-                             out Par1, Par2 : Variant;
-                             const Def1, Def2 : Variant) : Boolean; overload;
-function ESWGetHeaderContent(const H : String; const PS : String;
-                             out Par : Variant;
-                             const Def : Variant) : Boolean; overload;
-function ESWGetHeaderContent(const H : String;
-                             const PARS : Array of String;
-                             VALS : PParamsVariantArray;
-                             const Def : Array of Variant) : Boolean; overload;
-function ESWGetHeaderContent(const H : String;
-                             const PARS : Array of String;
-                             VALS : TFastHashList;
-                             const Def : Array of Variant) : Boolean; overload;
+function DecodeJsonParams(const H : String; const P1S, P2S : String;
+                          out Par1, Par2 : Variant;
+                          const Def1, Def2 : Variant) : Boolean; overload;
+function DecodeJsonParams(const H : String; const PS : String;
+                          out Par : Variant;
+                          const Def : Variant) : Boolean; overload;
+function DecodeJsonParams(const H : String;
+                          const PARS : Array of String;
+                          VALS : PParamsVariantArray;
+                          const Def : Array of Variant) : Boolean; overload;
+function DecodeJsonParams(const H : String;
+                          const PARS : Array of String;
+                          VALS : TFastHashList;
+                          const Def : Array of Variant) : Boolean; overload;
 function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
 function DecodeSIDToInt(const value : String) : Cardinal;
@@ -58,47 +58,6 @@ const sidEncodeTable : Array [0..63] of Char =
                                         'E','F','G','H','I','J','K','L','M','N',
                                         'O','P','Q','R','S','T','U','V','W','X',
                                         'Y','Z','~','_');
-
-function ESWGetHeaderContent(const H: String; const PARS: array of String;
-  VALS: TFastHashList; const Def: array of Variant): Boolean;
-var jsonObj: TJSONObject;
-    jsonData : Array of TJSONData;
-    i, k : integer;
-    V : Variant;
-begin
-  Result := false;
-  if Length(PARS) <> Length(Def) then Exit;
-  try
-    jsonObj:= TJSONObject(GetJSON(H));
-    if assigned(jsonObj) then
-    begin
-      SetLength(jsonData, Length(PARS));
-      for i := 0 to High(Pars) do
-      begin
-        jsonData[i] := jsonObj.Find(PARS[i]);
-        if not Assigned(jsonData[i]) then Exit;
-      end;
-      Result := true;
-      for i := 0 to High(Pars) do
-      begin
-        If jsonData[i].JSONType = jtObject then
-          V := TJSONObject(jsonData[i]).AsJSON else
-          V := jsonData[i].Value;
-        if VarIsNull(V) then V := Def[i];
-        Result := Result and (((VarIsNumeric(V) and VarIsNumeric(Def[i])) or
-                               (VarIsStr(V) and VarIsStr(Def[i]))));
-        if Result then
-        begin
-          k := VALS.FindIndexOf(I);
-          if k < 0 then k := VALS.Add(i, V) else
-            VALS.AtPosPt[k]^.Data := V;
-        end;
-      end;
-    end;
-  finally
-    if assigned(jsonObj) then FreeAndNil(jsonObj);
-  end;
-end;
 
 function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 var i: integer;
@@ -167,7 +126,7 @@ begin
   dest.CustomHeaders.Assign(src.CustomHeaders);
 end;
 
-function ESWGetHeaderContent(const H : String; const P1S, P2S : String;
+function DecodeJsonParams(const H : String; const P1S, P2S : String;
                               out Par1, Par2 : Variant;
                               const Def1, Def2 : Variant) : Boolean;
 var jsonObj: TJSONObject;
@@ -201,7 +160,7 @@ begin
   end;
 end;
 
-function ESWGetHeaderContent(const H : String; const PS: String; out
+function DecodeJsonParams(const H : String; const PS: String; out
   Par: Variant; const Def: Variant) : Boolean;
 var jsonObj: TJSONObject;
     jsonData : TJSONData;
@@ -227,7 +186,7 @@ begin
   end;
 end;
 
-function ESWGetHeaderContent(const H : String; const PARS : array of String;
+function DecodeJsonParams(const H : String; const PARS : array of String;
   VALS : PParamsVariantArray; const Def : array of Variant) : Boolean;
 var jsonObj: TJSONObject;
     jsonData : Array of TJSONData;
@@ -254,6 +213,47 @@ begin
         if VarIsNull(VALS^[i]) then VALS^[i] := Def[i];
         Result := Result and (((VarIsNumeric(VALS^[i]) and VarIsNumeric(Def[i])) or
                                (VarIsStr(VALS^[i]) and VarIsStr(Def[i]))));
+      end;
+    end;
+  finally
+    if assigned(jsonObj) then FreeAndNil(jsonObj);
+  end;
+end;
+
+function DecodeJsonParams(const H: String; const PARS: array of String;
+  VALS: TFastHashList; const Def: array of Variant): Boolean;
+var jsonObj: TJSONObject;
+    jsonData : Array of TJSONData;
+    i, k : integer;
+    V : Variant;
+begin
+  Result := false;
+  if Length(PARS) <> Length(Def) then Exit;
+  try
+    jsonObj:= TJSONObject(GetJSON(H));
+    if assigned(jsonObj) then
+    begin
+      SetLength(jsonData, Length(PARS));
+      for i := 0 to High(Pars) do
+      begin
+        jsonData[i] := jsonObj.Find(PARS[i]);
+        if not Assigned(jsonData[i]) then Exit;
+      end;
+      Result := true;
+      for i := 0 to High(Pars) do
+      begin
+        If jsonData[i].JSONType = jtObject then
+          V := TJSONObject(jsonData[i]).AsJSON else
+          V := jsonData[i].Value;
+        if VarIsNull(V) then V := Def[i];
+        Result := Result and (((VarIsNumeric(V) and VarIsNumeric(Def[i])) or
+                               (VarIsStr(V) and VarIsStr(Def[i]))));
+        if Result then
+        begin
+          k := VALS.FindIndexOf(I);
+          if k < 0 then k := VALS.Add(i, V) else
+            VALS.AtPosPt[k]^.Data := V;
+        end;
       end;
     end;
   finally
