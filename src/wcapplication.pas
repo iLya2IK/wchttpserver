@@ -385,7 +385,8 @@ type
     function GetWebHandler: TWCHttpServerHandler;
     function InitializeAbstractWebHandler : TWebHandler; override;
     function GetTimeSecFromStart : Cardinal;
-    function CreateReferedMemoryStream : TRefMemoryStream;
+    function CreateRefMemoryStream : TRefMemoryStream;
+    function CreateSizedRefMemoryStream(aSz : PtrInt) : TRefMemoryStream;
     property ESServer : TWCHttpServer read GetESServer;
     property GarbageCollector : TNetReferenceList read FReferences;
     property SocketsCollector : TNetReferenceList read FSocketsReferences;
@@ -1703,7 +1704,8 @@ begin
             //check here if http1.1 upgrade to other protocol
             if SameStr(FRequest.ProtocolVersion, '1.1') then
             begin
-              if Pos('upgrade', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
+              if Pos(HTTPUpgradeSubHeader,
+                     LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
               begin
                 FProtocolVersion := wcUNK;
                 {$IFDEF WC_WEB_SOCKETS}
@@ -1726,7 +1728,8 @@ begin
               end else
               if not Assigned(RefCon) then
               begin
-                if Pos('keep-alive', LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
+                if Pos(HTTPKeepAliveSubHeader,
+                       LowerCase(FRequest.GetHeader(hhConnection))) > 0 then
                 begin
                   RefCon := TWCHttpServer(Server).AttachNewHTTP11Con(SocketReference,
                                                                      @(TWCHttpServer(Server).DoConnectToSocketRef),
@@ -3379,9 +3382,16 @@ begin
   Result := (GetTickCount64 - FStartStamp) div 1000;
 end;
 
-function TWCHTTPApplication.CreateReferedMemoryStream: TRefMemoryStream;
+function TWCHTTPApplication.CreateRefMemoryStream : TRefMemoryStream;
 begin
   Result := TRefMemoryStream.Create;
+  Application.GarbageCollector.Add(Result);
+end;
+
+function TWCHTTPApplication.CreateSizedRefMemoryStream(aSz : PtrInt
+  ) : TRefMemoryStream;
+begin
+  Result := TRefMemoryStream.Create(aSz);
   Application.GarbageCollector.Add(Result);
 end;
 
@@ -3571,7 +3581,7 @@ begin
   if Assigned(FDeflateCache) then FDeflateCache.DecReference;
   FDeflateCache := nil;
   FDeflateSize := 0;
-  FCache := Application.CreateReferedMemoryStream;
+  FCache := Application.CreateRefMemoryStream;
   FSize := 0;
 end;
 
@@ -3605,7 +3615,7 @@ begin
         begin
           FCache.Lock;
           try
-            FDeflateCache := Application.CreateReferedMemoryStream;
+            FDeflateCache := Application.CreateRefMemoryStream;
             deflateStream := TDefcompressionstream.create(cldefault, FDeflateCache.Stream);
             try
               FCache.Stream.Position:=0;
@@ -3619,7 +3629,7 @@ begin
                FDeflateCache := nil;
             end;
             {$IFDEF ALLOW_STREAM_GZIP}
-            FGzipCache := Application.CreateReferedMemoryStream;
+            FGzipCache := Application.CreateRefMemoryStream;
             gzStream := Tgzcompressionstream.create(cldefault, FGzipCache.Stream);
             try
               FCache.Stream.Position:=0;

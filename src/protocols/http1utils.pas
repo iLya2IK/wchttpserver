@@ -40,6 +40,12 @@ const
                      AnsiChar('['),AnsiChar(']'),AnsiChar('?'),AnsiChar('='),
                      AnsiChar('{'),AnsiChar('}'),
                      AnsiChar(HTTP1SP),AnsiChar(HTTP1HT)];
+  HTTPGETMethod  = AnsiString('GET');
+  HTTPPOSTMethod = AnsiString('POST');
+  HTTPPUTMethod  = AnsiString('PUT');
+
+  HTTPUpgradeSubHeader = AnsiString('upgrade');
+  HTTPKeepAliveSubHeader = AnsiString('keep-alive');
 
 Function HTTP1GetStatusCode(ACode: Integer) : String;
 

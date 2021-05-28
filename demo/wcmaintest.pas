@@ -14,7 +14,7 @@ uses
   wcApplication,
   wcNetworking,
   SortedThreadPool,
-  httpdefs, fpHTTP, httpprotocol,
+  HTTPDefs, fpHTTP, HTTP1Utils, httpprotocol,
   WCTestClient;
 
 type
@@ -174,7 +174,7 @@ begin
   end else
   {$ENDIF}
   begin
-  if CompareText(Request.Method,'POST')=0 then
+  if CompareText(Request.Method, HTTPPOSTMethod)=0 then
   begin
     ResultClass := TWCMainClientJobClass(WCJobsTree.Values[Request.PathInfo]);
     if assigned(ResultClass) then

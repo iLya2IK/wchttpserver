@@ -25,7 +25,7 @@ uses
   BufferedStream, ExtMemoryStream,
   ECommonObjs, OGLFastList,
   WebsocketConsts,
-  fphttp, HTTPDefs,
+  fphttp, HTTPDefs, HTTP1Utils, httpprotocol,
   zlib, fpjson;
 
 type
@@ -1092,7 +1092,7 @@ end;
 procedure TWCWSIncomingChunck.CopyToHTTP1Request(
   aReq1: TWCConnectionRequest);
 begin
-  aReq1.Method := 'GET';
+  aReq1.Method := HTTPGETMethod;
   Options.Lock;
   try
     CopyHTTPRequest(aReq1, Options.Request);
@@ -1743,9 +1743,9 @@ var subproto : ansistring;
     cur_version : word;
 begin
   Result := nil;
-  if not SameStr(aReq.Method, 'GET') then
+  if not SameStr(aReq.Method, HTTPGETMethod) then
     Exit;
-  if not (SameStr(aReq.GetCustomHeader('Upgrade'), WebSocket_Protocol) or
+  if not (SameStr(aReq.GetCustomHeader(HeaderUpgrade), WebSocket_Protocol) or
           SameStr(aReq.Upgrade, WebSocket_Protocol)) then
     Exit;
   if not WebSocketCheckVersionValid(aReq.GetCustomHeader(WS_Sec_WebSocket_Version),
