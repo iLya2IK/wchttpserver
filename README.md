@@ -10,8 +10,8 @@ The project builds on fpWeb modules and extends them to increase functionality:
 4. Multithreading preparation and execution of requests based on threads pools e.g. helpful classes to work with EventSources.
 6. Clients ranking based on clients frequency of requests.
 7. Built-in support for gzip and deflate compression methods including decompression of client-side requests.
-8. WebSocket protocol supported.
-9. Ability to start the server both in HTTP/2 mode and in HTTP 1.1 mode.
+8. The WebSocket (RFC 6455) protocol is supported with the "permessage-deflate" extension (RFC 7692).
+9. Ability to start the server both in HTTP/2 (RFC 7540) mode and in HTTP/1.1 mode.
 10. Modified OpenSSL modules (added necessary TLS extensions) to create and maintain HTTP/2 connections.
 11. Added the ability to save the master key and a random set of client data on the server-side (necessary for debugging TLS dumps using WireShark).
 12. Working both under Windows and Linux.
