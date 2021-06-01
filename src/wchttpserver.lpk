@@ -23,31 +23,31 @@
       </Item1>
       <Item2>
         <Filename Value="wcapplication.pas"/>
-        <UnitName Value="wcapplication"/>
+        <UnitName Value="wcApplication"/>
       </Item2>
       <Item3>
         <Filename Value="wcconfig.pas"/>
-        <UnitName Value="wcconfig"/>
+        <UnitName Value="wcConfig"/>
       </Item3>
       <Item4>
         <Filename Value="wcdebug_vars.pas"/>
-        <UnitName Value="wcdebug_vars"/>
+        <UnitName Value="wcDebug_vars"/>
       </Item4>
       <Item5>
         <Filename Value="wcdecoders.pas"/>
-        <UnitName Value="wcdecoders"/>
+        <UnitName Value="wcDecoders"/>
       </Item5>
       <Item6>
         <Filename Value="wcdeflatedecoder.pas"/>
-        <UnitName Value="wcdeflatedecoder"/>
+        <UnitName Value="wcDeflateDecoder"/>
       </Item6>
       <Item7>
         <Filename Value="wchttp2con.pas"/>
-        <UnitName Value="wchttp2con"/>
+        <UnitName Value="wcHTTP2Con"/>
       </Item7>
       <Item8>
         <Filename Value="wcnetworking.pas"/>
-        <UnitName Value="wcnetworking"/>
+        <UnitName Value="wcNetworking"/>
       </Item8>
       <Item9>
         <Filename Value="wcutils.pas"/>
@@ -55,19 +55,19 @@
       </Item9>
       <Item10>
         <Filename Value="wcwebsocketcon.pas"/>
-        <UnitName Value="wcwebsocketcon"/>
+        <UnitName Value="wcWebsocketCon"/>
       </Item10>
       <Item11>
         <Filename Value="protocols/http1utils.pas"/>
-        <UnitName Value="http1utils"/>
+        <UnitName Value="HTTP1Utils"/>
       </Item11>
       <Item12>
         <Filename Value="protocols/http2consts.pas"/>
-        <UnitName Value="http2consts"/>
+        <UnitName Value="HTTP2Consts"/>
       </Item12>
       <Item13>
         <Filename Value="protocols/http2http1conv.pas"/>
-        <UnitName Value="http2http1conv"/>
+        <UnitName Value="HTTP2HTTP1Conv"/>
       </Item13>
       <Item14>
         <Filename Value="protocols/websocketconsts.pas"/>

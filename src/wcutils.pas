@@ -126,11 +126,22 @@ begin
   dest.CustomHeaders.Assign(src.CustomHeaders);
 end;
 
+function CheckJsonDataParam(jsonData : TJSONData; out V : Variant;
+                                     const Def : Variant) : Boolean; inline;
+begin
+  If jsonData.JSONType = jtObject then
+    V := TJSONObject(jsonData).AsJSON else
+    V := jsonData.Value;
+  if VarIsNull(V) then V := Def;
+  Result := (((VarIsNumeric(V) and VarIsNumeric(Def)) or
+             (VarIsStr(V) and VarIsStr(Def))));
+end;
+
 function DecodeJsonParams(const H : String; const P1S, P2S : String;
                               out Par1, Par2 : Variant;
                               const Def1, Def2 : Variant) : Boolean;
 var jsonObj: TJSONObject;
-  jsonData1, jsonData2 : TJSONData;
+    jsonData1, jsonData2 : TJSONData;
 begin
   Result := false;
   try
@@ -140,20 +151,8 @@ begin
       jsonData1 := jsonObj.Find(P1S);
       jsonData2 := jsonObj.Find(P2S);
       if Assigned(jsonData1) and Assigned(jsonData2) then
-      begin
-        If jsonData1.JSONType = jtObject then
-          Par1 := TJSONObject(jsonData1).AsJSON else
-          Par1 := jsonData1.Value;
-        if VarIsNull(Par1) then Par1 := Def1;
-        If jsonData2.JSONType = jtObject then
-          Par2 := TJSONObject(jsonData2).AsJSON else
-          Par2 := jsonData2.Value;
-        if VarIsNull(Par2) then Par2 := Def2;
-      end;
-      Result := (((VarIsNumeric(Par2) and VarIsNumeric(Def2)) or
-                  (VarIsStr(Par2) and VarIsStr(Def2)))) and
-                (((VarIsNumeric(Par1) and VarIsNumeric(Def1)) or
-                  (VarIsStr(Par1) and VarIsStr(Def1)))) ;
+        Result := CheckJsonDataParam(jsonData1, Par1, Def1) and
+                  CheckJsonDataParam(jsonData2, Par2, Def2);
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
@@ -172,14 +171,7 @@ begin
     begin
       jsonData := jsonObj.Find(PS);
       if Assigned(jsonData) then
-      begin
-        If jsonData.JSONType = jtObject then
-          Par := TJSONObject(jsonData).AsJSON else
-          Par := jsonData.Value;
-        if VarIsNull(Par) then Par := Def;
-        Result := ((VarIsNumeric(Par) and VarIsNumeric(Def)) or
-                   (VarIsStr(Par) and VarIsStr(Def)));
-      end;
+        Result := CheckJsonDataParam(jsonData, Par, Def);
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
@@ -206,14 +198,8 @@ begin
       end;
       Result := true;
       for i := 0 to High(Pars) do
-      begin
-        If jsonData[i].JSONType = jtObject then
-          VALS^[i] := TJSONObject(jsonData[i]).AsJSON else
-          VALS^[i] := jsonData[i].Value;
-        if VarIsNull(VALS^[i]) then VALS^[i] := Def[i];
-        Result := Result and (((VarIsNumeric(VALS^[i]) and VarIsNumeric(Def[i])) or
-                               (VarIsStr(VALS^[i]) and VarIsStr(Def[i]))));
-      end;
+      if Result then
+        Result := CheckJsonDataParam(jsonData[i], VALS^[i], Def[i]);
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
@@ -239,21 +225,18 @@ begin
         jsonData[i] := jsonObj.Find(PARS[i]);
         if not Assigned(jsonData[i]) then Exit;
       end;
-      Result := true;
+
       for i := 0 to High(Pars) do
       begin
-        If jsonData[i].JSONType = jtObject then
-          V := TJSONObject(jsonData[i]).AsJSON else
-          V := jsonData[i].Value;
-        if VarIsNull(V) then V := Def[i];
-        Result := Result and (((VarIsNumeric(V) and VarIsNumeric(Def[i])) or
-                               (VarIsStr(V) and VarIsStr(Def[i]))));
+        Result := CheckJsonDataParam(jsonData[i], V, Def[i]);
+
         if Result then
         begin
-          k := VALS.FindIndexOf(I);
+          k := VALS.FindIndexOf(i);
           if k < 0 then k := VALS.Add(i, V) else
             VALS.AtPosPt[k]^.Data := V;
-        end;
+        end else
+          Break;
       end;
     end;
   finally
