@@ -16,7 +16,7 @@ The project builds on fpWeb modules and extends them to increase functionality:
 11. Added the ability to save the master key and a random set of client data on the server-side (necessary for debugging TLS dumps using WireShark).
 12. Working both under Windows and Linux.
 
-# What project contains?
+# What the project contains?
 * Source files with abstract classes, structures, and commonly used utils. 
 * Example - the HTTP/2 server (wchttpserverdemo.lpi, wchttpserverdemo.lpr, wctestclient.pas, wcservertestjobs.pas, wcmaintest.pas, server.cfg, sample site ./webclienttest/*).
 
