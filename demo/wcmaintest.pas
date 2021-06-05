@@ -68,6 +68,8 @@ uses WCServerTestJobs,
   {$ENDIF}
   AvgLvlTree;
 
+const JSONRPC_RID = 'JSONRPC_RID';
+
 var WCJobsTree : TStringToPointerTree;
 
 procedure InitializeJobsTree;
@@ -98,9 +100,19 @@ end;
 
 procedure TJSONRPCWrapperJob.DoWrappedExecute;
 var j : TJSONObject;
+    resp : TJSONData;
 begin
-  J := TJSONObject.Create(['rid', FRID, 'data', WrappedJob.Response.Content]);
   try
+    resp := GetJSON(TrimRight(WrappedJob.Response.Content));
+  except
+    resp := nil;
+  end;
+  if not assigned(resp) then
+     resp := TJSONString.Create(TrimRight(WrappedJob.Response.Content));
+  J := TJSONObject.Create(['rid',  FRID,
+                           'data', resp]);
+  try
+    J.CompressedJSON := true;
     Response.Content := J.AsJSON;
   finally
     J.Free;
@@ -142,7 +154,7 @@ begin
            jsonData := null;
            if not assigned(jsonDataObj) then
              jsonData := TJSONObject(jsonObj).Get('data');
-           Request.SetCustomHeader('JSONRPC_RID', inttostr(rid));
+           Request.SetCustomHeader(JSONRPC_RID, inttostr(rid));
            if (length(uri) > 0) and (uri[1] = '.') then
              uri := Copy(uri, 2, Length(uri));
            ResultClass := TWCMainClientJobClass(WCJobsTree.Values[uri]);
@@ -217,7 +229,7 @@ begin
     {$IFDEF WC_WEB_SOCKETS}
     if Connection.HTTPVersion = wcWebSocket then
     begin
-      s := '{"rid":' + inttostr(FRID) + ',"data":"' + StringToJSONString(s) + '"}';
+      s := '{"rid":' + inttostr(FRID) + ',"data":' + S + '}';
     end;
     {$ENDIF}
     Response.SendUtf8String(S);
@@ -239,7 +251,7 @@ begin
     {$IFDEF WC_WEB_SOCKETS}
     if Connection.HTTPVersion = wcWebSocket then
     begin
-      s := Request.GetCustomHeader('JSONRPC_RID');
+      s := Request.GetCustomHeader(JSONRPC_RID);
       if length(s) > 0 then FRID := StrToInt(s) else FRID := 0;
     end else
     {$ENDIF}

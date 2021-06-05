@@ -341,8 +341,8 @@ function startWebSocketSynTimer() {
                             if (msg.event == "disconnect") {
                                 dropState();
                             } else {
-                                let synevent = JSON.parse( msg ).data;
-                                doSync(synevent);
+                                let synevent = strOrJSON(msg.data);
+                                (synevent)&&doSync(synevent);
                             }});
     });    
     synwstimer.addEventListener('error', function (event) {   
@@ -352,7 +352,7 @@ function startWebSocketSynTimer() {
       }
     });    
     synwstimer.addEventListener('message', function (event) {
-      let response = JSON.parse(event.data);
+      let response = JSON.parse( event.data );
       let request = jsonrpc_requests.get(response.rid);
       if (request) {
           request.func( response.data );
@@ -361,7 +361,7 @@ function startWebSocketSynTimer() {
           }
       } else {
           //close();?
-      }
+      }      
     });
   } else {
       stopSynTimer();
@@ -388,10 +388,13 @@ function dropState() {
     
     document.body.classList.remove(S_AUTH);      
 }
+function strOrJSON(str) {
+    return (typeof str === 'string')?JSON.parse(str):str;
+}
 
 function updateConnectionState() {
   wcGetClientInt(VAL_CONNECTION_STATE, res=>{
-            let resv = JSON.parse(res);
+            let resv = strOrJSON(res);
             if (resv === CCS_CONNECTED) {
                 document.body.classList.add(S_AUTH);                
                 console.log('connected');
@@ -404,7 +407,7 @@ function updateConnectionState() {
 
 function updateLaunchState() {
   wcGetClientInt(VAL_LAUNCH_STATE, res=>{
-            let resv = JSON.parse(res);
+            let resv = strOrJSON(res);
             if (resv === CLS_RUN) {
                 document.body.classList.add(S_RUNNING);                
                 console.log('connected');
@@ -418,7 +421,7 @@ function updateLaunchState() {
 
 function updateLifeTime() {
   wcGetClientInt(VAL_LIFETIME_VALUE, res=>{
-            let resv = JSON.parse(res);
+            let resv = strOrJSON(res);
             let sec = Math.floor(resv / 1000);
             let msec = resv % 1000;
             time_area.innerHTML = `${sec}s ${msec}ms`;
