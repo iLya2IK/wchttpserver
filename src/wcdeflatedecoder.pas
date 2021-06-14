@@ -56,10 +56,10 @@ begin
       have := decompressChunckSize - infstream.avail_out;
       Inc(NewCount, have);
       if infstream.avail_out = 0 then begin
-        NewBuffer := ReAllocMem(NewBuffer, NewCount + decompressChunckSize);
         decompressChunckSize := decompressChunckSize shl 1;
         if decompressChunckSize > CHUNCK_MAX_SZ then
            decompressChunckSize := CHUNCK_MAX_SZ;
+        ReAllocMem(NewBuffer, NewCount + decompressChunckSize);
       end else begin
         ret := Z_OK;
         Break;

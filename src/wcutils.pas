@@ -145,14 +145,18 @@ var jsonObj: TJSONObject;
 begin
   Result := false;
   try
-    jsonObj:= TJSONObject(GetJSON(H));
-    if assigned(jsonObj) then
-    begin
-      jsonData1 := jsonObj.Find(P1S);
-      jsonData2 := jsonObj.Find(P2S);
-      if Assigned(jsonData1) and Assigned(jsonData2) then
-        Result := CheckJsonDataParam(jsonData1, Par1, Def1) and
-                  CheckJsonDataParam(jsonData2, Par2, Def2);
+    try
+      jsonObj:= TJSONObject(GetJSON(H));
+      if assigned(jsonObj) then
+      begin
+        jsonData1 := jsonObj.Find(P1S);
+        jsonData2 := jsonObj.Find(P2S);
+        if Assigned(jsonData1) and Assigned(jsonData2) then
+          Result := CheckJsonDataParam(jsonData1, Par1, Def1) and
+                    CheckJsonDataParam(jsonData2, Par2, Def2);
+      end;
+    except
+      //do nothing : Result := false;
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
@@ -166,12 +170,16 @@ var jsonObj: TJSONObject;
 begin
   Result := false;
   try
-    jsonObj:= TJSONObject(GetJSON(H));
-    if assigned(jsonObj) then
-    begin
-      jsonData := jsonObj.Find(PS);
-      if Assigned(jsonData) then
-        Result := CheckJsonDataParam(jsonData, Par, Def);
+    try
+      jsonObj:= TJSONObject(GetJSON(H));
+      if assigned(jsonObj) then
+      begin
+        jsonData := jsonObj.Find(PS);
+        if Assigned(jsonData) then
+          Result := CheckJsonDataParam(jsonData, Par, Def);
+      end;
+    except
+      //do nothing : Result := false;
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
@@ -187,19 +195,23 @@ begin
   Result := false;
   if Length(PARS) <> Length(Def) then Exit;
   try
-    jsonObj:= TJSONObject(GetJSON(H));
-    if assigned(jsonObj) then
-    begin
-      SetLength(jsonData, Length(PARS));
-      for i := 0 to High(Pars) do
+    try
+      jsonObj:= TJSONObject(GetJSON(H));
+      if assigned(jsonObj) then
       begin
-        jsonData[i] := jsonObj.Find(PARS[i]);
-        if not Assigned(jsonData[i]) then Exit;
+        SetLength(jsonData, Length(PARS));
+        for i := 0 to High(Pars) do
+        begin
+          jsonData[i] := jsonObj.Find(PARS[i]);
+          if not Assigned(jsonData[i]) then Exit;
+        end;
+        Result := true;
+        for i := 0 to High(Pars) do
+        if Result then
+          Result := CheckJsonDataParam(jsonData[i], VALS^[i], Def[i]);
       end;
-      Result := true;
-      for i := 0 to High(Pars) do
-      if Result then
-        Result := CheckJsonDataParam(jsonData[i], VALS^[i], Def[i]);
+    except
+      //do nothing : Result := false;
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
@@ -216,28 +228,32 @@ begin
   Result := false;
   if Length(PARS) <> Length(Def) then Exit;
   try
-    jsonObj:= TJSONObject(GetJSON(H));
-    if assigned(jsonObj) then
-    begin
-      SetLength(jsonData, Length(PARS));
-      for i := 0 to High(Pars) do
+    try
+      jsonObj:= TJSONObject(GetJSON(H));
+      if assigned(jsonObj) then
       begin
-        jsonData[i] := jsonObj.Find(PARS[i]);
-        if not Assigned(jsonData[i]) then Exit;
-      end;
-
-      for i := 0 to High(Pars) do
-      begin
-        Result := CheckJsonDataParam(jsonData[i], V, Def[i]);
-
-        if Result then
+        SetLength(jsonData, Length(PARS));
+        for i := 0 to High(Pars) do
         begin
-          k := VALS.FindIndexOf(i);
-          if k < 0 then k := VALS.Add(i, V) else
-            VALS.AtPosPt[k]^.Data := V;
-        end else
-          Break;
+          jsonData[i] := jsonObj.Find(PARS[i]);
+          if not Assigned(jsonData[i]) then Exit;
+        end;
+
+        for i := 0 to High(Pars) do
+        begin
+          Result := CheckJsonDataParam(jsonData[i], V, Def[i]);
+
+          if Result then
+          begin
+            k := VALS.FindIndexOf(i);
+            if k < 0 then k := VALS.Add(i, V) else
+              VALS.AtPosPt[k]^.Data := V;
+          end else
+            Break;
+        end;
       end;
+    except
+      //do nothing : Result := false;
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
