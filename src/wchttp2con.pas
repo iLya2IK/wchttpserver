@@ -2937,7 +2937,8 @@ begin
             AReq.SetHeader(h^.h1, v^.HeaderValue);
           end else
             AReq.SetCustomHeader(v^.HeaderName, v^.HeaderValue);
-        end;
+        end else
+            AReq.SetCustomHeader(v^.HeaderName, v^.HeaderValue);
       end;
       AReq.WCContent.RequestRef := Self;
     finally

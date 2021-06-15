@@ -44,7 +44,11 @@ type
                   hh2ExtAcceptCAO,
                   hh2ExtContentDisp,
                   hh2ExtRefresh,
-                  hh2ExtStrictTransportSec);
+                  hh2ExtStrictTransportSec,
+                  //
+                  hh2ExtAcceptCAC,
+                  hh2ExtAcceptCAM,
+                  hh2ExtAcceptCAH);
   THTTP2HeadersArray = Array [THTTP2Header] of String;
   THTTP2PseudoHeaders = Array [hh2Authority..hh2Status] of String;
 
@@ -64,6 +68,9 @@ const
   HTTP2HeaderVersion   = ':version';
   // additional headers present in RFC7541 but epscent in httpprotocol unit
   HTTPExtAcceptCAO     = 'access-control-allow-origin';
+  HTTPExtAcceptCAC     = 'access-control-allow-credentials';
+  HTTPExtAcceptCAM     = 'access-control-allow-methods';
+  HTTPExtAcceptCAH     = 'access-control-allow-headers';
   HTTPExtContentDisp   = 'content-disposition';
   HTTPExtRefresh       = 'refresh';
   HTTPExtStrictTransportSec = 'strict-transport-security';
@@ -81,7 +88,12 @@ HTTP2AddHeaderNames : THTTP2HeadersArray
                   HTTPExtAcceptCAO,
                   HTTPExtContentDisp,
                   HTTPExtRefresh,
-                  HTTPExtStrictTransportSec);
+                  HTTPExtStrictTransportSec,
+                  //
+                  HTTPExtAcceptCAC,
+                  HTTPExtAcceptCAM,
+                  HTTPExtAcceptCAH
+                  );
 
 Function HTTP2HeaderName(AHeader : THTTP2Header) : String;
 Function HTTP2HeaderType(const AHeader : String) : THTTP2Header;
@@ -208,6 +220,9 @@ begin
   H2H1Headers.Values[HeaderSetCookie]        := aHeader(hh2SetCookie);
   //
   H2H1Headers.Values[HTTPExtAcceptCAO]       := aHeader(hh2ExtAcceptCAO);
+  H2H1Headers.Values[HTTPExtAcceptCAC]       := aHeader(hh2ExtAcceptCAC);
+  H2H1Headers.Values[HTTPExtAcceptCAM]       := aHeader(hh2ExtAcceptCAM);
+  H2H1Headers.Values[HTTPExtAcceptCAH]       := aHeader(hh2ExtAcceptCAH);
   H2H1Headers.Values[HTTPExtContentDisp]     := aHeader(hh2ExtContentDisp);
   H2H1Headers.Values[HTTPExtRefresh]         := aHeader(hh2ExtRefresh);
   H2H1Headers.Values[HTTPExtStrictTransportSec] := aHeader(hh2ExtStrictTransportSec);
