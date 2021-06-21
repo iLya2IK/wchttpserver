@@ -57,7 +57,7 @@ const sidEncodeTable : Array [0..63] of Char =
                                         'u','v','w','x','y','z','A','B','C','D',
                                         'E','F','G','H','I','J','K','L','M','N',
                                         'O','P','Q','R','S','T','U','V','W','X',
-                                        'Y','Z','+','_');
+                                        'Y','Z','.','_');
 
 function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 var i: integer;
