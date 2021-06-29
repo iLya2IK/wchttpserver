@@ -5,14 +5,12 @@
 *.obj
 *.compiled
 *.rsj
-/src/lib/
-/demo/lib/
-/src/backup/
-/demo/backup/
+*/lib/
+*/backup/
+*/*/lib/
+*/*/backup/
 /testing/
 /example/
-/src/openssl/backup/
-/src/fpwebabstract/backup/
 *.key
 *.crt
 *.dbg
@@ -28,5 +26,6 @@
 *.7z
 testing.md
 wchttpserver
+wcrestjsonserver
 link.res
 ppas.bat

@@ -167,6 +167,15 @@ type
     property Request : TWCRequest read GetRequest;
     property Response : TWCResponse read GetResponse;
   end;
+
+  { TWCPreAnalizeClientNoSessionJob }
+
+  TWCPreAnalizeClientNoSessionJob = class(TWCPreAnalizeClientJob)
+  public
+    procedure Execute; override;
+    function GenClientID : String; virtual;
+  end;
+
   TWCPreAnalizeClientJobClass = class of TWCPreAnalizeClientJob;
 
   { TWCHttpServer }
@@ -610,8 +619,12 @@ type
     //
     FCurCID : TThreadSafeAutoIncrementCardinal;
     FConnectedClients : TWebClients;
+    //
+    FVerbose : TThreadBoolean;
     procedure ClientRemove(Sender : TObject);
+    function GetVerbose : Boolean;
     function OnGenSessionID({%H-}aSession : TSqliteWebSession) : String;
+    procedure SetVerbose(AValue : Boolean);
   public
     constructor Create;
     destructor Destroy; override;
@@ -631,6 +644,7 @@ type
     //
     property  Sessions : TSqliteSessionFactory read FSessions;
     property  Clients  : TWebClients read FConnectedClients;
+    property  Verbose  : Boolean read GetVerbose write SetVerbose;
   end;
 
   { TWCResponse }
@@ -715,6 +729,8 @@ const
   cSgzip = 'gzip';
   cSdeflate = 'deflate';
 
+  WC_NO_SESSION_CLIENT_ID = 'empty';
+
   WC_MAX_MAIN_THREADS = 32;
   WC_MAX_PREP_THREADS = 32;
 
@@ -794,6 +810,46 @@ begin
     if ShowCleanUpErrors then
       Raise;
   end;
+end;
+
+{ TWCPreAnalizeClientNoSessionJob }
+
+procedure TWCPreAnalizeClientNoSessionJob.Execute;
+var ASynThread : TWCMainClientJob;
+    aClient : TWebClient;
+    aConsumeResult : TWCConsumeResult;
+begin
+  try
+     if not (Assigned(FConn) and TWCHttpServer(FConn.Server).ServerActive) then
+       Exit;
+     aConsumeResult := FConn.ConsumeSocketData;
+     if aConsumeResult = wccrOK then begin
+       aClient := WebContainer.AddClient(Request, GenClientID);
+       if not assigned(aClient) then begin
+         Application.SendError(Response, 405);
+         Exit;
+       end else begin
+         aClient.Initialize;
+       end;
+       FConn.SetSessionParams(aClient, nil);
+       //
+       if assigned(aClient) then begin
+         ASynThread := GenerateClientJob;
+         if Assigned(ASynThread) then
+         begin
+           FConn := nil; //now fconn is part of ASynThread job
+           Application.ESServer.AddToMainPool(ASynThread);
+         end;
+       end;
+     end;
+  except
+    on E: Exception do ; // catch errors. jail them in thread
+  end;
+end;
+
+function TWCPreAnalizeClientNoSessionJob.GenClientID : String;
+begin
+  Result := WebContainer.OnGenSessionID(nil);
 end;
 
 { TWCMainClientWrapperJob }
@@ -1080,6 +1136,7 @@ begin
   ClientsSec.AddValue(CFG_CLIENT_TIMEOUT, wccrInteger);
   ClientsSec.AddValue(CFG_CLIENT_COOKIE_MAX_AGE, wccrInteger);
   ClientsSec.AddValue(CFG_CLIENT_ALLOW_ENCODE, wccrString);
+  ClientsSec.AddValue(CFG_CLIENT_VERBOSE, wccrBoolean);
 
   Http2Sec := Root.AddSection(HashToConfig(CFG_HTTP2_SEC)^.NAME_STR);
   Http2Sec.AddValue(CFG_H2SET_HEADER_TABLE_SIZE     , wccrInteger);
@@ -2566,7 +2623,7 @@ begin
   // TWebClients already locked here
   Result := (not Container.Sessions.IsActiveSession(TWebClient(aClient).FCUID)) or
              Application.Terminated;
-  if Result then
+  if Result and Assigned(WebContainer) and WebContainer.Verbose then
     Application.DoInfo('Client is dead ' + TWebClient(aClient).CUID);
 end;
 
@@ -2814,6 +2871,9 @@ begin
        ClientTimeOut := Sender.Value;
     CFG_CLIENT_ALLOW_ENCODE :
        ClientAllowEncode := Sender.Value;
+    CFG_CLIENT_VERBOSE :
+       if Assigned(WebContainer) then
+         WebContainer.Verbose := Sender.Value;
     //http2
     CFG_H2SET_HEADER_TABLE_SIZE,
     CFG_H2SET_MAX_CONCURRENT_STREAMS,
@@ -2899,6 +2959,8 @@ begin
     if SameText(ParamStr(i), '-debug') or SameText(ParamStr(i), 'debug') then
        FNetDebugMode:=true;
   end;
+
+  FWebClientClass := TWebClient;
 end;
 
 destructor TWCHTTPApplication.Destroy;
@@ -3662,8 +3724,13 @@ begin
   aClient := TWebClient(Sender);
 
   PREP_ClientStop.Execute([aClient.CUID]);
-  if assigned(Application) then
+  if assigned(Application) and Verbose then
     Application.DoInfo('Client removed ' + aClient.CUID);
+end;
+
+function TWebClientsContainer.GetVerbose : Boolean;
+begin
+  Result := FVerbose.Value;
 end;
 
 function TWebClientsContainer.OnGenSessionID({%H-}aSession: TSqliteWebSession
@@ -3676,12 +3743,19 @@ begin
   PREP_ClientSetLastCUID.Execute([CID+1]);
 end;
 
+procedure TWebClientsContainer.SetVerbose(AValue : Boolean);
+begin
+  FVerbose.Value := AValue;
+end;
+
 constructor TWebClientsContainer.Create;
 begin
   inherited Create;
 
   FCachedPages := TWebCacheCollection.Create;
   FConnectedClients := TWebClients.Create(Self);
+
+  FVerbose := TThreadBoolean.Create(true);
 
   GetWebCachedItem(Application.MainURI);
 
@@ -3768,6 +3842,7 @@ begin
   FConnectedClients.Free;
   FClientsDB.Free;
   FCurCID.Free;
+  FVerbose.Free;
   inherited Destroy;
 end;
 
@@ -3866,7 +3941,8 @@ begin
     Result.OnRemove:= @ClientRemove;
     Result.AcceptGzip:=  Pos(cSgzip, ARequest.GetHeader(hhAcceptEncoding)) > 0;
     Result.AcceptDeflate:=Pos(cSdeflate, ARequest.GetHeader(hhAcceptEncoding)) > 0;
-    Application.DoInfo('Client added ' + ClientID);
+    if Verbose then
+      Application.DoInfo('Client added ' + ClientID);
   end;
 end;
 
