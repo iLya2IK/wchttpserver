@@ -1,3 +1,16 @@
+{REST JSON simple server
+
+The server operates in the REST architecture mode.
+The server can accept POST requests and respond with JSON objects.
+The server simulates a simple online store capable of creating customers,
+products, and adding products to a customer cart.
+
+In the original demo, a session was created every time you connect to an unknown
+client with a blank or unrecognized "cid" cookie. This example shows a simple
+workaround by defining an inheritor for the
+TWCPreAnalizeClientNoSessionJob class.
+}
+
 program wcrestjsondemo;
 
 {$mode objfpc}{$H+}
@@ -120,12 +133,18 @@ begin
   {$ENDIF}
 
   Application.ServerAnalizeJobClass:= WCMainRESTJson.TWCPreThread;
-  //
+  {Application.WebClientClass:= WCTestClient.TWCTestWebClient;
+      This line was deleted.
+      The original class wcApplication.TWCWebClient is used.
+      There is no need to redefine it as clients are now faceless.
+      All business logic can be moved to the "wcrestjsonjobs" unit.}
   InitializeJobsTree;
   InitializeItemsDb;
   try
     Application.Initialize;
-    WebContainer.Verbose := false;
+    WebContainer.Verbose := false; // this line reduces disk load as it stops
+                                   // writing debug information about a new
+                                   // client to the database
     Application.Run;
   finally
     DisposeJobsTree;
