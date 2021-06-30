@@ -15,6 +15,7 @@ uses
   SQLite3Dyn,
   {$ENDIF}
   WCMainRESTJson,
+  WCRESTJsonJobs,
   wcapplication,
   fphttp,
   http2consts,
@@ -118,14 +119,16 @@ begin
   Conf.SetDefaultValue(CFG_WEBSOCKET_SUB_PROTO, 'chat');
   {$ENDIF}
 
-  WebContainer.Verbose := false;
   Application.ServerAnalizeJobClass:= WCMainRESTJson.TWCPreThread;
   //
   InitializeJobsTree;
+  InitializeItemsDb;
   try
     Application.Initialize;
+    WebContainer.Verbose := false;
     Application.Run;
   finally
     DisposeJobsTree;
+    DoneItemsDb;
   end;
 end.

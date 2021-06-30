@@ -35,7 +35,12 @@ var WCJobsTree : TStringToPointerTree;
 procedure InitializeJobsTree;
 begin
   WCJobsTree := TStringToPointerTree.Create(true);
-  WCJobsTree.Values['/items.json'] := TWCMyItem;
+  WCJobsTree.Values['/addClient.json'] := TWCAddClient;
+  WCJobsTree.Values['/getClientByName.json'] := TWCGetClientByName;
+  WCJobsTree.Values['/addToBasket.json'] := TWCAddToBasket;
+  WCJobsTree.Values['/getItem.json'] := TWCGetItem;
+  WCJobsTree.Values['/addItem.json'] := TWCAddItem;
+  WCJobsTree.Values['/getBasket.json'] := TWCGetBasket;
 end;
 
 procedure DisposeJobsTree;

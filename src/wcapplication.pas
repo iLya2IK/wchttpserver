@@ -3752,10 +3752,10 @@ constructor TWebClientsContainer.Create;
 begin
   inherited Create;
 
+  FVerbose := TThreadBoolean.Create(true);
+
   FCachedPages := TWebCacheCollection.Create;
   FConnectedClients := TWebClients.Create(Self);
-
-  FVerbose := TThreadBoolean.Create(true);
 
   GetWebCachedItem(Application.MainURI);
 
