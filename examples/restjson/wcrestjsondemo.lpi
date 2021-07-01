@@ -49,7 +49,7 @@
             <Verbosity>
               <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
             </Verbosity>
-            <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP  -dWC_WEB_SOCKETS"/>
+            <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dWC_WEB_SOCKETS -dSERVER_REST_MODE"/>
           </Other>
         </CompilerOptions>
       </Item2>
@@ -67,7 +67,7 @@
     </RunParams>
     <RequiredPackages Count="4">
       <Item1>
-        <PackageName Value="wchttpserver"/>
+        <PackageName Value="wchttpserver_rest"/>
       </Item1>
       <Item2>
         <PackageName Value="commonutils_ilya2ik"/>
@@ -132,7 +132,7 @@
       <Verbosity>
         <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
       </Verbosity>
-      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dWC_WEB_SOCKETS -dDEBUG -dDEBUG_STAT"/>
+      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dSERVER_REST_MODE -dWC_WEB_SOCKETS -dDEBUG -dDEBUG_STAT"/>
     </Other>
   </CompilerOptions>
   <Debugging>

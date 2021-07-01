@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="4">
+    <Name Value="wchttpserver_rpc"/>
+    <Author Value="Copyright (c) 2020-2021, Ilya Medvedkov"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <SearchPaths>
+        <OtherUnitFiles Value="protocols"/>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+      <Other>
+        <CustomOptions Value="-dNOGUI
+-dALLOW_STREAM_GZIP
+-dWC_WEB_SOCKETS
+-dSERVER_RPC_MODE"/>
+        <OtherDefines Count="4">
+          <Define0 Value="NOGUI"/>
+          <Define1 Value="ALLOW_STREAM_GZIP"/>
+          <Define2 Value="WC_WEB_SOCKETS"/>
+          <Define3 Value="SERVER_RPC_MODE"/>
+        </OtherDefines>
+      </Other>
+    </CompilerOptions>
+    <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal). RPC mode"/>
+    <License Value="LGPL v2.1"/>
+    <Version Minor="9" Build="3"/>
+    <Files Count="14">
+      <Item1>
+        <Filename Value="wcappconfig.inc"/>
+        <Type Value="Include"/>
+      </Item1>
+      <Item2>
+        <Filename Value="wcapplication.pas"/>
+        <UnitName Value="wcApplication"/>
+      </Item2>
+      <Item3>
+        <Filename Value="wcconfig.pas"/>
+        <UnitName Value="wcConfig"/>
+      </Item3>
+      <Item4>
+        <Filename Value="wcdebug_vars.pas"/>
+        <UnitName Value="wcDebug_vars"/>
+      </Item4>
+      <Item5>
+        <Filename Value="wcdecoders.pas"/>
+        <UnitName Value="wcDecoders"/>
+      </Item5>
+      <Item6>
+        <Filename Value="wcdeflatedecoder.pas"/>
+        <UnitName Value="wcDeflateDecoder"/>
+      </Item6>
+      <Item7>
+        <Filename Value="wchttp2con.pas"/>
+        <UnitName Value="wcHTTP2Con"/>
+      </Item7>
+      <Item8>
+        <Filename Value="wcnetworking.pas"/>
+        <UnitName Value="wcNetworking"/>
+      </Item8>
+      <Item9>
+        <Filename Value="wcutils.pas"/>
+        <UnitName Value="wcutils"/>
+      </Item9>
+      <Item10>
+        <Filename Value="wcwebsocketcon.pas"/>
+        <UnitName Value="wcWebsocketCon"/>
+      </Item10>
+      <Item11>
+        <Filename Value="protocols/http1utils.pas"/>
+        <UnitName Value="HTTP1Utils"/>
+      </Item11>
+      <Item12>
+        <Filename Value="protocols/http2consts.pas"/>
+        <UnitName Value="HTTP2Consts"/>
+      </Item12>
+      <Item13>
+        <Filename Value="protocols/http2http1conv.pas"/>
+        <UnitName Value="HTTP2HTTP1Conv"/>
+      </Item13>
+      <Item14>
+        <Filename Value="protocols/websocketconsts.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="WebsocketConsts"/>
+      </Item14>
+    </Files>
+    <RequiredPkgs Count="3">
+      <Item1>
+        <PackageName Value="weblaz"/>
+      </Item1>
+      <Item2>
+        <PackageName Value="commonutils_ilya2ik"/>
+      </Item2>
+      <Item3>
+        <PackageName Value="fpwebabstractlpk"/>
+      </Item3>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>

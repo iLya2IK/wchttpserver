@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CONFIG>
   <Package Version="4">
-    <Name Value="wchttpserver"/>
+    <Name Value="wchttpserver_rest"/>
     <Author Value="Copyright (c) 2020-2021, Ilya Medvedkov"/>
     <CompilerOptions>
       <Version Value="11"/>
@@ -10,10 +10,19 @@
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <Other>
-        <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dWC_WEB_SOCKETS"/>
+        <CustomOptions Value="-dNOGUI
+-dALLOW_STREAM_GZIP
+-dWC_WEB_SOCKETS
+-dSERVER_REST_MODE"/>
+        <OtherDefines Count="4">
+          <Define0 Value="NOGUI"/>
+          <Define1 Value="ALLOW_STREAM_GZIP"/>
+          <Define2 Value="WC_WEB_SOCKETS"/>
+          <Define3 Value="SERVER_REST_MODE"/>
+        </OtherDefines>
       </Other>
     </CompilerOptions>
-    <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)"/>
+    <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal). REST mode"/>
     <License Value="LGPL v2.1"/>
     <Version Minor="9" Build="3"/>
     <Files Count="14">

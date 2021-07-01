@@ -17,6 +17,12 @@ unit wcApplication;
 
 interface
 
+{$IFDEF SERVER_RPC_MODE}
+{$UNDEF SERVER_REST_MODE}
+{$ELSE}
+{$DEFINE SERVER_REST_MODE}
+{$ENDIF}
+
 uses
   Classes,
   StringHashList,
@@ -31,11 +37,15 @@ uses
   wcHTTP2Con,
   ExtOpenSSL,
   custweb, CustAbsHTTPApp,
+  {$IFDEF SERVER_RPC_MODE}
   SqliteWebSession,
+  {$ENDIF}
   SqliteLogger,
   jsonscanner, jsonparser, fpjson,
   wcConfig,
+  {$IFDEF SERVER_RPC_MODE}
   ExtSqlite3DS,
+  {$ENDIF}
   variants,
   sockets,
   ssockets,
@@ -62,12 +72,16 @@ uses
   ;
 
 type
+  {$IFDEF SERVER_RPC_MODE}
   TWebClient = class;
   TWebClients = class;
+  {$ENDIF}
   TWCResponse = class;
   TWCRequest = class;
   TWCHTTPServer = class;
+  {$IFDEF SERVER_RPC_MODE}
   TWebClientClass = class of TWebClient;
+  {$ENDIF}
 
   { TWCAppConnection }
 
@@ -77,8 +91,10 @@ type
     FInput    : TBufferedStream;
     FResponse : TWCResponse;
     FRequest  : TWCRequest;
+    {$IFDEF SERVER_RPC_MODE}
     FClient   : TWebClient;
     FSession  : TSqliteWebSession;
+    {$ENDIF}
     FProtocolVersion : TWCProtocolVersion;
     {$ifdef DEBUG_STAT}
     FDStartStamp, FDWaitStamp, FDStopStamp, FDReadStamp : QWord;
@@ -96,12 +112,14 @@ type
     Constructor Create(AServer : TAbsCustomHTTPServer; ASocket : TSocketStream); override;
     Constructor CreateRefered(AServer : TAbsCustomHTTPServer; ASocketRef : TWCSocketReference); override;
     function ConsumeSocketData : TWCConsumeResult;
-    procedure SetSessionParams(aClient : TWebClient; aSession : TSqliteWebSession);
     destructor Destroy; override;
     property Response : TWCResponse read FResponse;
     property Request : TWCRequest read FRequest;
+    {$IFDEF SERVER_RPC_MODE}
+    procedure SetSessionParams(aClient : TWebClient; aSession : TSqliteWebSession);
     property Client : TWebClient read FClient;
     property Session : TSqliteWebSession read FSession;
+    {$ENDIF}
     property HTTPVersion : TWCProtocolVersion read FProtocolVersion;
   end;
 
@@ -112,7 +130,9 @@ type
     FConn : TWCAppConnection;
     FResponseReadyToSend : Boolean;
     FParams : TFastHashList;
+    {$IFDEF SERVER_RPC_MODE}
     function GetClient: TWebClient;
+    {$ENDIF}
     function GetParPtr(index : LongWord): PVariant;
     function GetParam(index : LongWord): Variant;
     function GetRequest: TWCRequest;
@@ -127,7 +147,9 @@ type
     property  Connection : TWCAppConnection read FConn;
     property  Request : TWCRequest read GetRequest;
     property  Response : TWCResponse read GetResponse;
+    {$IFDEF SERVER_RPC_MODE}
     property  Client : TWebClient read GetClient;
+    {$ENDIF}
     property  Params : TFastHashList read FParams;
     property  Param[index : LongWord] : Variant read GetParam write SetParam;
     property  ParPtr[index : LongWord] : PVariant read GetParPtr;
@@ -151,9 +173,9 @@ type
     property  WrappedJob : TWCMainClientJob read FWrappedJob;
   end;
 
-  { TWCPreAnalizeClientJob }
+  { TWCPreAnalizeJob }
 
-  TWCPreAnalizeClientJob = class(TLinearJob)
+  TWCPreAnalizeJob = class(TLinearJob)
   private
     FConn : TWCAppConnection;
     function GetRequest: TWCRequest;
@@ -161,29 +183,39 @@ type
   public
     constructor Create(aConn : TWCAppConnection);
     destructor Destroy; override;
-    procedure Execute; override;
     function GenerateClientJob : TWCMainClientJob; virtual;
     property Connection : TWCAppConnection read FConn;
     property Request : TWCRequest read GetRequest;
     property Response : TWCResponse read GetResponse;
   end;
 
+  {$IFDEF SERVER_RPC_MODE}
+
+  { TWCPreAnalizeClientJob }
+
+  TWCPreAnalizeClientJob = class(TWCPreAnalizeJob)
+  public
+    procedure Execute; override;
+  end;
+
   { TWCPreAnalizeClientNoSessionJob }
 
-  TWCPreAnalizeClientNoSessionJob = class(TWCPreAnalizeClientJob)
+  TWCPreAnalizeClientNoSessionJob = class(TWCPreAnalizeJob)
   public
     procedure Execute; override;
     function GenClientID : String; virtual;
   end;
 
+  {$ENDIF}
+
   { TWCPreAnalizeNoSessionNoClientJob }
 
-  TWCPreAnalizeNoSessionNoClientJob = class(TWCPreAnalizeClientJob)
+  TWCPreAnalizeNoSessionNoClientJob = class(TWCPreAnalizeJob)
   public
     procedure Execute; override;
   end;
 
-  TWCPreAnalizeClientJobClass = class of TWCPreAnalizeClientJob;
+  TWCPreAnalizeJobClass = class of TWCPreAnalizeJob;
 
   { TWCHttpServer }
 
@@ -320,8 +352,10 @@ type
     FSocketsReferences, FReferences : TNetReferenceList;
     FStartStamp : QWord;
     FNetDebugMode : Boolean;
+    {$IFDEF SERVER_RPC_MODE}
     FWebClientClass :  TWebClientClass;
-    FServerAnalizeJobClass : TWCPreAnalizeClientJobClass;
+    {$ENDIF}
+    FServerAnalizeJobClass : TWCPreAnalizeJobClass;
 
     FConfig : TWCHTTPConfig;
     FMaxMainThreads: TThreadInteger;
@@ -409,8 +443,10 @@ type
 
     //configurations
     property NetDebugMode : Boolean read FNetDebugMode;
+    {$IFDEF SERVER_RPC_MODE}
     property WebClientClass : TWebClientClass read FWebClientClass write FWebClientClass;
-    property ServerAnalizeJobClass : TWCPreAnalizeClientJobClass read FServerAnalizeJobClass write FServerAnalizeJobClass;
+    {$ENDIF}
+    property ServerAnalizeJobClass : TWCPreAnalizeJobClass read FServerAnalizeJobClass write FServerAnalizeJobClass;
     property SitePath : String read GetSitePath;
     property MainURI : String read GetMainHTTP write SetMainHTTP;
     property SessionsLoc : String read GetSessionsLoc write SetSessionsLoc;
@@ -532,6 +568,8 @@ type
                                                  write SetStateValue;
   end;
 
+  {$IFDEF SERVER_RPC_MODE}
+
   { TWebClient }
 
   TWebClient = class(TNetReferencedObject)
@@ -608,14 +646,15 @@ type
     property  Client[const cUID : String] : TWebClient read GetClient; default;
     property  Container : TWebClientsContainer read FContainer;
   end;
-
+  {$ENDIF}
 
   { TWebClientsContainer }
 
   TWebClientsContainer = class(TNetCustomLockedObject)
   private
-    FSessions : TSqliteSessionFactory;
     FCachedPages : TWebCacheCollection;
+    {$IFDEF SERVER_RPC_MODE}
+    FSessions : TSqliteSessionFactory;
     FClientsDB : TExtSqlite3Dataset;
     PREP_AddClientToBase,
     PREP_ClientStop,
@@ -632,10 +671,12 @@ type
     function GetVerbose : Boolean;
     function OnGenSessionID({%H-}aSession : TSqliteWebSession) : String;
     procedure SetVerbose(AValue : Boolean);
+    {$ENDIF}
   public
     constructor Create;
     destructor Destroy; override;
     procedure  ClearCache;
+    {$IFDEF SERVER_RPC_MODE}
     function   CreateSession(ARequest : TWCRequest) : TSqliteWebSession;
     //
     procedure OnCreateNewSession(Sender : TObject);
@@ -645,13 +686,16 @@ type
     procedure RemoveClient(mClient : TWebClient); overload;
     procedure ClearDeadClients;
     procedure DoMaintainingStep;
+    {$ENDIF}
     //
     function  GetWebCachedItem(const aURI : String) : TWebCachedItem;
     procedure UpdateCachedWebItemsWithTemplates;
     //
+    {$IFDEF SERVER_RPC_MODE}
     property  Sessions : TSqliteSessionFactory read FSessions;
     property  Clients  : TWebClients read FConnectedClients;
     property  Verbose  : Boolean read GetVerbose write SetVerbose;
+    {$ENDIF}
   end;
 
   { TWCResponse }
@@ -755,6 +799,25 @@ Implementation
 uses  CustApp, extopensslsockets, wcutils, math;
 const WCSocketReadError = 'Socket read error';
 
+
+function ESGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
+var
+  len: LongInt;
+begin
+  len := SizeOf(sockets.TSockAddr);
+  if fpGetSockName(Handle, @Result, @len) <> 0 then
+    FillChar(Result, SizeOf(Result), 0);
+end;
+
+function ESGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
+var
+  len: LongInt;
+begin
+  len := SizeOf(sockets.TSockAddr);
+  if fpGetPeerName(Handle, @Result, @len) <> 0 then
+    FillChar(Result, SizeOf(Result), 0);
+end;
+
 function ParseStartLine(Request : TWCRequest; AStartLine : String) : Boolean;
 
 Function GetNextWord(Var S : String) : string;
@@ -826,6 +889,106 @@ begin
   end;
 end;
 
+{ TWCPreAnalizeJob }
+
+function TWCPreAnalizeJob.GetRequest : TWCRequest;
+begin
+  Result := Connection.Request;
+end;
+
+function TWCPreAnalizeJob.GetResponse : TWCResponse;
+begin
+  Result := Connection.Response;
+end;
+
+constructor TWCPreAnalizeJob.Create(aConn : TWCAppConnection);
+begin
+  FConn := aConn;
+end;
+
+destructor TWCPreAnalizeJob.Destroy;
+begin
+  if assigned(FConn) then begin
+    FConn.Free;
+  end;
+  inherited Destroy;
+end;
+
+function TWCPreAnalizeJob.GenerateClientJob : TWCMainClientJob;
+begin
+  Result := nil;
+end;
+
+{$IFDEF SERVER_RPC_MODE}
+{ TWCPreAnalizeClientJob }
+
+procedure TWCPreAnalizeClientJob.Execute;
+var ASynThread : TWCMainClientJob;
+    aClient : TWebClient;
+    aSession : TSqliteWebSession;
+    aConsumeResult : TWCConsumeResult;
+begin
+  try
+     {$ifdef DEBUG_STAT}
+     FConn.FDWaitStamp := GetTickCount64;
+     {$endif}
+     if not (Assigned(FConn) and TWCHttpServer(FConn.Server).ServerActive) then
+       Exit;
+     aConsumeResult := FConn.ConsumeSocketData;
+     if aConsumeResult = wccrOK then begin
+       aSession := WebContainer.CreateSession(Request);
+       if Assigned(aSession) then
+       begin
+         aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
+         if ssNew in aSession.SessionState then
+           aSession.InitResponse(Response); // fill cookies
+         if ssExpired in aSession.SessionState then
+         begin
+           Application.SendError(Response, 205);
+           Exit;
+         end else
+         begin
+           //try to find client
+           //or
+           //if new session then try to create client in clients pool
+           //using ARequest to deteminate some additional data
+           aClient := WebContainer.AddClient(Request, aSession.SessionID);
+           if not assigned(aClient) then begin
+             Application.SendError(Response, 405);
+             Exit;
+           end else begin
+             aClient.Initialize;
+           end;
+         end;
+         FConn.SetSessionParams(aClient, aSession);
+       end else aClient := nil;
+       {$ifdef DEBUG_STAT}
+       FConn.FDReadStamp := GetTickCount64;
+       {$endif}
+       //
+       if assigned(aClient) then begin
+         ASynThread := GenerateClientJob;
+         if Assigned(ASynThread) then
+         begin
+           FConn := nil; //now fconn is part of ASynThread job
+           Application.ESServer.AddToMainPool(ASynThread);
+         end;
+       end;
+     end
+     else
+     begin
+       {$ifdef DEBUG_STAT}
+       if aConsumeResult <> WC_CONSUME_NO_DATA then begin
+         Inc(DEBUG_GLOBALS_LONGWORD[DG_FAILED_PREP_CNT]);
+       end;
+       {$endif}
+     end;
+  except
+    on E: Exception do ; // catch errors. jail them in thread
+  end;
+end;
+{$ENDIF}
+
 { TWCPreAnalizeNoSessionNoClientJob }
 
 procedure TWCPreAnalizeNoSessionNoClientJob.Execute;
@@ -837,7 +1000,9 @@ begin
       Exit;
     aConsumeResult := FConn.ConsumeSocketData;
     if aConsumeResult = wccrOK then begin
+      {$IFDEF SERVER_RPC_MODE}
       FConn.SetSessionParams(nil, nil);
+      {$ENDIF}
       //
       ASynThread := GenerateClientJob;
       if Assigned(ASynThread) then
@@ -851,6 +1016,7 @@ begin
   end;
 end;
 
+{$IFDEF SERVER_RPC_MODE}
 { TWCPreAnalizeClientNoSessionJob }
 
 procedure TWCPreAnalizeClientNoSessionJob.Execute;
@@ -890,6 +1056,7 @@ function TWCPreAnalizeClientNoSessionJob.GenClientID : String;
 begin
   Result := WebContainer.OnGenSessionID(nil);
 end;
+{$ENDIF}
 
 { TWCMainClientWrapperJob }
 
@@ -1237,6 +1404,9 @@ end;
 procedure TWCSendServerFile.Execute;
 var FE, aURI : String;
   aCachedFile : TWebCachedItem;
+  {$IFDEF SERVER_REST_MODE}
+  AcceptGzip, AcceptDeflate : Boolean;
+  {$ENDIF}
 begin
   ResponseReadyToSend := false; // prevent to send response
 
@@ -1248,9 +1418,14 @@ begin
   if (Pos(aURI, '..') = 0) and (Length(aURI) > 0) and
      Application.IsAcceptedWebFile(aURI) then
   begin
+    {$IFDEF SERVER_REST_MODE}
+    AcceptGzip:=  Pos(cSgzip, Request.GetHeader(hhAcceptEncoding)) > 0;
+    AcceptDeflate:=Pos(cSdeflate, Request.GetHeader(hhAcceptEncoding)) > 0;
+    {$ENDIF}
+
     FE := ExtractFileExt(aURI);
     if SameText(FE, '.svgz') then begin
-      if Client.AcceptGzip then
+      if {$IFDEF SERVER_RPC_MODE}Client.{$ENDIF}AcceptGzip then
         Response.SetHeader(hhContentEncoding, cSgzip) else
         aURI := ChangeFileExt(aURI, '.svg');
     end;
@@ -1267,14 +1442,14 @@ begin
         Response.CacheControl:= aCachedFile.CacheControl;
 
         {$IFDEF ALLOW_STREAM_GZIP}
-        if Client.AcceptGzip and aCachedFile.GzipReady then
+        if {$IFDEF SERVER_RPC_MODE}Client.{$ENDIF}AcceptGzip and aCachedFile.GzipReady then
         begin
           Response.ContentLength:=aCachedFile.GzipSize;
           Response.RefStream:=aCachedFile.GzipCache;
           Response.SetHeader(hhContentEncoding, cSgzip)
         end else
         {$ENDIF}
-        if Client.AcceptDeflate and aCachedFile.DeflateReady then
+        if {$IFDEF SERVER_RPC_MODE}Client.{$ENDIF}AcceptDeflate and aCachedFile.DeflateReady then
         begin
           Response.ContentLength:=aCachedFile.DeflateSize;
           Response.RefStream:=aCachedFile.DeflateCache;
@@ -1624,8 +1799,10 @@ begin
   FInput.SetPtr(FInputBuf, WC_INITIAL_READ_BUFFER_SIZE);
   FRequest := nil;
   FResponse := nil;
+  {$IFDEF SERVER_RPC_MODE}
   FClient := nil;
   FSession := nil;
+  {$ENDIF}
   {$ifdef DEBUG_STAT}
   FDStartStamp := GetTickCount64;
   FDWaitStamp := FDStartStamp;
@@ -1992,6 +2169,7 @@ begin
   end;
 end;
 
+{$IFDEF SERVER_RPC_MODE}
 procedure TWCAppConnection.SetSessionParams(aClient: TWebClient;
   aSession: TSqliteWebSession);
 begin
@@ -1999,6 +2177,7 @@ begin
   if Assigned(FClient) then FClient.IncReference;
   FSession := aSession;
 end;
+{$ENDIF}
 
 destructor TWCAppConnection.Destroy;
 {$ifdef DEBUG_STAT}
@@ -2007,8 +2186,10 @@ var DT : Integer;
 begin
   if Assigned(FRequest) then FreeAndNil(FRequest);
   if Assigned(FResponse) then FreeAndNil(FResponse);
+  {$IFDEF SERVER_RPC_MODE}
   if Assigned(FSession) then FreeAndNil(FSession);
   if Assigned(FClient) then FClient.DecReference;
+  {$ENDIF}
   FInput.Free;
   FreeMem(FInputBuf);
 
@@ -2037,108 +2218,14 @@ begin
   inherited Destroy;
 end;
 
-{ TWCPreAnalizeClientJob }
-
-function TWCPreAnalizeClientJob.GetRequest: TWCRequest;
-begin
-  Result := Connection.Request;
-end;
-
-function TWCPreAnalizeClientJob.GetResponse: TWCResponse;
-begin
-  Result := Connection.Response;
-end;
-
-constructor TWCPreAnalizeClientJob.Create(aConn: TWCAppConnection);
-begin
-  FConn := aConn;
-end;
-
-destructor TWCPreAnalizeClientJob.Destroy;
-begin
-  if assigned(FConn) then begin
-    FConn.Free;
-  end;
-  inherited Destroy;
-end;
-
-procedure TWCPreAnalizeClientJob.Execute;
-var ASynThread : TWCMainClientJob;
-    aClient : TWebClient;
-    aSession : TSqliteWebSession;
-    aConsumeResult : TWCConsumeResult;
-begin
-  try
-     {$ifdef DEBUG_STAT}
-     FConn.FDWaitStamp := GetTickCount64;
-     {$endif}
-     if not (Assigned(FConn) and TWCHttpServer(FConn.Server).ServerActive) then
-       Exit;
-     aConsumeResult := FConn.ConsumeSocketData;
-     if aConsumeResult = wccrOK then begin
-       aSession := WebContainer.CreateSession(Request);
-       if Assigned(aSession) then
-       begin
-         aSession.InitSession(Request, @(WebContainer.OnCreateNewSession), nil);
-         if ssNew in aSession.SessionState then
-           aSession.InitResponse(Response); // fill cookies
-         if ssExpired in aSession.SessionState then
-         begin
-           Application.SendError(Response, 205);
-           Exit;
-         end else
-         begin
-           //try to find client
-           //or
-           //if new session then try to create client in clients pool
-           //using ARequest to deteminate some additional data
-           aClient := WebContainer.AddClient(Request, aSession.SessionID);
-           if not assigned(aClient) then begin
-             Application.SendError(Response, 405);
-             Exit;
-           end else begin
-             aClient.Initialize;
-           end;
-         end;
-         FConn.SetSessionParams(aClient, aSession);
-       end else aClient := nil;
-       {$ifdef DEBUG_STAT}
-       FConn.FDReadStamp := GetTickCount64;
-       {$endif}
-       //
-       if assigned(aClient) then begin
-         ASynThread := GenerateClientJob;
-         if Assigned(ASynThread) then
-         begin
-           FConn := nil; //now fconn is part of ASynThread job
-           Application.ESServer.AddToMainPool(ASynThread);
-         end;
-       end;
-     end
-     else
-     begin
-       {$ifdef DEBUG_STAT}
-       if aConsumeResult <> WC_CONSUME_NO_DATA then begin
-         Inc(DEBUG_GLOBALS_LONGWORD[DG_FAILED_PREP_CNT]);
-       end;
-       {$endif}
-     end;
-  except
-    on E: Exception do ; // catch errors. jail them in thread
-  end;
-end;
-
-function TWCPreAnalizeClientJob.GenerateClientJob: TWCMainClientJob;
-begin
-  Result := nil;
-end;
-
 { TWCMainClientJob }
 
+{$IFDEF SERVER_RPC_MODE}
 function TWCMainClientJob.GetClient: TWebClient;
 begin
   Result := Connection.Client;
 end;
+{$ENDIF}
 
 function TWCMainClientJob.GetParPtr(index: LongWord): PVariant;
 begin
@@ -2177,10 +2264,12 @@ end;
 
 constructor TWCMainClientJob.Create(aConn: TWCAppConnection);
 begin
+  {$IFDEF SERVER_RPC_MODE}
   if assigned(aConn.Client) then begin
     inherited Create(aConn.Client.Score);
     aConn.Client.UpdateScore;
   end else
+  {$ENDIF}
     inherited Create( GetTickCount64 div 1000 );
 
   FConn := aConn;
@@ -2248,12 +2337,16 @@ begin
 end;
 
 procedure TWCHttpServer.CreateConnectionThread(Conn: TAbsHTTPConnection);
-var PreJob : TWCPreAnalizeClientJob;
+var PreJob : TWCPreAnalizeJob;
 begin
   if assigned(Application.ServerAnalizeJobClass) then
      PreJob := Application.ServerAnalizeJobClass.Create(TWCAppConnection(Conn))
   else
+  {$IFDEF SERVER_RPC_MODE}
      PreJob := TWCPreAnalizeClientJob.Create(TWCAppConnection(Conn));
+  {$ELSE}
+     PreJob := TWCPreAnalizeNoSessionNoClientJob.Create(TWCAppConnection(Conn));
+  {$ENDIF}
 
   CheckThreadPool;
 
@@ -2511,6 +2604,8 @@ function TWCHttpServerHandler.GetESServer: TWCHttpServer;
 begin
   Result := TWCHttpServer(HTTPServer);
 end;
+
+{$IFDEF SERVER_RPC_MODE}
 
 { TWebClient }
 
@@ -2795,6 +2890,8 @@ begin
   DoForAll(@IdleClient)
 end;
 
+{$ENDIF}
+
 { TWebCacheCollection }
 
 function TWebCacheCollection.GetCache(const index: String): TWebCachedItem;
@@ -2951,8 +3048,9 @@ begin
     CFG_CLIENT_ALLOW_ENCODE :
        ClientAllowEncode := Sender.Value;
     CFG_CLIENT_VERBOSE :
+    {$IFDEF SERVER_RPC_MODE}
        if Assigned(WebContainer) then
-         WebContainer.Verbose := Sender.Value;
+         WebContainer.Verbose := Sender.Value{$ENDIF};
     //http2
     CFG_H2SET_HEADER_TABLE_SIZE,
     CFG_H2SET_MAX_CONCURRENT_STREAMS,
@@ -3039,7 +3137,9 @@ begin
        FNetDebugMode:=true;
   end;
 
+  {$IFDEF SERVER_RPC_MODE}
   FWebClientClass := TWebClient;
+  {$ENDIF}
 end;
 
 destructor TWCHTTPApplication.Destroy;
@@ -3051,8 +3151,10 @@ begin
   // first we need to dec references to all referenced objects
   // wait all jobs and kill threads
   StopThreads;
+  {$IFDEF SERVER_RPC_MODE}
   // dec references to all clients
   WebContainer.ClearDeadClients;
+  {$ENDIF}
   // dec references to all connections
   if assigned(ESServer) then begin
     ESServer.RefConnections.CloseAll;
@@ -3103,7 +3205,9 @@ begin
   begin
     FMTime := T;
     if assigned(FConfig) then FConfig.Sync(false);
+    {$IFDEF SERVER_RPC_MODE}
     WebContainer.DoMaintainingStep;
+    {$ENDIF}
     GarbageCollector.CleanDead;
     FSocketsReferences.CleanDead;
   end;
@@ -3225,8 +3329,10 @@ begin
   FClientTimeOut.Lock;
   try
     FClientTimeOut.Value:=AValue;
+    {$IFDEF SERVER_RPC_MODE}
     if assigned(WebContainer) then
       WebContainer.Sessions.DefaultTimeOutMinutes:= AValue;
+    {$ENDIF}
   finally
     FClientTimeOut.UnLock;
   end;
@@ -3797,6 +3903,7 @@ end;
 
 { TWebClientsContainer }
 
+{$IFDEF SERVER_RPC_MODE}
 procedure TWebClientsContainer.ClientRemove(Sender: TObject);
 var aClient : TWebClient;
 begin
@@ -3827,16 +3934,117 @@ begin
   FVerbose.Value := AValue;
 end;
 
+function TWebClientsContainer.CreateSession(ARequest: TWCRequest
+  ): TSqliteWebSession;
+var reqHeaders  : TStringList;
+begin
+  if Assigned(ARequest) then
+  begin
+    Result := TSqliteWebSession(Sessions.CreateSession(ARequest));
+    if Application.NetDebugMode then
+    begin
+      reqHeaders := TStringList.Create;
+      try
+        ARequest.CollectHeaders(reqHeaders);
+        PREP_OnCreateSession.Execute([ARequest.HeaderLine,
+                                      ARequest.Socket.Handle,
+                                      Trim(reqHeaders.Text),
+                                      Trim(ARequest.CookieFields.Text),
+                                      Trim(ARequest.Method),
+                                      Trim(ARequest.Content)]);
+      finally
+        reqHeaders.Free;
+      end;
+    end;
+  end else
+    Result := nil;
+end;
+
+procedure TWebClientsContainer.OnCreateNewSession(Sender: TObject);
+var ARequest : TWCRequest;
+  Session : TSqliteWebSession;
+  Con : TWCAppConnection;
+  IpV4, IpV6 : String;
+  SocketAddr : TSockAddr;
+begin
+  Session := TSqliteWebSession(Sender);
+  try
+    ARequest := TWCRequest(Session.Request);
+    Con := ARequest.GetConnection;
+
+    SocketAddr := ESGetGetRemoteAddress(Con.Socket.Handle);
+
+    IpV4 := ESSocketAddrToString(SocketAddr);
+    IpV6 := '';
+    PREP_AddClientToBase.Execute([Session.SID,
+                                  IpV4,
+                                  IpV6,
+                                  ARequest.GetHeader(hhAccept),
+                                  ARequest.GetHeader(hhAcceptCharset),
+                                  ARequest.GetHeader(hhAcceptEncoding),
+                                  ARequest.GetHeader(hhAcceptLanguage),
+                                  ARequest.GetHeader(hhUserAgent)]);
+  finally
+  end;
+end;
+
+function TWebClientsContainer.AddClient(ARequest: TAbsHTTPConnectionRequest;
+  const ClientID: String): TWebClient;
+begin
+  Result := FConnectedClients.GetClient(ClientID);
+  if not assigned(Result) then
+  begin
+    Result := Application.WebClientClass.Create(FConnectedClients, ClientID);
+    Result.OnRemove:= @ClientRemove;
+    Result.AcceptGzip:=  Pos(cSgzip, ARequest.GetHeader(hhAcceptEncoding)) > 0;
+    Result.AcceptDeflate:=Pos(cSdeflate, ARequest.GetHeader(hhAcceptEncoding)) > 0;
+    if Verbose then
+      Application.DoInfo('Client added ' + ClientID);
+  end;
+end;
+
+function TWebClientsContainer.GetClient(const ClientID: String): TWebClient;
+begin
+  Result := FConnectedClients.GetClient(ClientID);
+end;
+
+procedure TWebClientsContainer.RemoveClient(const ClientID: String);
+begin
+  FConnectedClients.RemoveClient(ClientID);
+end;
+
+procedure TWebClientsContainer.RemoveClient(mClient: TWebClient);
+begin
+  FConnectedClients.RemoveClient(mClient);
+end;
+
+procedure TWebClientsContainer.ClearDeadClients;
+begin
+  Sessions.CleanupSessions;
+  FConnectedClients.ClearDeadClients;
+end;
+
+procedure TWebClientsContainer.DoMaintainingStep;
+begin
+  ClearDeadClients; // delete all timeouted clients
+  if Application.NetDebugMode then
+    PREP_DeleteOldNetRequests.Execute([]);
+  Clients.IdleLiveClients;  // refresh all clients with no syn connection to
+                            // prevent memory overflows
+//  SeqSheduleStep;   // shedule clients seq
+end;
+{$ENDIF}
+
 constructor TWebClientsContainer.Create;
 begin
   inherited Create;
 
-  FVerbose := TThreadBoolean.Create(true);
-
   FCachedPages := TWebCacheCollection.Create;
-  FConnectedClients := TWebClients.Create(Self);
-
   GetWebCachedItem(Application.MainURI);
+
+  {$IFDEF SERVER_RPC_MODE}
+  FVerbose := TThreadBoolean.Create(true);
+  FConnectedClients := TWebClients.Create(Self);
 
   FClientsDB := TExtSqlite3Dataset.Create(nil);
   FClientsDB.FileName := Application.SitePath +
@@ -3913,15 +4121,18 @@ begin
 
   FCurCID.SetValue(StrToInt(PREP_ClientGetLastCUID.QuickQuery([], nil, false)));
   PREP_DeleteOldNetRequests.Execute([]);
+  {$ENDIF}
 end;
 
 destructor TWebClientsContainer.Destroy;
 begin
   FCachedPages.Free;
+  {$IFDEF SERVER_RPC_MODE}
   FConnectedClients.Free;
   FClientsDB.Free;
   FCurCID.Free;
   FVerbose.Free;
+  {$ENDIF}
   inherited Destroy;
 end;
 
@@ -3930,130 +4141,12 @@ begin
   FCachedPages.Clear;
 end;
 
-function TWebClientsContainer.CreateSession(ARequest: TWCRequest
-  ): TSqliteWebSession;
-var reqHeaders  : TStringList;
-begin
-  if Assigned(ARequest) then
-  begin
-    Result := TSqliteWebSession(Sessions.CreateSession(ARequest));
-    if Application.NetDebugMode then
-    begin
-      reqHeaders := TStringList.Create;
-      try
-        ARequest.CollectHeaders(reqHeaders);
-        PREP_OnCreateSession.Execute([ARequest.HeaderLine,
-                                      ARequest.Socket.Handle,
-                                      Trim(reqHeaders.Text),
-                                      Trim(ARequest.CookieFields.Text),
-                                      Trim(ARequest.Method),
-                                      Trim(ARequest.Content)]);
-      finally
-        reqHeaders.Free;
-      end;
-    end;
-  end else
-    Result := nil;
-end;
-
 Function ESSocketAddrToString(ASocketAddr: TSockAddr): String;
 begin
   if ASocketAddr.sa_family = AF_INET then
     Result := NetAddrToStr(ASocketAddr.sin_addr)
   else // no ipv6 support yet
     Result := '';
-end;
-
-function ESGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
-var
-  len: LongInt;
-begin
-  len := SizeOf(sockets.TSockAddr);
-  if fpGetSockName(Handle, @Result, @len) <> 0 then
-    FillChar(Result, SizeOf(Result), 0);
-end;
-
-function ESGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
-var
-  len: LongInt;
-begin
-  len := SizeOf(sockets.TSockAddr);
-  if fpGetPeerName(Handle, @Result, @len) <> 0 then
-    FillChar(Result, SizeOf(Result), 0);
-end;
-
-procedure TWebClientsContainer.OnCreateNewSession(Sender: TObject);
-var ARequest : TWCRequest;
-  Session : TSqliteWebSession;
-  Con : TWCAppConnection;
-  IpV4, IpV6 : String;
-  SocketAddr : TSockAddr;
-begin
-  Session := TSqliteWebSession(Sender);
-  try
-    ARequest := TWCRequest(Session.Request);
-    Con := ARequest.GetConnection;
-
-    SocketAddr := ESGetGetRemoteAddress(Con.Socket.Handle);
-
-    IpV4 := ESSocketAddrToString(SocketAddr);
-    IpV6 := '';
-    PREP_AddClientToBase.Execute([Session.SID,
-                                  IpV4,
-                                  IpV6,
-                                  ARequest.GetHeader(hhAccept),
-                                  ARequest.GetHeader(hhAcceptCharset),
-                                  ARequest.GetHeader(hhAcceptEncoding),
-                                  ARequest.GetHeader(hhAcceptLanguage),
-                                  ARequest.GetHeader(hhUserAgent)]);
-  finally
-  end;
-end;
-
-function TWebClientsContainer.AddClient(ARequest: TAbsHTTPConnectionRequest;
-  const ClientID: String): TWebClient;
-begin
-  Result := FConnectedClients.GetClient(ClientID);
-  if not assigned(Result) then
-  begin
-    Result := Application.WebClientClass.Create(FConnectedClients, ClientID);
-    Result.OnRemove:= @ClientRemove;
-    Result.AcceptGzip:=  Pos(cSgzip, ARequest.GetHeader(hhAcceptEncoding)) > 0;
-    Result.AcceptDeflate:=Pos(cSdeflate, ARequest.GetHeader(hhAcceptEncoding)) > 0;
-    if Verbose then
-      Application.DoInfo('Client added ' + ClientID);
-  end;
-end;
-
-function TWebClientsContainer.GetClient(const ClientID: String): TWebClient;
-begin
-  Result := FConnectedClients.GetClient(ClientID);
-end;
-
-procedure TWebClientsContainer.RemoveClient(const ClientID: String);
-begin
-  FConnectedClients.RemoveClient(ClientID);
-end;
-
-procedure TWebClientsContainer.RemoveClient(mClient: TWebClient);
-begin
-  FConnectedClients.RemoveClient(mClient);
-end;
-
-procedure TWebClientsContainer.ClearDeadClients;
-begin
-  Sessions.CleanupSessions;
-  FConnectedClients.ClearDeadClients;
-end;
-
-procedure TWebClientsContainer.DoMaintainingStep;
-begin
-  ClearDeadClients; // delete all timeouted clients
-  if Application.NetDebugMode then
-    PREP_DeleteOldNetRequests.Execute([]);
-  Clients.IdleLiveClients;  // refresh all clients with no syn connection to
-                            // prevent memory overflows
-//  SeqSheduleStep;   // shedule clients seq
 end;
 
 function TWebClientsContainer.GetWebCachedItem(const aURI : String

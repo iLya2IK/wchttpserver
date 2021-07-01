@@ -49,7 +49,16 @@
             <Verbosity>
               <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
             </Verbosity>
-            <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP  -dWC_WEB_SOCKETS"/>
+            <CustomOptions Value="-dNOGUI
+-dALLOW_STREAM_GZIP
+-dWC_WEB_SOCKETS
+-dSERVER_RPC_MODE"/>
+            <OtherDefines Count="4">
+              <Define0 Value="NOGUI"/>
+              <Define1 Value="ALLOW_STREAM_GZIP"/>
+              <Define2 Value="WC_WEB_SOCKETS"/>
+              <Define3 Value="SERVER_RPC_MODE"/>
+            </OtherDefines>
           </Other>
         </CompilerOptions>
       </Item2>
@@ -67,7 +76,7 @@
     </RunParams>
     <RequiredPackages Count="4">
       <Item1>
-        <PackageName Value="wchttpserver"/>
+        <PackageName Value="wchttpserver_rpc"/>
       </Item1>
       <Item2>
         <PackageName Value="commonutils_ilya2ik"/>
@@ -137,7 +146,7 @@
       <Verbosity>
         <ShowHintsForUnusedUnitsInMainSrc Value="True"/>
       </Verbosity>
-      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dWC_WEB_SOCKETS -dDEBUG -dDEBUG_STAT"/>
+      <CustomOptions Value="-dNOGUI -dALLOW_STREAM_GZIP -dSERVER_RPC_MODE -dWC_WEB_SOCKETS -dDEBUG -dDEBUG_STAT"/>
     </Other>
   </CompilerOptions>
   <Debugging>

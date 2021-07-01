@@ -143,9 +143,11 @@ begin
   InitializeItemsDb;
   try
     Application.Initialize;
+    {$IFDEF SERVER_RPC_MODE}
     WebContainer.Verbose := false; // this line reduces disk load as it stops
                                    // writing debug information about a new
                                    // client to the database
+    {$ENDIF}
     Application.Run;
   finally
     DisposeJobsTree;
