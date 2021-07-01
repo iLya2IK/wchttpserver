@@ -18,7 +18,7 @@ type
 
   { TWCPreThread }
 
-  TWCPreThread = class(TWCPreAnalizeClientNoSessionJob)
+  TWCPreThread = class(TWCPreAnalizeNoSessionNoClientJob)
   public
     function GenerateClientJob: TWCMainClientJob; override;
   end;
@@ -59,9 +59,7 @@ begin
     if assigned(ResultClass) then
        Result := ResultClass.Create(Connection);
   end else
-  begin
-    Result := TWCSendServerFile.Create(Connection);
-  end;
+    Result := nil;
 end;
 
 end.

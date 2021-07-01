@@ -176,6 +176,13 @@ type
     function GenClientID : String; virtual;
   end;
 
+  { TWCPreAnalizeNoSessionNoClientJob }
+
+  TWCPreAnalizeNoSessionNoClientJob = class(TWCPreAnalizeClientJob)
+  public
+    procedure Execute; override;
+  end;
+
   TWCPreAnalizeClientJobClass = class of TWCPreAnalizeClientJob;
 
   { TWCHttpServer }
@@ -561,10 +568,10 @@ type
     procedure Initialize;  virtual;
     function SaveNewState(aState: TWebClientState; const aNewState: String;
       oldHash: Cardinal; ignoreHash: boolean=false): Boolean;
-    procedure CompressStream(AResponse : TAbsHTTPConnectionResponse; Str : TStream;
+    procedure CompressStream(AResponse : TWCResponse; Str : TStream;
       StrSize : Int64; OwnStream : Boolean; ignoreLimits : Boolean = false);
   virtual;
-    procedure CompressString(AResponse : TAbsHTTPConnectionResponse;
+    procedure CompressString(AResponse : TWCResponse;
       const S : String; ignoreLimits : Boolean = false); virtual;
     property CUID : String read FCUID;
     property StateHash[index : TWebClientState] : Cardinal read GetStateHash;
@@ -656,6 +663,13 @@ type
     function  GetConnection : TWCAppConnection;
     procedure SetRefStream(AValue: TReferencedStream);
   public
+    function EncodeContent(const aEncoder : AnsiString;
+                            Str : TStream;
+                            StrSize : Int64;
+                            OwnStream : Boolean;
+                            ignoreLimits : Boolean = false) : Boolean; virtual;
+    function EncodeString(const aEncoder : AnsiString; const Str : String;
+      ignoreLimits : Boolean) : Boolean; virtual;
     constructor Create(ARequest : TWCRequest); overload;
     destructor Destroy; override;
     procedure SendUTf8String(const S: String);
@@ -809,6 +823,31 @@ begin
   except
     if ShowCleanUpErrors then
       Raise;
+  end;
+end;
+
+{ TWCPreAnalizeNoSessionNoClientJob }
+
+procedure TWCPreAnalizeNoSessionNoClientJob.Execute;
+var ASynThread : TWCMainClientJob;
+    aConsumeResult : TWCConsumeResult;
+begin
+  try
+    if not (Assigned(FConn) and TWCHttpServer(FConn.Server).ServerActive) then
+      Exit;
+    aConsumeResult := FConn.ConsumeSocketData;
+    if aConsumeResult = wccrOK then begin
+      FConn.SetSessionParams(nil, nil);
+      //
+      ASynThread := GenerateClientJob;
+      if Assigned(ASynThread) then
+      begin
+        FConn := nil; //now fconn is part of ASynThread job
+        Application.ESServer.AddToMainPool(ASynThread);
+      end;
+    end;
+  except
+    on E: Exception do ; // catch errors. jail them in thread
   end;
 end;
 
@@ -1372,6 +1411,75 @@ begin
   FRefStream.IncReference;
 end;
 
+function TWCResponse.EncodeContent(const aEncoder : AnsiString; Str : TStream;
+  StrSize : Int64; OwnStream : Boolean; ignoreLimits : Boolean) : Boolean;
+var
+  deflateStream : TDefcompressionstream;
+  NeedCompress : Boolean;
+  {$IFDEF ALLOW_STREAM_GZIP}
+  gzStream : TGzCompressionstream;
+  {$ENDIF}
+begin
+  NeedCompress:= (StrSize > Application.CompressLimit) or ignoreLimits;
+  {$IFDEF ALLOW_STREAM_GZIP}
+  if SameStr(aEncoder, cSgzip) and NeedCompress then
+  begin
+    ContentStream := TExtMemoryStream.Create;
+    gzStream := Tgzcompressionstream.create(cldefault, ContentStream);
+    try
+      gzStream.CopyFrom(Str, StrSize);
+    finally
+      gzStream.Free;
+    end;
+    FreeContentStream:=true;
+    ContentStream.Position:=0;
+    ContentLength := ContentStream.Size;
+    SetHeader(hhContentEncoding, cSgzip);
+    Result := true;
+  end else
+  {$ENDIF}
+  if SameStr(aEncoder, cSdeflate) and NeedCompress then
+  begin
+    ContentStream := TExtMemoryStream.Create;
+    deflateStream := Tdefcompressionstream.create(cldefault, ContentStream);
+    try
+      deflateStream.CopyFrom(Str, StrSize);
+    finally
+      deflateStream.Free;
+    end;
+    FreeContentStream:=true;
+    ContentStream.Position:=0;
+    ContentLength := ContentStream.Size;
+    SetHeader(hhContentEncoding, cSdeflate);
+    Result := true;
+  end else
+  begin
+    ContentStream := Str;
+    FreeContentStream := OwnStream;
+    Str := nil;
+    Result := false;
+  end;
+  if OwnStream and Assigned(Str) then Str.Free;
+end;
+
+function TWCResponse.EncodeString(const aEncoder : AnsiString;
+  const Str : String; ignoreLimits : Boolean) : Boolean;
+var
+  StrBuffer : TBufferedStream;
+  L : Longint;
+begin
+  L := Length(Str);
+  if ((L > Application.CompressLimit) or ignoreLimits) then
+  begin
+    StrBuffer := TBufferedStream.Create;
+    StrBuffer.SetPtr(@(Str[1]), L);
+    Result := EncodeContent(aEncoder, StrBuffer, L, true, true);
+  end  else begin
+    Content := Str;
+    Result := false;
+  end;
+end;
+
 constructor TWCResponse.Create(ARequest: TWCRequest);
 begin
   inherited Create(ARequest);
@@ -1888,7 +1996,7 @@ procedure TWCAppConnection.SetSessionParams(aClient: TWebClient;
   aSession: TSqliteWebSession);
 begin
   FClient := aClient;
-  FClient.IncReference;
+  if Assigned(FClient) then FClient.IncReference;
   FSession := aSession;
 end;
 
@@ -2069,8 +2177,12 @@ end;
 
 constructor TWCMainClientJob.Create(aConn: TWCAppConnection);
 begin
-  inherited Create(aConn.Client.Score);
-  aConn.Client.UpdateScore;
+  if assigned(aConn.Client) then begin
+    inherited Create(aConn.Client.Score);
+    aConn.Client.UpdateScore;
+  end else
+    inherited Create( GetTickCount64 div 1000 );
+
   FConn := aConn;
   FResponseReadyToSend := true;
   FParams := TFastHashList.Create;
@@ -2537,9 +2649,8 @@ begin
     Result := False;
 end;
 
-procedure TWebClient.CompressString(AResponse: TAbsHTTPConnectionResponse;
-                                               const S: String;
-                                               ignoreLimits : Boolean = false);
+procedure TWebClient.CompressString(AResponse : TWCResponse; const S : String;
+  ignoreLimits : Boolean);
 var
   StrBuffer : TBufferedStream;
   L : Longint;
@@ -2550,60 +2661,28 @@ begin
   begin
     StrBuffer := TBufferedStream.Create;
     StrBuffer.SetPtr(@(S[1]), L);
-    CompressStream(AResponse, StrBuffer, L, true);
+    CompressStream(AResponse, StrBuffer, L, true, true);
   end  else
     AResponse.Content:=S;
 end;
 
-procedure TWebClient.CompressStream(AResponse : TAbsHTTPConnectionResponse;
-                                    Str : TStream;
-                                    StrSize : Int64;
-                                    OwnStream : Boolean;
-                                    ignoreLimits : Boolean = false);
-var
-  deflateStream : TDefcompressionstream;
-  NeedCompress : Boolean;
-  {$IFDEF ALLOW_STREAM_GZIP}
-  gzStream : TGzCompressionstream;
-  {$ENDIF}
+procedure TWebClient.CompressStream(AResponse : TWCResponse; Str : TStream;
+  StrSize : Int64; OwnStream : Boolean; ignoreLimits : Boolean);
 begin
-  NeedCompress:= (StrSize > Application.CompressLimit) or ignoreLimits;
   {$IFDEF ALLOW_STREAM_GZIP}
-  if AcceptGzip and NeedCompress then
+  if AcceptGzip then
   begin
-    AResponse.ContentStream := TExtMemoryStream.Create;
-    gzStream := Tgzcompressionstream.create(cldefault, AResponse.ContentStream);
-    try
-      gzStream.CopyFrom(Str, StrSize);
-    finally
-      gzStream.Free;
-    end;
-    AResponse.FreeContentStream:=true;
-    AResponse.ContentStream.Position:=0;
-    AResponse.ContentLength := AResponse.ContentStream.Size;
-    AResponse.SetHeader(hhContentEncoding, cSgzip);
+    AResponse.EncodeContent(cSgzip, Str, StrSize, OwnStream, ignoreLimits);
   end else
   {$ENDIF}
-  if AcceptDeflate and NeedCompress then
+  if AcceptDeflate then
   begin
-    AResponse.ContentStream := TExtMemoryStream.Create;
-    deflateStream := Tdefcompressionstream.create(cldefault, AResponse.ContentStream);
-    try
-      deflateStream.CopyFrom(Str, StrSize);
-    finally
-      deflateStream.Free;
-    end;
-    AResponse.FreeContentStream:=true;
-    AResponse.ContentStream.Position:=0;
-    AResponse.ContentLength := AResponse.ContentStream.Size;
-    AResponse.SetHeader(hhContentEncoding, cSdeflate);
+    AResponse.EncodeContent(cSdeflate, Str, StrSize, OwnStream, ignoreLimits);
   end else
   begin
     AResponse.ContentStream := Str;
     AResponse.FreeContentStream := OwnStream;
-    Str := nil;
   end;
-  if OwnStream and Assigned(Str) then Str.Free;
 end;
 
 { TWebClients }
