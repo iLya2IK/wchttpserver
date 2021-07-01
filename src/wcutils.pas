@@ -43,6 +43,11 @@ function DecodeJsonParams(const H : String;
                           const PARS : Array of String;
                           VALS : TFastHashList;
                           const Def : Array of Variant) : Boolean; overload;
+procedure DecodeParamsWithDefault(Values : TStrings;
+                                  const PARS: array of String;
+                                  const H : String;
+                                  VALS : TFastHashList;
+                                  const Def : Array of Variant);
 function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
 function DecodeSIDToInt(const value : String) : Cardinal;
@@ -129,6 +134,7 @@ end;
 function CheckJsonDataParam(jsonData : TJSONData; out V : Variant;
                                      const Def : Variant) : Boolean; inline;
 begin
+  if not assigned(jsonData) then Exit(False);
   If jsonData.JSONType = jtObject then
     V := TJSONObject(jsonData).AsJSON else
     V := jsonData.Value;
@@ -254,6 +260,71 @@ begin
       end;
     except
       //do nothing : Result := false;
+    end;
+  finally
+    if assigned(jsonObj) then FreeAndNil(jsonObj);
+  end;
+end;
+
+function StrToVariant(const Str : String) : Variant;
+var B : Boolean;
+    I : Integer;
+    I64 : Int64;
+    F : Double;
+begin
+  if TryStrToInt(Str, I) then
+     Result := I else
+  if TryStrToInt64(Str, I64) then
+     Result := I64 else
+  if TryStrToFloat(Str, F) then
+     Result := F else
+  if TryStrToBool(Str, B) then
+     Result := B else
+     Result := Str;
+end;
+
+procedure DecodeParamsWithDefault(Values : TStrings;
+  const PARS : array of String; const H : String; VALS : TFastHashList;
+  const Def : array of Variant);
+var jsonObj: TJSONObject;
+    jsonData : Array of TJSONData;
+    i, k : integer;
+    V : Variant;
+begin
+  if Length(PARS) <> Length(Def) then Exit;
+  try
+    try
+      jsonObj:= TJSONObject(GetJSON(H));
+    except
+      //do nothing
+      jsonObj := nil;
+    end;
+    SetLength(jsonData, Length(PARS));
+
+    if Assigned(jsonObj) then
+    for i := 0 to High(Pars) do
+       jsonData[i] := jsonObj.Find(PARS[i]);
+
+    for i := 0 to High(Pars) do
+    begin
+      if not CheckJsonDataParam(jsonData[i], V, Def[i]) then
+      begin
+        if assigned(Values) then
+        begin
+          if Length(Values.Values[PARS[i]]) > 0 then
+          begin
+            V := StrToVariant( Values.Values[PARS[i]] );
+            if not (((VarIsNumeric(V) and VarIsNumeric(Def[i])) or
+                    (VarIsStr(V) and VarIsStr(Def[i])))) then
+              V := Def[i];
+          end else
+            V := Def[i];
+        end else
+          V := Def[i];
+      end;
+      k := VALS.FindIndexOf(i);
+      if k < 0 then k := VALS.Add(i, V) else
+        VALS.AtPosPt[k]^.Data := V;
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);

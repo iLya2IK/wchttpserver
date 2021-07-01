@@ -53,6 +53,13 @@ type
     procedure Execute; override;
   end;
 
+  { TWCRemoveFromBasket }
+
+  TWCRemoveFromBasket = class(TWCMainClientJob)
+  public
+    procedure Execute; override;
+  end;
+
   { TWCGetBasket }
 
   TWCGetBasket = class(TWCMainClientJob)
@@ -64,6 +71,8 @@ procedure InitializeItemsDb;
 procedure DoneItemsDb;
 
 implementation
+
+uses wcutils;
 
 const BAD_JSON = '{"result":"BAD"}';
       OK_JSON  = '{"result":"OK"}';
@@ -86,6 +95,7 @@ var ItemsDB : TExtSqlite3Dataset;
     PREP_AddItem,
     PREP_GetItem,
     PREP_AddToBasket,
+    PREP_RemoveFromBasket,
     PREP_GetBasket : TSqlite3Prepared;
 
 procedure InitializeItemsDb;
@@ -129,10 +139,12 @@ begin
     PREP_GetItem := ItemsDB.AddNewPrep('select shrtname, fullname, descr, cost from items where id == ?1;');
     PREP_AddToBasket := ItemsDB.AddNewPrep('WITH new (cid, iid, cost) AS ( VALUES(?1, ?2, ?3) ) '+
                         'INSERT OR REPLACE INTO baskets (id, cid, iid, cost) '+
-                        'SELECT old.id, new.cid, new.iid, new.cost '+
+                        'SELECT old.id, new.cid, new.iid, '+
+                        'ifnull(case when new.cost <= 0 then (select cost from items where items.id == new.iid limit 1) else new.cost end, 0) '+
                         'FROM new LEFT JOIN baskets AS old ON '+
                         'new.cid = old.cid AND '+
                         'new.iid = old.iid;');
+    PREP_RemoveFromBasket := ItemsDB.AddNewPrep('DELETE FROM baskets WHERE cid == ?1 and iid == ?2');
     PREP_GetBasket := ItemsDB.AddNewPrep('SELECT iid, cost FROM baskets where cid == ?1;');
   except
     on E : Exception do
@@ -235,6 +247,16 @@ begin
   end;
 end;
 
+function RemoveFromBasket(cid, iid : integer) : String;
+begin
+  try
+    PREP_RemoveFromBasket.Execute([cid, iid]);
+    Result := OK_JSON;
+  except
+    Result := BAD_JSON;
+  end;
+end;
+
 function GetBasket(cid : integer) : String;
 var
   jsonElement : TJSONObject;
@@ -266,6 +288,19 @@ begin
   end;
 end;
 
+{ TWCRemoveFromBasket }
+
+procedure TWCRemoveFromBasket.Execute;
+begin
+  DecodeParamsWithDefault(Request.QueryFields, [cCID, cIID],
+                          Request.Content, Params, [-1, -1]);
+
+  if (Params[0] > 0) and (Params[1] > 0) then
+    Response.Content := RemoveFromBasket(Params[0], Params[1]) else
+    Response.Content := BAD_JSON;
+  inherited Execute;
+end;
+
 { TWCGetBasket }
 
 procedure TWCGetBasket.Execute;
@@ -280,93 +315,27 @@ end;
 { TWCAddToBasket }
 
 procedure TWCAddToBasket.Execute;
-var cid, iid, cost : integer;
-    requestContent : TJSONObject;
-    ele : TJSONData;
 begin
-  cid := -1;
-  iid := -1;
-  cost := -1;
-  try
-    requestContent:= TJSONObject(GetJSON(Request.Content));
-    if assigned(requestContent) then
-    begin
-      try
-        ele := requestContent.Find(cIID);
-        if assigned(ele) then iid := ele.AsInteger;
-        ele := requestContent.Find(cCOST);
-        if assigned(ele) then cost := ele.AsInteger;
-        ele := requestContent.Find(cCID);
-        if assigned(ele) then cid := ele.AsInteger;
-      finally;
-        requestContent.Free;
-      end;
-    end;
-  except
-    //do nothing
-  end;
+  DecodeParamsWithDefault(Request.QueryFields, [cCID, cIID, cCOST],
+                          Request.Content, Params, [-1, -1, -1]);
 
-  if Length(Request.QueryFields.Values[cIID]) > 0 then
-     TryStrToInt(Request.QueryFields.Values[cIID], iid);
-  if Length(Request.QueryFields.Values[cCOST]) > 0 then
-     TryStrToInt(Request.QueryFields.Values[cCOST], cost);
-  if Length(Request.QueryFields.Values[cCID]) > 0 then
-     TryStrToInt(Request.QueryFields.Values[cCID], cid);
-
-  if (cid > 0) and (iid > 0) and (cost > 0) then
-    Response.Content := AddToBasket(cid, iid, cost) else
+  if (Params[0] > 0) and (Params[1] > 0) then
+    Response.Content := AddToBasket(Params[0], Params[1], Params[2]) else
     Response.Content := BAD_JSON;
+
   inherited Execute;
 end;
 
 { TWCAddItem }
 
 procedure TWCAddItem.Execute;
-var iid, cost : integer;
-    s1, s2, s3 : string;
-    requestContent : TJSONObject;
-    ele : TJSONData;
 begin
-  iid := -1;
-  cost := -1;
-  s1 := '';
-  s2 := '';
-  s3 := '';
-  try
-    requestContent:= TJSONObject(GetJSON(Request.Content));
-    if assigned(requestContent) then
-    begin
-      try
-        ele := requestContent.Find(cIID);
-        if assigned(ele) then iid := ele.AsInteger;
-        ele := requestContent.Find(cCOST);
-        if assigned(ele) then cost := ele.AsInteger;
-        ele := requestContent.Find(cSHRT_NAME);
-        if assigned(ele) then s1 := ele.AsString;
-        ele := requestContent.Find(cFULL_NAME);
-        if assigned(ele) then s2 := ele.AsString;
-        ele := requestContent.Find(cDESCR);
-        if assigned(ele) then s3 := ele.AsString;
-      finally;
-        requestContent.Free;
-      end;
-    end;
-  except
-    //do nothing
-  end;
+  DecodeParamsWithDefault(Request.QueryFields, [cIID, cCOST, cSHRT_NAME,
+                                                cFULL_NAME, cDESCR],
+                          Request.Content, Params, [-1, -1, '', '', '']);
 
-  if Length(Request.QueryFields.Values[cIID]) > 0 then
-     TryStrToInt(Request.QueryFields.Values[cIID], iid);
-  if Length(Request.QueryFields.Values[cCOST]) > 0 then
-     TryStrToInt(Request.QueryFields.Values[cCOST], cost);
-  if Length(Request.QueryFields.Values[cSHRT_NAME]) > 0 then
-     s1 := Request.QueryFields.Values[cSHRT_NAME];
-  if Length(Request.QueryFields.Values[cFULL_NAME]) > 0 then
-     s2 := Request.QueryFields.Values[cFULL_NAME];
-  if Length(Request.QueryFields.Values[cDESCR]) > 0 then
-     s3 := Request.QueryFields.Values[cDESCR];
-
-  Response.Content := AddItem(iid, s1, s2, s3, cost);
+  Response.Content := AddItem(Params[0], Params[2], Params[3],
+                                         Params[4], Params[1]);
 
   inherited Execute;
 end;

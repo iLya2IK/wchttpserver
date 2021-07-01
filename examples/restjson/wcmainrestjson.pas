@@ -38,6 +38,7 @@ begin
   WCJobsTree.Values['/addClient.json'] := TWCAddClient;
   WCJobsTree.Values['/getClientByName.json'] := TWCGetClientByName;
   WCJobsTree.Values['/addToBasket.json'] := TWCAddToBasket;
+  WCJobsTree.Values['/removeFromBasket.json'] := TWCRemoveFromBasket;
   WCJobsTree.Values['/getItem.json'] := TWCGetItem;
   WCJobsTree.Values['/addItem.json'] := TWCAddItem;
   WCJobsTree.Values['/getBasket.json'] := TWCGetBasket;
