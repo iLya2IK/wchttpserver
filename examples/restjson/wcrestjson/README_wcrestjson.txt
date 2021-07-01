@@ -1,1 +1,1 @@
-This folder contains web page content for server testings
+This folder contains the online store database for server testings
