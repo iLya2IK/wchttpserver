@@ -128,14 +128,27 @@ type
 
 const  CFG_ROOT_HASH = $00;
 
+procedure AddWCConfiguration(const cfg : TWCConfiguration);
 function  StrToConfig(Parent : Cardinal; const str : String) : PWCConfigRec;
 function  HashToConfig(hash : Cardinal) : PWCConfigRec;
 function  StrConfigToHash(Parent : Cardinal; const str : String) : Cardinal;
 function  VarToConfigKind(const V : Variant) : TWCConfigRecordKind;
 
-var CFG_CONFIGURATION : TWCConfiguration;
+var CFG_CONFIGURATION : TWCConfiguration = ();
 
 implementation
+
+procedure AddWCConfiguration(const cfg : TWCConfiguration);
+var l1, l2, i : integer;
+begin
+  l1 := Length(CFG_CONFIGURATION);
+  l2 := Length(cfg);
+  SetLength(CFG_CONFIGURATION, l1 + l2);
+  for i := l1 to l1 + l2 - 1 do
+  begin
+    CFG_CONFIGURATION[i] := cfg[i - l1];
+  end;
+end;
 
 function StrToConfig(Parent : Cardinal; const str: String): PWCConfigRec;
 var i : integer;

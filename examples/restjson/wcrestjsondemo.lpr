@@ -30,6 +30,7 @@ uses
   {$ENDIF}
   WCMainRESTJson,
   WCRESTJsonJobs,
+  WCRESTJsonAppHelper,
   wcapplication,
   fphttp,
   http2consts,
@@ -45,6 +46,11 @@ vLibPath : String;
 {$ENDIF}
 begin
   Randomize;
+
+  Application.AddHelper(TRESTJsonConfigInitHelper.Create);
+  Application.AddHelper(TRESTJsonConfigHelper.Config);
+  Application.AddHelper(TRESTJsonItemsDB.ItemsDB);
+
   Application.ConfigFileName := ExtractFilePath(Application.ExeName) + 'server.cfg';
   if not assigned(Application.Config) then
      raise Exception.Create('Unexpected config error');
@@ -122,7 +128,7 @@ begin
   Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 20);
   Conf.SetDefaultValue(CFG_CLIENT_ALLOW_ENCODE, 'deflate');
 
-  with Application.ESServer.HTTP2Settings do
+  with Application.WCServer.HTTP2Settings do
   if Count = 0 then begin
     Add(H2SET_MAX_CONCURRENT_STREAMS, 100);
     Add(H2SET_INITIAL_WINDOW_SIZE, $ffff);
@@ -133,24 +139,22 @@ begin
   Conf.SetDefaultValue(CFG_WEBSOCKET_SUB_PROTO, 'chat');
   {$ENDIF}
 
-  Application.ServerAnalizeJobClass:= WCMainRESTJson.TWCPreThread;
-  {Application.WebClientClass:= WCTestClient.TWCTestWebClient;
+  Application.ServerAnalizeJobClass := WCMainRESTJson.TWCPreThread;
+  { Application.WebClientClass := WCTestClient.TWCTestWebClient;
       This line was deleted.
       The original class wcApplication.TWCWebClient is used.
       There is no need to redefine it as clients are now faceless.
-      All business logic can be moved to the "wcrestjsonjobs" unit.}
+      All business logic can be moved to the "wcrestjsonjobs" unit. }
   InitializeJobsTree;
-  InitializeItemsDb;
   try
     Application.Initialize;
     {$IFDEF SERVER_RPC_MODE}
-    WebContainer.Verbose := false; // this line reduces disk load as it stops
-                                   // writing debug information about a new
-                                   // client to the database
+    WebContainer.Verbose := false; { this line reduces disk load as it stops
+                                     writing debug information about a new
+                                     client to the database }
     {$ENDIF}
     Application.Run;
   finally
     DisposeJobsTree;
-    DoneItemsDb;
   end;
 end.

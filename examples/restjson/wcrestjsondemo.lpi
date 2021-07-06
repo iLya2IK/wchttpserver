@@ -79,7 +79,7 @@
         <PackageName Value="weblaz"/>
       </Item4>
     </RequiredPackages>
-    <Units Count="3">
+    <Units Count="4">
       <Unit0>
         <Filename Value="wcrestjsondemo.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -94,6 +94,11 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="WCRESTJsonJobs"/>
       </Unit2>
+      <Unit3>
+        <Filename Value="wcrestjsonapphelper.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="WCRESTJsonAppHelper"/>
+      </Unit3>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

@@ -20,7 +20,7 @@ interface
 uses
   Classes, sysutils,
   OGLFastVariantHash,
-  HTTPDefs, httpprotocol,
+  HTTPDefs, httpprotocol, sockets,
   jsonscanner, jsonparser, fpjson,
   variants;
 
@@ -52,6 +52,12 @@ function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
 function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
 function DecodeSIDToInt(const value : String) : Cardinal;
 procedure CopyHTTPRequest(dest, src : TRequest);
+function WCGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
+Function WCSocketAddrToString(ASocketAddr: TSockAddr): String;
+Function WCGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
+Function WCTryStrToHost(const AddrAndPort : AnsiString;
+                                  out Addr : AnsiString;
+                                  out AddrPort : LongWord) : Boolean;
 
 Implementation
 
@@ -114,6 +120,54 @@ begin
     if C = '_' then Result := Result or (63 shl k);
     Inc(k, 6);
   end;
+end;
+
+function WCGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
+var
+  len: LongInt;
+begin
+  len := SizeOf(sockets.TSockAddr);
+  if fpGetSockName(Handle, @Result, @len) <> 0 then
+    FillChar(Result, SizeOf(Result), 0);
+end;
+
+function WCGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
+var
+  len: LongInt;
+begin
+  len := SizeOf(sockets.TSockAddr);
+  if fpGetPeerName(Handle, @Result, @len) <> 0 then
+    FillChar(Result, SizeOf(Result), 0);
+end;
+
+function WCTryStrToHost(const AddrAndPort : AnsiString; out Addr : AnsiString;
+  out AddrPort : LongWord) : Boolean;
+var p : longint;
+    S : AnsiString;
+begin
+  if length(AddrAndPort) = 0 then Exit(false);
+  p := Pos(':', AddrAndPort);
+  if P > 0 then begin
+    Addr := Copy(AddrAndPort, 1, P - 1);
+    S := Copy(AddrAndPort, P + 1, Length(AddrAndPort));
+    if TryStrToDWord(S, AddrPort) then
+    begin
+      Exit(true);
+    end else
+      Exit(false);
+  end else
+  begin
+    Addr := AddrAndPort;
+    Result := True;
+  end;
+end;
+
+Function WCSocketAddrToString(ASocketAddr: TSockAddr): String;
+begin
+  if ASocketAddr.sa_family = AF_INET then
+    Result := NetAddrToStr(ASocketAddr.sin_addr)
+  else // no ipv6 support yet
+    Result := '';
 end;
 
 procedure CopyHTTPRequest(dest, src : TRequest);

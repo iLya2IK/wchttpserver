@@ -4,10 +4,11 @@
 HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal)
 
 The project builds on fpWeb modules and extends them to increase functionality:
-1. Client management using cookies (saving and maintaining sessions).
-2. Saving information about clients and sessions in SQLite database.
-3. Saving information about the latest requests and saving logs in SQLite database.
-4. Multithreading preparation and execution of requests based on threads pools e.g. helpful classes to work with EventSources.
+1. There are two server modes of operation, optimized for REST and RPC architectures.
+2. Client management using cookies (saving and maintaining sessions).
+3. Saving information about clients and sessions in SQLite database.
+4. Saving information about the latest requests and saving logs in SQLite database.
+5. Multithreading preparation and execution of requests based on threads pools e.g. helpful classes to work with EventSources.
 6. Clients ranking based on clients frequency of requests.
 7. Built-in support for gzip and deflate compression methods including decompression of client-side requests.
 8. The WebSocket (RFC 6455) protocol is supported with the "permessage-deflate" extension (RFC 7692).

@@ -2,9 +2,9 @@
 
 ## Short description
 
-The server operates in the REST architecture mode. The server can accept POST requests and respond with JSON objects. The server simulates a simple online store capable of creating customers, products, and adding products to a customer cart.
+The server operates in the REST architecture mode. The server can accept POST requests and respond with JSON objects. The server simulates a simple online store capable of creating customers, products, and adding/removing products to/from a customer cart.
 
-In the original demo, a session was created every time you connect to an unknown client with a blank or unrecognized "cid" cookie. This example shows a simple workaround by defining an inheritor for the TWCPreAnalizeClientNoSessionJob class.      
+In the original demo, a session was created every time you connect to an unknown client with a blank or unrecognized "cid" cookie. This example shows a simple workaround by defining an inheritor for the TWCPreAnalizeNoSessionNoClientJob class.      
 
 ## Server testing
 

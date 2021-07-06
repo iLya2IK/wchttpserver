@@ -285,7 +285,7 @@ type
     procedure HandleRequestError(Sender: TObject; E: Exception); override;
   public
     Function CreateServer : TEmbeddedAbsHttpServer; override;
-    function GetESServer : TWCHttpServer;
+    function GetWCServer : TWCHttpServer;
   end;
 
   { TWCHTTPTemplate }
@@ -299,7 +299,7 @@ type
   TWCHTTPTemplate = class
   private
     FMimeRegExp : TRegExpr;
-    FURIRegExp : TRegExpr;
+    FURIRegExp  : TRegExpr;
     FComplete   : Boolean;
     FCompress   : PBoolean;
     FCache      : PChar;
@@ -343,12 +343,47 @@ type
     destructor Destroy; override;
   end;
 
+  TWCHTTPAppHelper = class
+  public
+    procedure DoHelp(aData : TObject); virtual; abstract;
+  end;
+
+  TWCHTTPAppInitHelper = class(TWCHTTPAppHelper)
+  end;
+
+  TWCHTTPAppDoneHelper = class(TWCHTTPAppHelper)
+  end;
+
+  TWCHTTPAppConfigInitHelper = class(TWCHTTPAppHelper)
+  end;
+
+  TWCHTTPAppConfigLoadedHelper = class(TWCHTTPAppHelper)
+  end;
+
+  TWCHTTPAppConfigRecordHelper = class(TWCHTTPAppHelper)
+  end;
+
+  TWCHTTPAppHelperClass = class of TWCHTTPAppHelper;
+
+  { TWCHTTPAppHelpers }
+
+  TWCHTTPAppHelpers = class(TThreadSafeFastSeq)
+  private
+    FHelperClass : TWCHTTPAppHelperClass;
+    FData : TObject;
+    procedure DoOnHelp(aHelper : TObject);
+  public
+    procedure DoHelp(aHelperClass : TWCHTTPAppHelperClass;
+                     aData : TObject);
+  end;
+
   { TWCHTTPApplication }
 
   TWCHTTPApplication = Class(TCustomAbsHTTPApplication)
   private
     FMTime : QWord;
     FLogDB : TSqliteLogger;
+    FAppHelpers : TWCHTTPAppHelpers;
     FSocketsReferences, FReferences : TNetReferenceList;
     FStartStamp : QWord;
     FNetDebugMode : Boolean;
@@ -385,7 +420,7 @@ type
     function GetClientTimeOut: Integer;
     function GetCompressLimit: Cardinal;
     function GetConfigFileName: String;
-    function GetESServer: TWCHttpServer;
+    function GetWCServer: TWCHttpServer;
     function GetJobToJobWait: TJobToJobWait;
     function GetLogDbLoc: String;
     function GetMainHTTP: String;
@@ -431,13 +466,15 @@ type
     procedure DoError(const V : String); overload;
     procedure DoError(const V : String; const aParams : Array Of const); overload;
     procedure SendError(AResponse: TAbsHTTPConnectionResponse; errno: Integer);
+    procedure AddHelper(Hlp : TWCHTTPAppHelper);
     Procedure Initialize; override;
     function GetWebHandler: TWCHttpServerHandler;
     function InitializeAbstractWebHandler : TWebHandler; override;
     function GetTimeSecFromStart : Cardinal;
     function CreateRefMemoryStream : TRefMemoryStream;
     function CreateSizedRefMemoryStream(aSz : PtrInt) : TRefMemoryStream;
-    property ESServer : TWCHttpServer read GetESServer;
+    property WCServer : TWCHttpServer read GetWCServer;
+    property AppHelpers : TWCHTTPAppHelpers read FAppHelpers;
     property GarbageCollector : TNetReferenceList read FReferences;
     property SocketsCollector : TNetReferenceList read FSocketsReferences;
 
@@ -780,9 +817,6 @@ Var
   Application : TWCHTTPApplication;
   ShowCleanUpErrors : Boolean = False;
 
-Function ESSocketAddrToString(ASocketAddr: TSockAddr): String;
-function ESGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
-
 const
   cSgzip = 'gzip';
   cSdeflate = 'deflate';
@@ -798,25 +832,6 @@ Implementation
 
 uses  CustApp, extopensslsockets, wcutils, math;
 const WCSocketReadError = 'Socket read error';
-
-
-function ESGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
-var
-  len: LongInt;
-begin
-  len := SizeOf(sockets.TSockAddr);
-  if fpGetSockName(Handle, @Result, @len) <> 0 then
-    FillChar(Result, SizeOf(Result), 0);
-end;
-
-function ESGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
-var
-  len: LongInt;
-begin
-  len := SizeOf(sockets.TSockAddr);
-  if fpGetPeerName(Handle, @Result, @len) <> 0 then
-    FillChar(Result, SizeOf(Result), 0);
-end;
 
 function ParseStartLine(Request : TWCRequest; AStartLine : String) : Boolean;
 
@@ -870,7 +885,7 @@ begin
   {$IFDEF UNIX}
   fpSignal(SIGPIPE, @SignalHandler);
   {$ENDIF}
-  CFG_CONFIGURATION := WC_CFG_CONFIGURATION;
+  AddWCConfiguration(WC_CFG_CONFIGURATION);
   Application:=TWCHTTPApplication.Create(Nil);
   if not assigned(CustomApplication) then
     CustomApplication := Application;
@@ -886,6 +901,29 @@ begin
   except
     if ShowCleanUpErrors then
       Raise;
+  end;
+end;
+
+{ TWCHTTPAppHelpers }
+
+procedure TWCHTTPAppHelpers.DoOnHelp(aHelper : TObject);
+begin
+  if aHelper is FHelperClass then
+  begin
+    TWCHTTPAppHelper(aHelper).DoHelp(FData);
+  end;
+end;
+
+procedure TWCHTTPAppHelpers.DoHelp(aHelperClass : TWCHTTPAppHelperClass;
+                                   aData : TObject);
+begin
+  Lock;
+  try
+    FHelperClass := aHelperClass;
+    FData := aData;
+    DoForAll(@DoOnHelp);
+  finally
+    UnLock;
   end;
 end;
 
@@ -971,7 +1009,7 @@ begin
          if Assigned(ASynThread) then
          begin
            FConn := nil; //now fconn is part of ASynThread job
-           Application.ESServer.AddToMainPool(ASynThread);
+           Application.WCServer.AddToMainPool(ASynThread);
          end;
        end;
      end
@@ -1008,7 +1046,7 @@ begin
       if Assigned(ASynThread) then
       begin
         FConn := nil; //now fconn is part of ASynThread job
-        Application.ESServer.AddToMainPool(ASynThread);
+        Application.WCServer.AddToMainPool(ASynThread);
       end;
     end;
   except
@@ -1043,7 +1081,7 @@ begin
          if Assigned(ASynThread) then
          begin
            FConn := nil; //now fconn is part of ASynThread job
-           Application.ESServer.AddToMainPool(ASynThread);
+           Application.WCServer.AddToMainPool(ASynThread);
          end;
        end;
      end;
@@ -1286,10 +1324,12 @@ begin
                         HashToConfig(CFG_WEBSOCKET_DEFLATE_EXT)^.NAME_STR);
   if assigned(d) and (d is TJSONObject) then begin
     if assigned(Application) then
-      Application.ESServer.WebSocketSettings.ConfigExtFromJson(WSEX_PMCEDEFLATE,
+      Application.WCServer.WebSocketSettings.ConfigExtFromJson(WSEX_PMCEDEFLATE,
                                                            TJSONObject(d));
   end;
   {$ENDIF}
+
+  Application.AppHelpers.DoHelp(TWCHTTPAppConfigLoadedHelper, aConfig);
 end;
 
 destructor TWCHTTPConfig.Destroy;
@@ -1890,7 +1930,7 @@ begin
         if (S<>'') then
           ConsumeHeader(Result, S);
       Until (S='');
-      Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
+      Result.RemoteAddress := WCSocketAddrToString(Socket.RemoteAddress);
       Result.ServerPort := TWCHttpServer(Server).Port;
     end else
       FreeAndNil(Result);
@@ -1910,7 +1950,7 @@ begin
     AReq.CopyToHTTP1Request(Result);
     TWCContent(Result.ContentObject).RequestRef := aReq;
     Result.InitRequestVars(False);
-    Result.RemoteAddress := ESSocketAddrToString(Socket.RemoteAddress);
+    Result.RemoteAddress := WCSocketAddrToString(Socket.RemoteAddress);
     Result.ServerPort := TWCHttpServer(Server).Port;
   except
     FreeAndNil(Result);
@@ -2600,7 +2640,7 @@ begin
   Result:=TWCHttpServer.Create(Self);
 end;
 
-function TWCHttpServerHandler.GetESServer: TWCHttpServer;
+function TWCHttpServerHandler.GetWCServer : TWCHttpServer;
 begin
   Result := TWCHttpServer(HTTPServer);
 end;
@@ -2943,7 +2983,7 @@ end;
 
 procedure TWCHTTPApplication.StopThreads;
 begin
-  if Assigned(ESServer) then ESServer.StopThreads;
+  if Assigned(WCServer) then WCServer.StopThreads;
 end;
 
 function TWCHTTPApplication.GetMimeTemplates: TWCHTTPMimeTemplates;
@@ -2965,111 +3005,115 @@ procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
 var JTJ : TJobToJobWait;
 begin
   if not VarIsNull(Sender.Value) then
-  case Sender.HashName of
-    CFG_SHUTDOWN :
-      NeedShutdown := Sender.Value;
-    CFG_SITE_FOLDER :
-      WebFilesLoc := Sender.Value + cSysDelimiter;
-    CFG_SERVER_NAME :
-      Title := Sender.Value;
-    CFG_MAIN_URI :
-      MainURI := Sender.Value;
-    CFG_SESSIONS_LOC :
-      SessionsLoc := Sender.Value;
-    CFG_CLIENTS_DB :
-      SessionsDb := Sender.Value;
-    CFG_LOG_DB :
-      LogDb := Sender.Value;
-    CFG_MIME_NAME :
-      MimeLoc := Sender.Value;
-    CFG_USE_SSL :
-      UseSSL := Sender.Value;
-    CFG_HOST_NAME :
-      HostName := Sender.Value;
-    CFG_SSL_LOC :
-      SSLLoc := Sender.Value + cSysDelimiter;
-    CFG_JOB_TO_JOB_WAIT,
-    CFG_JOB_TO_JOB_WAIT_ADAPT_MIN,
-    CFG_JOB_TO_JOB_WAIT_ADAPT_MAX :
-    begin
-      JTJ := ThreadPoolJobToJobWait;
-      case Sender.HashName of
-        CFG_JOB_TO_JOB_WAIT :        JTJ.DefaultValue:= Sender.Value;
-        CFG_JOB_TO_JOB_WAIT_ADAPT_MIN : JTJ.AdaptMin := Sender.Value;
-        CFG_JOB_TO_JOB_WAIT_ADAPT_MAX : JTJ.AdaptMax := Sender.Value;
-      end;
-      ThreadPoolJobToJobWait := JTJ;
-    end;
-    CFG_MAIN_THREAD_CNT :
-      MaxMainThreads:= Sender.Value;
-    CFG_PRE_THREAD_CNT :
-      MaxPrepareThreads:= Sender.Value;
-    //openssl
-    CFG_SSL_VER : begin
-      if ConfigChangeHalt then
+  begin
+    case Sender.HashName of
+      CFG_SHUTDOWN :
+        NeedShutdown := Sender.Value;
+      CFG_SITE_FOLDER :
+        WebFilesLoc := Sender.Value + cSysDelimiter;
+      CFG_SERVER_NAME :
+        Title := Sender.Value;
+      CFG_MAIN_URI :
+        MainURI := Sender.Value;
+      CFG_SESSIONS_LOC :
+        SessionsLoc := Sender.Value;
+      CFG_CLIENTS_DB :
+        SessionsDb := Sender.Value;
+      CFG_LOG_DB :
+        LogDb := Sender.Value;
+      CFG_MIME_NAME :
+        MimeLoc := Sender.Value;
+      CFG_USE_SSL :
+        UseSSL := Sender.Value;
+      CFG_HOST_NAME :
+        HostName := Sender.Value;
+      CFG_SSL_LOC :
+        SSLLoc := Sender.Value + cSysDelimiter;
+      CFG_JOB_TO_JOB_WAIT,
+      CFG_JOB_TO_JOB_WAIT_ADAPT_MIN,
+      CFG_JOB_TO_JOB_WAIT_ADAPT_MAX :
       begin
-        ESServer.FSSLLocker.Lock;
-        try
-          ESServer.SSLType := ExSSLStringToType(Sender.Value);
-        finally
-          ESServer.FSSLLocker.UnLock;
+        JTJ := ThreadPoolJobToJobWait;
+        case Sender.HashName of
+          CFG_JOB_TO_JOB_WAIT :        JTJ.DefaultValue:= Sender.Value;
+          CFG_JOB_TO_JOB_WAIT_ADAPT_MIN : JTJ.AdaptMin := Sender.Value;
+          CFG_JOB_TO_JOB_WAIT_ADAPT_MAX : JTJ.AdaptMax := Sender.Value;
+        end;
+        ThreadPoolJobToJobWait := JTJ;
+      end;
+      CFG_MAIN_THREAD_CNT :
+        MaxMainThreads:= Sender.Value;
+      CFG_PRE_THREAD_CNT :
+        MaxPrepareThreads:= Sender.Value;
+      //openssl
+      CFG_SSL_VER : begin
+        if ConfigChangeHalt then
+        begin
+          WCServer.FSSLLocker.Lock;
+          try
+            WCServer.SSLType := ExSSLStringToType(Sender.Value);
+          finally
+            WCServer.FSSLLocker.UnLock;
+          end;
         end;
       end;
-    end;
-    CFG_SSL_CIPHER : begin
-      ESServer.FSSLLocker.Lock;
-      try
-        ESServer.CertificateData.CipherList := Sender.Value;
-      finally
-        ESServer.FSSLLocker.UnLock;
+      CFG_SSL_CIPHER : begin
+        WCServer.FSSLLocker.Lock;
+        try
+          WCServer.CertificateData.CipherList := Sender.Value;
+        finally
+          WCServer.FSSLLocker.UnLock;
+        end;
       end;
-    end;
-    CFG_PRIVATE_KEY    :
-      ESServer.PrivateKey := Sender.Value;
-    CFG_CERTIFICATE    :
-      ESServer.Certificate := Sender.Value;
-    CFG_TLSKEY_LOG     :
-      ESServer.SSLMasterKeyLog := Sender.Value;
-    CFG_ALPN_USE_HTTP2 : begin
-      ESServer.FSSLLocker.Lock;
-      try
-        ESServer.AlpnList.Clear;
-        if Sender.Value then ESServer.AlpnList.Add('h2');
-        ESServer.AlpnList.Add('http/1.1');
-      finally
-        ESServer.FSSLLocker.UnLock;
+      CFG_PRIVATE_KEY    :
+        WCServer.PrivateKey := Sender.Value;
+      CFG_CERTIFICATE    :
+        WCServer.Certificate := Sender.Value;
+      CFG_TLSKEY_LOG     :
+        WCServer.SSLMasterKeyLog := Sender.Value;
+      CFG_ALPN_USE_HTTP2 : begin
+        WCServer.FSSLLocker.Lock;
+        try
+          WCServer.AlpnList.Clear;
+          if Sender.Value then WCServer.AlpnList.Add('h2');
+          WCServer.AlpnList.Add('http/1.1');
+        finally
+          WCServer.FSSLLocker.UnLock;
+        end;
       end;
+      //clients
+      CFG_CLIENT_COOKIE_MAX_AGE :
+         ClientCookieMaxAge := Sender.Value;
+      CFG_CLIENT_TIMEOUT :
+         ClientTimeOut := Sender.Value;
+      CFG_CLIENT_ALLOW_ENCODE :
+         ClientAllowEncode := Sender.Value;
+      CFG_CLIENT_VERBOSE :
+      {$IFDEF SERVER_RPC_MODE}
+         if Assigned(WebContainer) then
+           WebContainer.Verbose := Sender.Value{$ENDIF};
+      //http2
+      CFG_H2SET_HEADER_TABLE_SIZE,
+      CFG_H2SET_MAX_CONCURRENT_STREAMS,
+      CFG_H2SET_INITIAL_WINDOW_SIZE,
+      CFG_H2SET_MAX_FRAME_SIZE,
+      CFG_H2SET_MAX_HEADER_LIST_SIZE: begin
+        WCServer.HTTP2Settings.Add((Sender.HashName shr 4) and $0f, Sender.Value);
+      end;
+      {$IFDEF WC_WEB_SOCKETS}
+      CFG_WEBSOCKET_SUB_PROTO:
+        WCServer.WebSocketSettings.SubProtocols := Sender.Value;
+      {$ENDIF}
+      //Web files
+      CFG_COMPRESS_LIMIT :
+        CompressLimit:= Sender.Value;
+      CFG_IGNORE_FILES :
+        WebFilesIgnore := Sender.Value;
+      CFG_EXCLUDE_IGNORE_FILES :
+        WebFilesExcludeIgnore := Sender.Value;
+    else
+      FAppHelpers.DoHelp(TWCHTTPAppConfigRecordHelper, Sender);
     end;
-    //clients
-    CFG_CLIENT_COOKIE_MAX_AGE :
-       ClientCookieMaxAge := Sender.Value;
-    CFG_CLIENT_TIMEOUT :
-       ClientTimeOut := Sender.Value;
-    CFG_CLIENT_ALLOW_ENCODE :
-       ClientAllowEncode := Sender.Value;
-    CFG_CLIENT_VERBOSE :
-    {$IFDEF SERVER_RPC_MODE}
-       if Assigned(WebContainer) then
-         WebContainer.Verbose := Sender.Value{$ENDIF};
-    //http2
-    CFG_H2SET_HEADER_TABLE_SIZE,
-    CFG_H2SET_MAX_CONCURRENT_STREAMS,
-    CFG_H2SET_INITIAL_WINDOW_SIZE,
-    CFG_H2SET_MAX_FRAME_SIZE,
-    CFG_H2SET_MAX_HEADER_LIST_SIZE: begin
-      ESServer.HTTP2Settings.Add((Sender.HashName shr 4) and $0f, Sender.Value);
-    end;
-    {$IFDEF WC_WEB_SOCKETS}
-    CFG_WEBSOCKET_SUB_PROTO:
-      ESServer.WebSocketSettings.SubProtocols := Sender.Value;
-    {$ENDIF}
-    //Web files
-    CFG_COMPRESS_LIMIT :
-      CompressLimit:= Sender.Value;
-    CFG_IGNORE_FILES :
-      WebFilesIgnore := Sender.Value;
-    CFG_EXCLUDE_IGNORE_FILES :
-      WebFilesExcludeIgnore := Sender.Value;
   end;
 end;
 
@@ -3089,6 +3133,8 @@ constructor TWCHTTPApplication.Create(AOwner: TComponent);
 var I : integer;
 begin
   inherited Create(AOwner);
+
+  FAppHelpers := TWCHTTPAppHelpers.Create;
 
   FStartStamp := 0;
   FConfig := nil;
@@ -3144,6 +3190,7 @@ end;
 
 destructor TWCHTTPApplication.Destroy;
 begin
+  FAppHelpers.DoHelp(TWCHTTPAppDoneHelper, nil);
   DoInfo('Server stopped');
   {$ifdef NOGUI}{$IFDEF UNIX}
   GWidgetHelper.Free;
@@ -3156,9 +3203,9 @@ begin
   WebContainer.ClearDeadClients;
   {$ENDIF}
   // dec references to all connections
-  if assigned(ESServer) then begin
-    ESServer.RefConnections.CloseAll;
-    ESServer.RefConnections.RemoveDeadConnections(GetTickCount64, 0);
+  if assigned(WCServer) then begin
+    WCServer.RefConnections.CloseAll;
+    WCServer.RefConnections.RemoveDeadConnections(GetTickCount64, 0);
   end;
   // clear cache (referenced streams)
   WebContainer.ClearCache;
@@ -3191,6 +3238,8 @@ begin
   if Assigned(FWebFilesIgnoreRx) then  FWebFilesIgnoreRx.Free;
   if Assigned(FWebFilesExceptIgnoreRx) then FWebFilesExceptIgnoreRx.Free;
   FNeedShutdown.Free;
+
+  FAppHelpers.Free;
   inherited Destroy;
 end;
 
@@ -3212,12 +3261,12 @@ begin
     FSocketsReferences.CleanDead;
   end;
   //
-  ESServer.RefConnections.Idle(T);
+  WCServer.RefConnections.Idle(T);
   //
   Sleep(5);
   if FNeedShutdown.Value then
   begin
-    ESServer.Active := false;
+    WCServer.Active := false;
     Terminate;
   end;
 end;
@@ -3244,9 +3293,9 @@ begin
     Result := '';
 end;
 
-function TWCHTTPApplication.GetESServer: TWCHttpServer;
+function TWCHTTPApplication.GetWCServer : TWCHttpServer;
 begin
-  Result := GetWebHandler.GetESServer;
+  Result := GetWebHandler.GetWCServer;
 end;
 
 function TWCHTTPApplication.GetJobToJobWait: TJobToJobWait;
@@ -3352,16 +3401,17 @@ begin
   end else begin
     FConfig := TWCHTTPConfig.Create(AValue);
     FConfig.OnChangeValue := @DoOnConfigChanged;
+    FAppHelpers.DoHelp(TWCHTTPAppConfigInitHelper, FConfig);
   end;
   FConfig.Sync(true);
 end;
 
 procedure TWCHTTPApplication.SetJobToJobWait(AValue: TJobToJobWait);
 begin
-  if assigned(ESServer) and
-     Assigned(ESServer.FThreadPool) then begin
-     ESServer.FThreadPool.ThreadJobToJobWait := AValue;
-     FThreadJobToJobWait.Value := ESServer.FThreadPool.ThreadJobToJobWait;
+  if assigned(WCServer) and
+     Assigned(WCServer.FThreadPool) then begin
+     WCServer.FThreadPool.ThreadJobToJobWait := AValue;
+     FThreadJobToJobWait.Value := WCServer.FThreadPool.ThreadJobToJobWait;
   end else
      FThreadJobToJobWait.Value := AValue;
 end;
@@ -3398,9 +3448,9 @@ begin
 
 
   FMaxMainThreads.Value:=AValue;
-  if assigned(ESServer) and
-     assigned(ESServer.FThreadPool) then
-     ESServer.FThreadPool.SortedThreadsCount:=aValue;
+  if assigned(WCServer) and
+     assigned(WCServer.FThreadPool) then
+     WCServer.FThreadPool.SortedThreadsCount:=aValue;
 end;
 
 procedure TWCHTTPApplication.SetMaxPrepareThreads(AValue: Byte);
@@ -3410,9 +3460,9 @@ begin
   if FMaxPrepareThreads.Value=AValue then Exit;
 
   FMaxPrepareThreads.Value:=AValue;
-  if assigned(ESServer) and
-     assigned(ESServer.FThreadPool) then
-     GetESServer.FThreadPool.LinearThreadsCount:=aValue;
+  if assigned(WCServer) and
+     assigned(WCServer.FThreadPool) then
+     WCServer.FThreadPool.LinearThreadsCount:=aValue;
 end;
 
 procedure TWCHTTPApplication.SetMimeLoc(AValue: String);
@@ -3457,8 +3507,8 @@ begin
 
   if ConfigChangeHalt then begin
     FSSLLoc.Value := AValue;
-    if assigned(ESServer) then
-      ESServer.SSLLoc := ExtractFilePath(ExeName) + AValue;
+    if assigned(WCServer) then
+      WCServer.SSLLoc := ExtractFilePath(ExeName) + AValue;
   end;
 end;
 
@@ -3532,8 +3582,8 @@ begin
           MimeTypes.LoadFromFile(MimeTypesFile);
       end;
       if Length(SSLLoc) > 0 then
-        if assigned(ESServer) then
-          ESServer.SSLLoc:= loc + FSSLLoc.Value;
+        if assigned(WCServer) then
+          WCServer.SSLLoc:= loc + FSSLLoc.Value;
     end;
   end;
 end;
@@ -3599,6 +3649,11 @@ begin
     AResponse.SendHeaders;
 end;
 
+procedure TWCHTTPApplication.AddHelper(Hlp : TWCHTTPAppHelper);
+begin
+  FAppHelpers.Push_back(Hlp);
+end;
+
 procedure TWCHTTPApplication.Initialize;
 begin
   inherited Initialize;
@@ -3608,10 +3663,11 @@ begin
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;
   GetWebHandler.AcceptIdleTimeout:=1;
-  ESServer.RefConnections.GarbageCollector := FReferences;
+  WCServer.RefConnections.GarbageCollector := FReferences;
 
   FStartStamp:= GetTickCount64;
   DoInfo('Server initialized');
+  FAppHelpers.DoHelp(TWCHTTPAppInitHelper, nil);
 end;
 
 function TWCHTTPApplication.GetWebHandler: TWCHttpServerHandler;
@@ -3621,7 +3677,7 @@ end;
 
 function TWCHTTPApplication.InitializeAbstractWebHandler: TWebHandler;
 begin
-  Result:=TWCHttpServerHandler.Create(Self);
+  Result := TWCHttpServerHandler.Create(Self);
 end;
 
 function TWCHTTPApplication.GetTimeSecFromStart: Cardinal;
@@ -3972,9 +4028,9 @@ begin
     ARequest := TWCRequest(Session.Request);
     Con := ARequest.GetConnection;
 
-    SocketAddr := ESGetGetRemoteAddress(Con.Socket.Handle);
+    SocketAddr := WCGetGetRemoteAddress(Con.Socket.Handle);
 
-    IpV4 := ESSocketAddrToString(SocketAddr);
+    IpV4 := WCSocketAddrToString(SocketAddr);
     IpV6 := '';
     PREP_AddClientToBase.Execute([Session.SID,
                                   IpV4,
@@ -4139,14 +4195,6 @@ end;
 procedure TWebClientsContainer.ClearCache;
 begin
   FCachedPages.Clear;
-end;
-
-Function ESSocketAddrToString(ASocketAddr: TSockAddr): String;
-begin
-  if ASocketAddr.sa_family = AF_INET then
-    Result := NetAddrToStr(ASocketAddr.sin_addr)
-  else // no ipv6 support yet
-    Result := '';
 end;
 
 function TWebClientsContainer.GetWebCachedItem(const aURI : String
