@@ -43,14 +43,11 @@ function DecodeJsonParams(const H : String;
                           const PARS : Array of String;
                           VALS : TFastHashList;
                           const Def : Array of Variant) : Boolean; overload;
-procedure DecodeParamsWithDefault(Values : TStrings;
-                                  const PARS: array of String;
-                                  const H : String;
-                                  VALS : TFastHashList;
-                                  const Def : Array of Variant);
-function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
-function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
-function DecodeSIDToInt(const value : String) : Cardinal;
+function DecodeParamsWithDefault(Values : TStrings;
+                                 const PARS: array of String;
+                                 const H : String;
+                                 VALS : TFastHashList;
+                                 const Def : Array of Variant) : Boolean;
 procedure CopyHTTPRequest(dest, src : TRequest);
 function WCGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
 Function WCSocketAddrToString(ASocketAddr: TSockAddr): String;
@@ -60,67 +57,6 @@ Function WCTryStrToHost(const AddrAndPort : AnsiString;
                                   out AddrPort : LongWord) : Boolean;
 
 Implementation
-
-const sidEncodeTable : Array [0..63] of Char =
-                                       ('0','1','2','3','4','5','6','7','8','9',
-                                        'a','b','c','d','e','f','g','h','i','j',
-                                        'k','l','m','n','o','p','q','r','s','t',
-                                        'u','v','w','x','y','z','A','B','C','D',
-                                        'E','F','G','H','I','J','K','L','M','N',
-                                        'O','P','Q','R','S','T','U','V','W','X',
-                                        'Y','Z','.','_');
-
-function EncodeIntToSID(value : Cardinal; Digits : integer) : String;
-var i: integer;
-begin
- If Digits=0 then
-   Digits:=1;
- SetLength(result, digits);
- for i := 0 to digits - 1 do
-  begin
-   result[digits - i] := sidEncodeTable[value and 63];
-   value := value shr 6;
-  end ;
- while value <> 0 do begin
-   result := sidEncodeTable[value and 63] + result;
-   value := value shr 6;
- end;
-end;
-
-function EncodeInt64ToSID(value : QWORD; Digits : integer) : String;
-var i: integer;
-begin
- If Digits=0 then
-   Digits:=1;
- SetLength(result, digits);
- for i := 0 to digits - 1 do
-  begin
-   result[digits - i] := sidEncodeTable[value and 63];
-   value := value shr 6;
-  end ;
- while value <> 0 do begin
-   result := sidEncodeTable[value and 63] + result;
-   value := value shr 6;
- end;
-end;
-
-function DecodeSIDToInt(const value : String) : Cardinal;
-var i, k : integer;
-    C : AnsiChar;
-begin
-  Result := 0;
-  k := 0;
-  for i := Length(value) downto 1 do
-  begin
-    C := value[i];
-    if (C >= '0') and (C <= '9') then Result := Result or ((Ord(C) - Ord('0')) shl k) else
-    if (C >= 'a') and (C <= 'z') then Result := Result or ((Ord(C) - Ord('a') + 10) shl k) else
-    if (C >= 'A') and (C <= 'Z') then Result := Result or ((Ord(C) - Ord('A') + 36) shl k) else
-    if C = '~' then Result := Result or (62 shl k) else
-    if C = '_' then Result := Result or (63 shl k);
-    Inc(k, 6);
-  end;
-end;
 
 function WCGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
 var
@@ -162,7 +98,7 @@ begin
   end;
 end;
 
-Function WCSocketAddrToString(ASocketAddr: TSockAddr): String;
+function WCSocketAddrToString(ASocketAddr : TSockAddr) : String;
 begin
   if ASocketAddr.sa_family = AF_INET then
     Result := NetAddrToStr(ASocketAddr.sin_addr)
@@ -194,7 +130,7 @@ begin
     V := jsonData.Value;
   if VarIsNull(V) then V := Def;
   Result := (((VarIsNumeric(V) and VarIsNumeric(Def)) or
-             (VarIsStr(V) and VarIsStr(Def))));
+              (VarIsStr(V) and VarIsStr(Def))));
 end;
 
 function DecodeJsonParams(const H : String; const P1S, P2S : String;
@@ -337,22 +273,26 @@ begin
      Result := Str;
 end;
 
-procedure DecodeParamsWithDefault(Values : TStrings;
+function DecodeParamsWithDefault(Values : TStrings;
   const PARS : array of String; const H : String; VALS : TFastHashList;
-  const Def : array of Variant);
+  const Def : array of Variant) : Boolean;
 var jsonObj: TJSONObject;
     jsonData : Array of TJSONData;
     i, k : integer;
     V : Variant;
 begin
-  if Length(PARS) <> Length(Def) then Exit;
+  if Length(PARS) <> Length(Def) then Exit(False);
+
   try
     try
-      jsonObj:= TJSONObject(GetJSON(H));
+      if Length(H) > 0 then
+       jsonObj := TJSONObject(GetJSON(H)) else
+       jsonObj := nil;
     except
-      //do nothing
-      jsonObj := nil;
+       jsonObj := nil;
     end;
+    Result := true;
+
     SetLength(jsonData, Length(PARS));
 
     if Assigned(jsonObj) then
@@ -369,7 +309,7 @@ begin
           begin
             V := StrToVariant( Values.Values[PARS[i]] );
             if not (((VarIsNumeric(V) and VarIsNumeric(Def[i])) or
-                    (VarIsStr(V) and VarIsStr(Def[i])))) then
+                     (VarIsStr(V) and VarIsStr(Def[i])))) then
               V := Def[i];
           end else
             V := Def[i];

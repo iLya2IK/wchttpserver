@@ -39,6 +39,7 @@ const
   CFG_EXCLUDE_IGNORE_FILES         = $25;
   CFG_COMPRESS_LIMIT               = $35;
   CFG_MIME_TEMPLATES               = $45;
+  CFG_CACHE_LIMIT_SIZE             = $55;
   CFG_MAINTAIN_SEC                 = $06;
   CFG_SHUTDOWN                     = $16;
   CFG_WEBSOCKET_SEC                = $07;
@@ -88,6 +89,7 @@ const
     (ParentHash:CFG_WEBSOCKET_SEC; Hash:CFG_WEBSOCKET_SUB_PROTO    ; Name:'SubProtocols'   ),
     (ParentHash:CFG_WEBSOCKET_SEC; Hash:CFG_WEBSOCKET_DEFLATE_EXT  ; Name:'PMCEDeflate'    ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_COMPRESS_LIMIT;       Name:'CompressLimitByte' ),
+    (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_CACHE_LIMIT_SIZE;     Name:'CacheLimitSize' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES;         Name:'WebFilesIgnore' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES; Name:'WebFilesExcludeIgnore' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_MIME_TEMPLATES;       Name:'MimeTemplates' ),

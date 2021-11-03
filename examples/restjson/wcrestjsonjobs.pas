@@ -211,7 +211,7 @@ var
 begin
   jsonResponse := TJSONArray.Create;
   try
-   vItemsDB. PREP_GetBasket.Lock;
+   vItemsDB.PREP_GetBasket.Lock;
     try
       amount := 0;
       if vItemsDB.PREP_GetBasket.Open([cid]) then
@@ -314,12 +314,13 @@ end;
 
 procedure TWCRemoveFromBasket.Execute;
 begin
-  DecodeParamsWithDefault(Request.QueryFields, [cCID, cIID],
-                          Request.Content, Params, [-1, -1]);
-
-  if (Params[0] > 0) and (Params[1] > 0) then
-    Response.Content := RemoveFromBasket(Params[0], Params[1]) else
-    Response.Content := BAD_JSON;
+  if DecodeParamsWithDefault(Request.QueryFields, [cCID, cIID],
+                             Request.Content, Params, [-1, -1]) then
+  begin
+    if (Params[0] > 0) and (Params[1] > 0) then
+      Response.Content := RemoveFromBasket(Params[0], Params[1]) else
+      Response.Content := BAD_JSON;
+  end else Response.Content := BAD_JSON;
   inherited Execute;
 end;
 
@@ -338,13 +339,13 @@ end;
 
 procedure TWCAddToBasket.Execute;
 begin
-  DecodeParamsWithDefault(Request.QueryFields, [cCID, cIID, cCOST],
-                          Request.Content, Params, [-1, -1, -1]);
-
-  if (Params[0] > 0) and (Params[1] > 0) then
-    Response.Content := AddToBasket(Params[0], Params[1], Params[2]) else
-    Response.Content := BAD_JSON;
-
+  if DecodeParamsWithDefault(Request.QueryFields, [cCID, cIID, cCOST],
+                             Request.Content, Params, [-1, -1, -1]) then
+  begin
+    if (Params[0] > 0) and (Params[1] > 0) then
+      Response.Content := AddToBasket(Params[0], Params[1], Params[2]) else
+      Response.Content := BAD_JSON;
+  end else Response.Content := BAD_JSON;
   inherited Execute;
 end;
 
@@ -352,13 +353,13 @@ end;
 
 procedure TWCAddItem.Execute;
 begin
-  DecodeParamsWithDefault(Request.QueryFields, [cIID, cCOST, cSHRT_NAME,
-                                                cFULL_NAME, cDESCR],
-                          Request.Content, Params, [-1, -1, '', '', '']);
-
-  Response.Content := AddItem(Params[0], Params[2], Params[3],
-                                         Params[4], Params[1]);
-
+  if DecodeParamsWithDefault(Request.QueryFields, [cIID, cCOST, cSHRT_NAME,
+                                                   cFULL_NAME, cDESCR],
+                             Request.Content, Params, [-1, -1, '', '', '']) then
+  begin
+    Response.Content := AddItem(Params[0], Params[2], Params[3],
+                                           Params[4], Params[1]);
+  end else Response.Content := BAD_JSON;
   inherited Execute;
 end;
 

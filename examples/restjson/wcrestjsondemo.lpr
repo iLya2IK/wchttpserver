@@ -9,7 +9,7 @@ In the original demo the server operates in the RPC architecture mode.
 In the original demo, a session was created every time you connect to an unknown
 client with a blank or unrecognized "cid" cookie. This example shows a simple
 workaround by defining an inheritor for the
-TWCPreAnalizeClientNoSessionJob class.
+TWCPreAnalizeNoSessionNoClientJob class.
 }
 
 program wcrestjsondemo;
@@ -74,25 +74,9 @@ begin
   // for example if location of executable is /home/folder/
   // then site location will be home/folder/CFG_SITE_FOLDER/
   Conf.SetDefaultValue(CFG_SITE_FOLDER, 'wcrestjson');
-  // MainURI - location of index file
-  // then index location will be home/folder/CFG_SITE_FOLDER/CFG_MAIN_URI
-  Conf.SetDefaultValue(CFG_MAIN_URI, 'index.html');
-  // SessionsLoc - location of sessions
-  // then sessions location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC
-  Conf.SetDefaultValue(CFG_SESSIONS_LOC, 'sessions');
-  // SessionsDb - location of database with sessions, clients data and network dumps
-  // then sessions database location will be home/folder/CFG_SITE_FOLDER/CFG_SESSIONS_LOC/CFG_CLIENTS_DB
-  Conf.SetDefaultValue(CFG_CLIENTS_DB, 'clients.db');
   // LogDb - location of database with log
   // then log database location will be home/folder/CFG_LOG_DB
   Conf.SetDefaultValue(CFG_LOG_DB, 'logwebtest.db');
-  // MimeLoc - location of mime file
-  // then mime file location will be home/folder/CFG_SITE_FOLDER/CFG_MIME_NAME
-  Conf.SetDefaultValue(CFG_MIME_NAME, 'mime.txt');
-  // WebFiles Config
-  Conf.SetDefaultValue(CFG_COMPRESS_LIMIT, 500);
-  Conf.SetDefaultValue(CFG_EXCLUDE_IGNORE_FILES, '');
-  Conf.SetDefaultValue(CFG_IGNORE_FILES, '');
   //SSL/TLS configuration
   Conf.SetDefaultValue(CFG_USE_SSL, true);
   Conf.SetDefaultValue(CFG_HOST_NAME, 'localhost');
@@ -124,8 +108,6 @@ begin
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT, DefaultJobToJobWait.DefaultValue);
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MAX, DefaultJobToJobWait.AdaptMax);
   Conf.SetDefaultValue(CFG_JOB_TO_JOB_WAIT_ADAPT_MIN, DefaultJobToJobWait.AdaptMin);
-  Conf.SetDefaultValue(CFG_CLIENT_COOKIE_MAX_AGE, 86400);
-  Conf.SetDefaultValue(CFG_CLIENT_TIMEOUT, 20);
   Conf.SetDefaultValue(CFG_CLIENT_ALLOW_ENCODE, 'deflate');
 
   with Application.WCServer.HTTP2Settings do

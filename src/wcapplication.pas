@@ -26,6 +26,7 @@ interface
 uses
   Classes,
   StringHashList,
+  OGLFastList,
   OGLFastVariantHash,
   SysUtils, DateUtils,
   ECommonObjs,
@@ -38,6 +39,7 @@ uses
   ExtOpenSSL,
   custweb, CustAbsHTTPApp,
   {$IFDEF SERVER_RPC_MODE}
+  OGLB64Utils,
   SqliteWebSession,
   {$ENDIF}
   SqliteLogger,
@@ -320,15 +322,11 @@ type
 
   { TWCHTTPMimeTemplates }
 
-  TWCHTTPMimeTemplates = class(TThreadSafeFastCollection)
-  private
-    function GetTemplateInd(index : Integer): TWCHTTPTemplate;
+  TWCHTTPMimeTemplates = class(specialize TThreadSafeFastBaseCollection<TWCHTTPTemplate>)
   public
     procedure SortTemplates;
     procedure Rebuild(aTemplates : TJSONArray);
     function  GetTemplate(const aMime, aURI : String) : TWCHTTPTemplateRecord;
-    property Template[index : Integer] : TWCHTTPTemplate read
-                                                 GetTemplateInd; default;
   end;
 
   { TWCHTTPConfig }
@@ -414,6 +412,7 @@ type
     Procedure DoGetModule(Sender : TObject; {%H-}ARequest : TRequest;
                                Var ModuleClass : TCustomHTTPModuleClass);
     procedure DoOnIdle({%H-}sender : TObject);
+    function GetCacheLimit : QWord;
     function GetMimeTemplates: TWCHTTPMimeTemplates;
     function GetClientAllowEncode : String;
     function GetClientCookieMaxAge: Integer;
@@ -435,6 +434,7 @@ type
     function GetWebFilesExcludeIgnore: String;
     function GetWebFilesIgnore: String;
     function getWebFilesLoc: String;
+    procedure SetCacheLimit(AValue : QWord);
     procedure SetClientCookieMaxAge(AValue: Integer);
     procedure SetClientTimeOut(AValue: Integer);
     procedure SetCompressLimit(AValue: Cardinal);
@@ -493,6 +493,7 @@ type
     //webfiles
     property WebFilesLoc : String read getWebFilesLoc write SetWebFilesLoc;
     property CompressLimit : Cardinal read GetCompressLimit write SetCompressLimit;
+    property WebFilesCacheLimit : QWord read GetCacheLimit write SetCacheLimit;
     property WebFilesIgnore : String read GetWebFilesIgnore write SetWebFilesIgnore;
     property WebFilesExcludeIgnore : String read GetWebFilesExcludeIgnore write SetWebFilesExcludeIgnore;
     function IsAcceptedWebFile(const FN: String) : Boolean;
@@ -515,10 +516,14 @@ type
     property NeedShutdown : Boolean read GetNeedShutdown write SetNeedShutdown;
   end;
 
+  TWebCacheCollection = class;
+
   { TWebCachedItem }
 
   TWebCachedItem = class(TNetCustomLockedObject)
   private
+    FOwner : TWebCacheCollection;
+    FAccessTime,
     FDataTime : TDateTime;
     FCache, FDeflateCache : TRefMemoryStream;
     FNeedToCompress : TThreadBoolean;
@@ -532,6 +537,7 @@ type
     FMimeType : String;
     FCharset :  TThreadUtf8String;
     FCacheControl : TThreadUtf8String;
+    function GetAccessAge : Integer;
     function GetCache: TRefMemoryStream;
     function GetCacheControl : String;
     function GetCharset : String;
@@ -545,9 +551,10 @@ type
     {$ENDIF}
     function GetMimeType: String;
     function GetSize: QWord;
+    function GetTotalCachedSize : Qword;
     procedure UpdateFromTemplate;
   public
-    constructor Create(const aLoc, aURI : String);
+    constructor Create(aOwner : TWebCacheCollection; const aLoc, aURI : String);
     destructor Destroy; override;
     procedure Clear;
     procedure Refresh;
@@ -564,6 +571,8 @@ type
     property MimeType : String read GetMimeType;
     property Charset : String read GetCharset;
     property CacheControl : String read GetCacheControl;
+    property AccessAge : Integer read GetAccessAge;
+    property TotalCachedSize : Qword read GetTotalCachedSize;
   end;
 
 
@@ -572,13 +581,21 @@ type
   TWebCacheCollection = class(TThreadSafeFastCollection)
   private
     FHash : TStringHashList;
+    FCacheSizeLimit : TThreadQWord;
+    FCachedSize : TThreadQWord;
     function GetCache(const index : String): TWebCachedItem;
+    function GetCacheSizeLimit : QWord;
+    procedure SetCacheSizeLimit(AValue : QWord);
+    procedure PushCachedSize(NewSize : QWord);
+    procedure ExtractCachedSize(OldSize : QWord);
+    procedure RebuildWebCache;
   public
     constructor Create;
     destructor Destroy; override;
     procedure Clear; override;
     procedure AddNew(const aName: String; aData: TWebCachedItem);
     property CacheItem[const index : String] : TWebCachedItem read GetCache; default;
+    property CacheSizeLimit : QWord read GetCacheSizeLimit write SetCacheSizeLimit;
   end;
 
   TWebHashState = record
@@ -709,6 +726,8 @@ type
     function OnGenSessionID({%H-}aSession : TSqliteWebSession) : String;
     procedure SetVerbose(AValue : Boolean);
     {$ENDIF}
+    function GetCacheSizeLimit : QWord;
+    procedure SetCacheSizeLimit(AValue : QWord);
   public
     constructor Create;
     destructor Destroy; override;
@@ -722,8 +741,8 @@ type
     procedure RemoveClient(const ClientID : String); overload;
     procedure RemoveClient(mClient : TWebClient); overload;
     procedure ClearDeadClients;
-    procedure DoMaintainingStep;
     {$ENDIF}
+    procedure DoMaintainingStep;
     //
     function  GetWebCachedItem(const aURI : String) : TWebCachedItem;
     procedure UpdateCachedWebItemsWithTemplates;
@@ -733,6 +752,7 @@ type
     property  Clients  : TWebClients read FConnectedClients;
     property  Verbose  : Boolean read GetVerbose write SetVerbose;
     {$ENDIF}
+    property  CacheSizeLimit : QWord read GetCacheSizeLimit write SetCacheSizeLimit;
   end;
 
   { TWCResponse }
@@ -1128,11 +1148,6 @@ end;
 
 { TWCHTTPMimeTemplates }
 
-function TWCHTTPMimeTemplates.GetTemplateInd(index : Integer): TWCHTTPTemplate;
-begin
-  Result := TWCHTTPTemplate(Self.Item[index]);
-end;
-
 function TWCHTTPMimeTemplatesCompare(obj1: TObject; obj2 : TObject) : Integer;
 begin
   Result := Integer(CompareValue(TWCHTTPTemplate(obj1).Priority,
@@ -1178,7 +1193,7 @@ begin
   try
     for i := 0 to Count-1 do
     begin
-      T := Template[i];
+      T := Self[i];
       if T.Check(aMime, aURI) then
       begin
         T.GetStatus(Result);
@@ -2939,15 +2954,101 @@ begin
   Result := TWebCachedItem(FHash[index]);
 end;
 
+function TWebCacheCollection.GetCacheSizeLimit : QWord;
+begin
+  Result := FCacheSizeLimit.Value;
+end;
+
+procedure TWebCacheCollection.SetCacheSizeLimit(AValue : QWord);
+begin
+  if FCacheSizeLimit.Value <> AValue then
+  begin
+    FCacheSizeLimit.Value := AValue;
+    RebuildWebCache;
+  end;
+end;
+
+procedure TWebCacheCollection.PushCachedSize(NewSize : QWord);
+begin
+  FCachedSize.IncValue(NewSize);
+end;
+
+procedure TWebCacheCollection.ExtractCachedSize(OldSize : QWord);
+begin
+  FCachedSize.DecValue(OldSize);
+end;
+
+function RebuildWebCacheSortFunc(obj1: TObject; obj2 : TObject) : Integer;
+var aa1, aa2 : integer;
+    sz1, sz2 : QWord;
+begin
+  aa1 := TWebCachedItem(obj1).AccessAge;
+  aa2 := TWebCachedItem(obj2).AccessAge;
+  if (aa1 >= 60) and
+     (aa2 < 60) then
+    Result := 1
+  else
+  if (aa1 < 60) and
+     (aa2 >= 60) then
+    Result := -1
+  else
+  begin
+    sz1 := TWebCachedItem(obj1).TotalCachedSize;
+    sz2 := TWebCachedItem(obj2).TotalCachedSize;
+    if (aa1 >= 60) and
+       (aa2 >= 60) then
+    begin
+      Result := CompareValue(sz1, sz2);
+    end
+    else
+    begin
+      Result := CompareValue(sz2, sz1);
+    end;
+  end;
+end;
+
+procedure TWebCacheCollection.RebuildWebCache;
+var
+  FL : TFastList;
+  it : integer;
+begin
+  if (FCacheSizeLimit.Value < FCachedSize.Value) and
+     (Count > 1) then
+  begin
+    FL := TFastList.Create;
+    Lock;
+    try
+      for it := 0 to Count-1 do
+        FL.Add(Item[it]);
+
+      FL.SortList(@RebuildWebCacheSortFunc);
+      it := 0;
+      while FCacheSizeLimit.Value < FCachedSize.Value do
+      begin
+        TWebCachedItem(FL[it]).Clear;
+        Inc(it);
+        if (it > 9) or (it >= (FL.Count-1)) then break;
+      end;
+    finally
+      UnLock;
+      FL.Free;
+    end;
+  end;
+end;
+
 constructor TWebCacheCollection.Create;
 begin
   inherited Create;
   FHash := TStringHashList.Create(true);
+  FCacheSizeLimit := TThreadQWord.Create($20000000);
+  FCachedSize := TThreadQWord.Create(0);
 end;
 
 destructor TWebCacheCollection.Destroy;
 begin
   FHash.Free;
+  FCacheSizeLimit.Free;
+  FCachedSize.Free;
   inherited Destroy;
 end;
 
@@ -2960,6 +3061,7 @@ begin
     Unlock;
   end;
   inherited Clear;
+  FCachedSize.Value := 0;
 end;
 
 procedure TWebCacheCollection.AddNew(const aName: String; aData: TWebCachedItem
@@ -3106,7 +3208,9 @@ begin
       {$ENDIF}
       //Web files
       CFG_COMPRESS_LIMIT :
-        CompressLimit:= Sender.Value;
+        CompressLimit := Sender.Value;
+      CFG_CACHE_LIMIT_SIZE :
+        WebFilesCacheLimit := Sender.Value;
       CFG_IGNORE_FILES :
         WebFilesIgnore := Sender.Value;
       CFG_EXCLUDE_IGNORE_FILES :
@@ -3254,9 +3358,7 @@ begin
   begin
     FMTime := T;
     if assigned(FConfig) then FConfig.Sync(false);
-    {$IFDEF SERVER_RPC_MODE}
     WebContainer.DoMaintainingStep;
-    {$ENDIF}
     GarbageCollector.CleanDead;
     FSocketsReferences.CleanDead;
   end;
@@ -3269,6 +3371,11 @@ begin
     WCServer.Active := false;
     Terminate;
   end;
+end;
+
+function TWCHTTPApplication.GetCacheLimit : QWord;
+begin
+  Result := WebContainer.CacheSizeLimit;
 end;
 
 function TWCHTTPApplication.GetClientCookieMaxAge: Integer;
@@ -3366,6 +3473,11 @@ end;
 function TWCHTTPApplication.getWebFilesLoc: String;
 begin
   Result := FWebFilesLoc.Value;
+end;
+
+procedure TWCHTTPApplication.SetCacheLimit(AValue : QWord);
+begin
+  WebContainer.CacheSizeLimit := AValue;
 end;
 
 procedure TWCHTTPApplication.SetClientCookieMaxAge(AValue: Integer);
@@ -3746,6 +3858,16 @@ begin
   Result := FCache;
 end;
 
+function TWebCachedItem.GetAccessAge : Integer;
+begin
+  Lock;
+  try
+    Result := SecondsBetween(Now, FAccessTime);
+  finally
+    UnLock;
+  end;
+end;
+
 function TWebCachedItem.GetCacheControl : String;
 begin
   Result := FCacheControl.Value;
@@ -3828,21 +3950,37 @@ begin
   end;
 end;
 
-constructor TWebCachedItem.Create(const aLoc, aURI : String);
+function TWebCachedItem.GetTotalCachedSize : QWord;
+begin
+  Lock;
+  try
+    Result := FSize + FDeflateSize + FGzipSize;
+  finally
+    UnLock;
+  end;
+end;
+
+constructor TWebCachedItem.Create(aOwner : TWebCacheCollection; const aLoc,
+  aURI : String);
 begin
   inherited Create;
+  FOwner := aOwner;
   FCacheControl := TThreadUtf8String.Create('');
   FCharset := TThreadUtf8String.Create('');
   FNeedToCompress := TThreadBoolean.Create(false);
   FCache := nil;
+  FSize := 0;
   FDeflateCache := nil;
+  FDeflateSize := 0;
   {$IFDEF ALLOW_STREAM_GZIP}
   FGzipCache := nil;
+  FGzipSize := 0;
   {$ENDIF}
   Clear;
   FLoc := aLoc;
   FURI := aURI;
   FDataTime := EncodeDate(1990, 1, 1);
+  FAccessTime := EncodeDate(1990, 1, 1);
   FMimeType := MimeTypes.GetMimeType(ExtractFileExt(aLoc));
   If Length(FMimeType) = 0 then
     FMimeType:='application/octet-stream';
@@ -3879,13 +4017,23 @@ begin
   {$IFDEF ALLOW_STREAM_GZIP}
   if Assigned(FGzipCache) then FGzipCache.DecReference;
   FGzipCache := nil;
-  FGzipSize := 0;
+  if FGzipSize > 0 then begin
+    FOwner.ExtractCachedSize(FGzipSize);
+    FGzipSize := 0;
+  end;
   {$ENDIF}
   if Assigned(FDeflateCache) then FDeflateCache.DecReference;
   FDeflateCache := nil;
-  FDeflateSize := 0;
+  if FDeflateSize > 0 then begin
+    FOwner.ExtractCachedSize(FDeflateSize);
+    FDeflateSize := 0;
+  end;
   FCache := Application.CreateRefMemoryStream;
-  FSize := 0;
+  if FSize > 0 then begin
+    FOwner.ExtractCachedSize(FSize);
+    FSize := 0;
+  end;
+  FDataTime := EncodeDate(1990, 1, 1);
 end;
 
 procedure TWebCachedItem.Refresh;
@@ -3898,6 +4046,7 @@ var F : TFileStream;
 begin
   Lock;
   try
+    FAccessTime := Now;
     if FileExists(FLoc) then
     begin
       FileAge(FLoc, cDT);
@@ -3914,6 +4063,7 @@ begin
         finally
           F.Free;
         end;
+        FOwner.PushCachedSize(FSize);
         if FNeedToCompress.Value then
         begin
           FCache.Lock;
@@ -3930,7 +4080,8 @@ begin
             if FDeflateSize = 0 then begin
                FDeflateCache.DecReference;
                FDeflateCache := nil;
-            end;
+            end else
+               FOwner.PushCachedSize(FDeflateSize);
             {$IFDEF ALLOW_STREAM_GZIP}
             FGzipCache := Application.CreateRefMemoryStream;
             gzStream := Tgzcompressionstream.create(cldefault, FGzipCache.Stream);
@@ -3944,7 +4095,8 @@ begin
             if FGzipSize = 0 then begin
                FGzipCache.DecReference;
                FGzipCache := nil;
-            end;
+            end else
+               FOwner.PushCachedSize(FGzipSize);
             {$ENDIF}
           finally
             FCache.UnLock;
@@ -3958,6 +4110,16 @@ begin
 end;
 
 { TWebClientsContainer }
+
+function TWebClientsContainer.GetCacheSizeLimit : QWord;
+begin
+  Result := FCachedPages.CacheSizeLimit;
+end;
+
+procedure TWebClientsContainer.SetCacheSizeLimit(AValue : QWord);
+begin
+  FCachedPages.CacheSizeLimit := AValue;
+end;
 
 {$IFDEF SERVER_RPC_MODE}
 procedure TWebClientsContainer.ClientRemove(Sender: TObject);
@@ -3980,8 +4142,8 @@ function TWebClientsContainer.OnGenSessionID({%H-}aSession: TSqliteWebSession
 var CID : Cardinal;
 begin
   CID := FCurCID.ID;
-  Result := EncodeIntToSID(CID, 4) + '-' +
-            EncodeInt64ToSID(QWord(TimeStampToMSecs(DateTimeToTimeStamp(Now))), 8);
+  Result := EncodeIntToB64(CID, 4) + '-' +
+            EncodeInt64ToB64(QWord(TimeStampToMSecs(DateTimeToTimeStamp(Now))), 8);
   PREP_ClientSetLastCUID.Execute([CID+1]);
 end;
 
@@ -4079,17 +4241,20 @@ begin
   Sessions.CleanupSessions;
   FConnectedClients.ClearDeadClients;
 end;
+{$ENDIF}
 
 procedure TWebClientsContainer.DoMaintainingStep;
 begin
+  {$IFDEF SERVER_RPC_MODE}
   ClearDeadClients; // delete all timeouted clients
   if Application.NetDebugMode then
     PREP_DeleteOldNetRequests.Execute([]);
   Clients.IdleLiveClients;  // refresh all clients with no syn connection to
                             // prevent memory overflows
 //  SeqSheduleStep;   // shedule clients seq
+  {$ENDIF}
+  FCachedPages.RebuildWebCache;
 end;
-{$ENDIF}
 
 constructor TWebClientsContainer.Create;
 begin
@@ -4209,7 +4374,7 @@ begin
   Result := FCachedPages[aLoc];
   if not Assigned(Result) then
   begin
-    Result := TWebCachedItem.Create(aLoc, aURI);
+    Result := TWebCachedItem.Create(FCachedPages, aLoc, aURI);
     FCachedPages.AddNew(aLoc, Result);
   end;
   Result.Refresh;
