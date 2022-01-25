@@ -349,6 +349,9 @@ type
   TWCHTTPAppInitHelper = class(TWCHTTPAppHelper)
   end;
 
+  TWCHTTPAppIdleHelper = class(TWCHTTPAppHelper)
+  end;
+
   TWCHTTPAppDoneHelper = class(TWCHTTPAppHelper)
   end;
 
@@ -373,6 +376,16 @@ type
   public
     procedure DoHelp(aHelperClass : TWCHTTPAppHelperClass;
                      aData : TObject);
+  end;
+
+  { TWCTimeStampObj }
+
+  TWCTimeStampObj = class
+  private
+    FTick : QWord;
+  public
+    constructor Create(aTick : QWord);
+    property Tick : Qword read FTick;
   end;
 
   { TWCHTTPApplication }
@@ -922,6 +935,13 @@ begin
     if ShowCleanUpErrors then
       Raise;
   end;
+end;
+
+{ TWCTimeStampObj }
+
+constructor TWCTimeStampObj.Create(aTick : QWord);
+begin
+  FTick := aTick;
 end;
 
 { TWCHTTPAppHelpers }
@@ -3312,7 +3332,8 @@ begin
     WCServer.RefConnections.RemoveDeadConnections(GetTickCount64, 0);
   end;
   // clear cache (referenced streams)
-  WebContainer.ClearCache;
+  if assigned(WebContainer) then
+     WebContainer.ClearCache;
   // finally clean lists of references
   if assigned(FReferences) then FreeAndNil(FReferences);
   if assigned(FSocketsReferences) then FreeAndNil(FSocketsReferences);
@@ -3348,23 +3369,29 @@ begin
 end;
 
 procedure TWCHTTPApplication.DoOnIdle({%H-}sender: TObject);
-var T : QWord;
+var Stamp : TWCTimeStampObj;
 begin
   {$ifdef NOGUI} {$IFDEF UNIX}
   GWidgetHelper.ProcessMessages;
   {$endif}  {$endif}
-  T := GetTickCount64;
-  if (T - FMTime) >= 10000 then  //every 10 secs
-  begin
-    FMTime := T;
-    if assigned(FConfig) then FConfig.Sync(false);
-    WebContainer.DoMaintainingStep;
-    GarbageCollector.CleanDead;
-    FSocketsReferences.CleanDead;
+  Stamp := TWCTimeStampObj.Create(GetTickCount64);
+  try
+    if (Stamp.Tick - FMTime) >= 10000 then  //every 10 secs
+    begin
+      FMTime := Stamp.Tick;
+      if assigned(FConfig) then FConfig.Sync(false);
+      WebContainer.DoMaintainingStep;
+      GarbageCollector.CleanDead;
+      FSocketsReferences.CleanDead;
+    end;
+
+    FAppHelpers.DoHelp(TWCHTTPAppIdleHelper, Stamp);
+    //
+    WCServer.RefConnections.Idle(Stamp.Tick);
+    //
+  finally
+    Stamp.Free;
   end;
-  //
-  WCServer.RefConnections.Idle(T);
-  //
   Sleep(5);
   if FNeedShutdown.Value then
   begin
@@ -4261,9 +4288,9 @@ begin
   inherited Create;
 
   FCachedPages := TWebCacheCollection.Create;
-  GetWebCachedItem(Application.MainURI);
 
   {$IFDEF SERVER_RPC_MODE}
+  GetWebCachedItem(Application.MainURI);
   FVerbose := TThreadBoolean.Create(true);
   FConnectedClients := TWebClients.Create(Self);
 
