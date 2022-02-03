@@ -47,7 +47,11 @@ function DecodeParamsWithDefault(Values : TStrings;
                                  const PARS: array of String;
                                  const H : String;
                                  VALS : TFastHashList;
-                                 const Def : Array of Variant) : Boolean;
+                                 const Def : Array of Variant) : Boolean; overload;
+function DecodeParamsWithDefault(Values : TStrings;
+                                 const PARS: array of String;
+                                 VALS : TFastHashList;
+                                 const Def : Array of Variant) : Boolean; overload;
 procedure CopyHTTPRequest(dest, src : TRequest);
 function WCGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
 Function WCSocketAddrToString(ASocketAddr: TSockAddr): String;
@@ -322,6 +326,33 @@ begin
     end;
   finally
     if assigned(jsonObj) then FreeAndNil(jsonObj);
+  end;
+end;
+
+function DecodeParamsWithDefault(Values : TStrings;
+  const PARS : array of String; VALS : TFastHashList;
+  const Def : array of Variant) : Boolean;
+var i, k : integer;
+    V : Variant;
+begin
+  if Length(PARS) <> Length(Def) then Exit(False);
+  if not assigned(Values) then Exit(False);
+
+  Result := true;
+
+  for i := 0 to High(Pars) do
+  begin
+    if Length(Values.Values[PARS[i]]) > 0 then
+    begin
+      V := StrToVariant( Values.Values[PARS[i]] );
+      if not (((VarIsNumeric(V) and VarIsNumeric(Def[i])) or
+               (VarIsStr(V) and VarIsStr(Def[i])))) then
+        V := Def[i];
+    end else
+      V := Def[i];
+    k := VALS.FindIndexOf(i);
+    if k < 0 then k := VALS.Add(i, V) else
+      VALS.AtPosPt[k]^.Data := V;
   end;
 end;
 
