@@ -219,6 +219,36 @@ type
 
   TWCPreAnalizeJobClass = class of TWCPreAnalizeJob;
 
+  { TWCIPBlocked }
+
+  TWCIPBlocked = class(TThreadSafeObject)
+  private
+    FCoolDownTime : Integer;
+    FIP : String; // with or without port
+  public
+    constructor Create(const IP : String);
+
+    function IsBlocked : Boolean;
+
+    procedure CoolDown(Minutes : Integer);
+    procedure Unfreeze(forSecs : Integer);
+
+    property IP : String read FIP;
+  end;
+
+  { TWCIPBlockList }
+
+  TWCIPBlockList = class (specialize TThreadSafeFastBaseSeq <TWCIPBlocked>)
+  private
+    function IsUnblocked(Obj : TObject; {%H-}ptr : Pointer) : Boolean;
+    procedure UnfreezeIP(Obj : TObject; forSec : Pointer);
+    function CheckIP(Obj : TObject; ptr : Pointer) : Boolean;
+  public
+    function FindIP(const vIP : String) : TWCIPBlocked;
+    procedure Unfreeze(forSec : Integer);
+    procedure FreeUnblocked;
+  end;
+
   { TWCHttpServer }
 
   TWCHttpServer = class(TEmbeddedAbsHttpServer)
@@ -227,12 +257,15 @@ type
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
     FRefConnections : TWCRefConnections;
+    FIPBlocked : TWCIPBlockList;
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
     function GetHTTP2Settings: TWCHTTP2Settings;
     function GetMaxMainClientsThreads: Integer;
     function GetMaxPreClientsThreads: Integer;
+    procedure InternalAllowConnect(Sender : TObject;
+                             ASocket : Longint; Var Allow : Boolean);
     {$IFDEF WC_WEB_SOCKETS}
     function GetWebSocketSettings: TWCWebSocketSettings;
     {$ENDIF}
@@ -272,6 +305,9 @@ type
     procedure DoConnectToSocketRef(SockRef : TWCSocketReference);
     procedure DoSendData(aConnection : TWCRefConnection);
     destructor Destroy; override;
+
+    procedure CoolDownIP(const vIP : String; forMinutes : Integer);
+    procedure UnfreezeIPs(forSecs : Integer);
 
     property  RefConnections : TWCRefConnections read FRefConnections;
     property  HTTP2Settings : TWCHTTP2Settings read GetHTTP2Settings;
@@ -419,6 +455,8 @@ type
 
     FNeedShutdown : TThreadBoolean;
 
+    procedure SoftCloseIP(Obj : TObject; ptrIP : Pointer);
+
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
     procedure DoOnLoggerException(Sender : TObject; E : Exception);
     procedure DoOnException(Sender : TObject; E : Exception);
@@ -480,6 +518,7 @@ type
     procedure DoError(const V : String; const aParams : Array Of const); overload;
     procedure SendError(AResponse: TAbsHTTPConnectionResponse; errno: Integer);
     procedure AddHelper(Hlp : TWCHTTPAppHelper);
+    procedure CoolDownIP(const vIP : String; forMinutes : Integer);
     Procedure Initialize; override;
     function GetWebHandler: TWCHttpServerHandler;
     function InitializeAbstractWebHandler : TWebHandler; override;
@@ -934,6 +973,77 @@ begin
   except
     if ShowCleanUpErrors then
       Raise;
+  end;
+end;
+
+{ TWCIPBlockList }
+
+function TWCIPBlockList.IsUnblocked(Obj : TObject; {%H-}ptr : pointer) : Boolean;
+begin
+  Result := not TWCIPBlocked(Obj).IsBlocked;
+end;
+
+procedure TWCIPBlockList.UnfreezeIP(Obj : TObject; forSec : Pointer);
+begin
+  TWCIPBlocked(Obj).Unfreeze(PInteger(forSec)^);
+end;
+
+function TWCIPBlockList.CheckIP(Obj : TObject; ptr : Pointer) : Boolean;
+begin
+  Result := SameText(TWCIPBlocked(Obj).IP, PChar(ptr));
+end;
+
+function TWCIPBlockList.FindIP(const vIP : String) : TWCIPBlocked;
+begin
+  Result := FindValue(@CheckIP, PChar(vIP));
+end;
+
+procedure TWCIPBlockList.Unfreeze(forSec : Integer);
+begin
+  DoForAllEx(@UnfreezeIP, @forSec);
+end;
+
+procedure TWCIPBlockList.FreeUnblocked;
+begin
+  EraseObjectsByCriteria(@IsUnblocked, nil);
+end;
+
+{ TWCIPBlocked }
+
+constructor TWCIPBlocked.Create(const IP : String);
+begin
+  inherited Create;
+  FIP := IP;
+  FCoolDownTime := 0;
+end;
+
+function TWCIPBlocked.IsBlocked : Boolean;
+begin
+  Lock;
+  try
+    Result := FCoolDownTime > 0;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCIPBlocked.CoolDown(Minutes : Integer);
+begin
+  Lock;
+  try
+    FCoolDownTime := Minutes * 60;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCIPBlocked.Unfreeze(forSecs : Integer);
+begin
+  Lock;
+  try
+    Dec(FCoolDownTime, forSecs);
+  finally
+    UnLock;
   end;
 end;
 
@@ -2386,6 +2496,8 @@ end;
 constructor TWCHttpServer.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  FIPBlocked := TWCIPBlockList.Create;
+  OnAllowConnect := @InternalAllowConnect;
   FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
@@ -2573,6 +2685,15 @@ begin
   Result := FThreadPool.LinearThreadsCount;
 end;
 
+procedure TWCHttpServer.InternalAllowConnect(Sender : TObject;
+  ASocket : Longint; var Allow : Boolean);
+var aIP : String;
+begin
+  // check in blocked list
+  aIP := WCSocketAddrToString(WCGetRemoteAddress(ASocket));
+  Allow := not Assigned(FIPBlocked.FindIP(aIP));
+end;
+
 {$IFDEF WC_WEB_SOCKETS}
 function TWCHttpServer.GetWebSocketSettings: TWCWebSocketSettings;
 begin
@@ -2655,7 +2776,27 @@ begin
   FPoolsLocker.Free;
   FSSLLocker.Free;
   FRefConnections.Free;
+  FIPBlocked.Free;
   inherited Destroy;
+end;
+
+procedure TWCHttpServer.CoolDownIP(const vIP : String; forMinutes : Integer);
+var obj : TWCIPBlocked;
+begin
+  obj := FIPBlocked.FindIP(vIP);
+  if assigned(obj) then
+    obj.CoolDown(forMinutes) else
+  begin
+    obj := TWCIPBlocked.Create(vIP);
+    obj.CoolDown(forMinutes);
+    FIPBlocked.Push_back(obj);
+  end;
+end;
+
+procedure TWCHttpServer.UnfreezeIPs(forSecs : Integer);
+begin
+  FIPBlocked.Unfreeze(forSecs);
+  FIPBlocked.FreeUnblocked;
 end;
 
 { TWCHttpServerHandler }
@@ -3123,6 +3264,15 @@ begin
   FClientDecoders.RebuildListOfDecoders(AValue);
 end;
 
+procedure TWCHTTPApplication.SoftCloseIP(Obj : TObject; ptrIP : Pointer);
+begin
+  if SameText(WCSocketAddrToString(TWCSocketReference(Obj).Socket.RemoteAddress),
+              Pchar(ptrIP)) then
+  begin
+    TWCSocketReference(Obj).SoftClose;
+  end;
+end;
+
 procedure TWCHTTPApplication.DoOnConfigChanged(Sender: TWCConfigRecord);
 var JTJ : TJobToJobWait;
 begin
@@ -3378,6 +3528,7 @@ begin
   try
     if (Stamp.Tick - FMTime) >= 10000 then  //every 10 secs
     begin
+      WCServer.UnfreezeIPs((Stamp.Tick - FMTime) div 1000);
       FMTime := Stamp.Tick;
       if assigned(FConfig) then FConfig.Sync(false);
       WebContainer.DoMaintainingStep;
@@ -3791,6 +3942,13 @@ end;
 procedure TWCHTTPApplication.AddHelper(Hlp : TWCHTTPAppHelper);
 begin
   FAppHelpers.Push_back(Hlp);
+end;
+
+procedure TWCHTTPApplication.CoolDownIP(const vIP : String; forMinutes : Integer
+  );
+begin
+  WCServer.CoolDownIP(vIP, forMinutes);
+  SocketsCollector.DoForAllEx(@SoftCloseIP, PChar(vIP));
 end;
 
 procedure TWCHTTPApplication.Initialize;

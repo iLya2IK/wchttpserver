@@ -201,6 +201,9 @@ type
 
     function Write(const Buffer; Size : Integer) : Integer;
     function Read(var Buffer; Size : Integer) : Integer;
+
+    procedure SoftClose;
+
     property Socket : TSocketStream read FSocket;
     property States : TSocketStates read FSocketStates;
   end;
@@ -986,6 +989,11 @@ begin
   finally
     StopReading;
   end else Result := 0;
+end;
+
+procedure TWCSocketReference.SoftClose;
+begin
+  PushError; // soft closing
 end;
 
 { TWCConnection }

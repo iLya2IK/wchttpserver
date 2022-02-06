@@ -55,7 +55,7 @@ function DecodeParamsWithDefault(Values : TStrings;
 procedure CopyHTTPRequest(dest, src : TRequest);
 function WCGetLocalAddress(Handle : Cardinal): sockets.TSockAddr;
 Function WCSocketAddrToString(ASocketAddr: TSockAddr): String;
-Function WCGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
+Function WCGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
 Function WCTryStrToHost(const AddrAndPort : AnsiString;
                                   out Addr : AnsiString;
                                   out AddrPort : LongWord) : Boolean;
@@ -71,7 +71,7 @@ begin
     FillChar(Result, SizeOf(Result), 0);
 end;
 
-function WCGetGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
+function WCGetRemoteAddress(Handle : Cardinal): sockets.TSockAddr;
 var
   len: LongInt;
 begin
@@ -129,7 +129,7 @@ function CheckJsonDataParam(jsonData : TJSONData; out V : Variant;
                                      const Def : Variant) : Boolean; inline;
 begin
   if not assigned(jsonData) then Exit(False);
-  If jsonData.JSONType = jtObject then
+  If jsonData.JSONType in [jtObject, jtArray] then
     V := TJSONObject(jsonData).AsJSON else
     V := jsonData.Value;
   if VarIsNull(V) then V := Def;
