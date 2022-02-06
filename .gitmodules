@@ -1,0 +1,3 @@
+[submodule "examples/webcamserver"]
+	path = examples/webcamserver
+	url = git@github.com:iLya2IK/wcwebcamserver.git
