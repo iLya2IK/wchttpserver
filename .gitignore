@@ -29,7 +29,9 @@ wchttpserver
 wcrestjsonserver
 link*.res
 ppas.bat
+/wiki/
 /diagrams/*.pas
 /diagrams/*.dot
 /diagrams/*.essModel
 /diagrams/*.xmi
+/diagrams/*.md

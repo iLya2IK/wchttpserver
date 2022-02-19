@@ -42,6 +42,9 @@ const
   CFG_CACHE_LIMIT_SIZE             = $55;
   CFG_MAINTAIN_SEC                 = $06;
   CFG_SHUTDOWN                     = $16;
+  CFG_TIMESTAMPLOG                 = $26;
+  CFG_TIMESTAMPLOG_PERIOD          = $36;
+  CFG_TIMESTAMPLOG_FORMAT          = $46;
   CFG_WEBSOCKET_SEC                = $07;
   CFG_WEBSOCKET_SUB_PROTO          = $17;
   CFG_WEBSOCKET_DEFLATE_EXT        = $27;
@@ -93,5 +96,8 @@ const
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_IGNORE_FILES;         Name:'WebFilesIgnore' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_EXCLUDE_IGNORE_FILES; Name:'WebFilesExcludeIgnore' ),
     (ParentHash:CFG_WEBFILES_SEC; Hash:CFG_MIME_TEMPLATES;       Name:'MimeTemplates' ),
-    (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_SHUTDOWN ;            Name:'Shutdown' )
+    (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_SHUTDOWN ;            Name:'Shutdown' ),
+    (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_TIMESTAMPLOG ;        Name:'TimeStampLog' ),
+    (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_TIMESTAMPLOG_PERIOD ; Name:'TimeStampLogPeriodSec' ),
+    (ParentHash:CFG_MAINTAIN_SEC; Hash:CFG_TIMESTAMPLOG_FORMAT ; Name:'TimeStampLogFormat' )
     );

@@ -2329,27 +2329,37 @@ end;
 
 procedure TWCHTTP2Connection.ResetHPack;
 begin
-  if Assigned(FHPackEncoder) then begin
-     FHPackEncoder.DecReference;
-     FHPackEncoder := nil;
-  end;
-  if Assigned(FHPackDecoder) then begin
-     FHPackDecoder.DecReference;
-     FHPackDecoder := nil;
+  Lock;
+  try
+    if Assigned(FHPackEncoder) then begin
+       FHPackEncoder.DecReference;
+       FHPackEncoder := nil;
+    end;
+    if Assigned(FHPackDecoder) then begin
+       FHPackDecoder.DecReference;
+       FHPackDecoder := nil;
+    end;
+  finally
+    UnLock;
   end;
 end;
 
 procedure TWCHTTP2Connection.InitHPack;
 begin
-  if not Assigned(FHPackEncoder) then begin
-     FHPackEncoder := TThreadSafeHPackEncoder.Create(ConnSettings[H2SET_HEADER_TABLE_SIZE]);
-     Owner.GarbageCollector.Add(FHPackEncoder);
-  end;
-  if not assigned(FHPackDecoder) then begin
-     FHPackDecoder :=
-       TThreadSafeHPackDecoder.Create(ConnSettings[H2SET_MAX_HEADER_LIST_SIZE],
-                            ConnSettings[H2SET_HEADER_TABLE_SIZE]);
-     Owner.GarbageCollector.Add(FHPackDecoder);
+  Lock;
+  try
+    if not Assigned(FHPackEncoder) then begin
+       FHPackEncoder := TThreadSafeHPackEncoder.Create(ConnSettings[H2SET_HEADER_TABLE_SIZE]);
+       Owner.GarbageCollector.Add(FHPackEncoder);
+    end;
+    if not assigned(FHPackDecoder) then begin
+       FHPackDecoder :=
+         TThreadSafeHPackDecoder.Create(ConnSettings[H2SET_MAX_HEADER_LIST_SIZE],
+                              ConnSettings[H2SET_HEADER_TABLE_SIZE]);
+       Owner.GarbageCollector.Add(FHPackDecoder);
+    end;
+  finally
+    UnLock;
   end;
 end;
 

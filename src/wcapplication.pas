@@ -278,6 +278,7 @@ type
     function AttachRefCon(aRefCon : TWCRefConnection) : TWCRefConnection;
   public
     constructor Create(AOwner: TComponent); override;
+    Procedure CreateServerSocket; override;
     function  CreateSSLSocketHandler: TSocketHandler; override;
     Procedure CreateConnectionThread(Conn : TAbsHTTPConnection); override;
     function  CreateConnection(Data : TSocketStream) : TAbsHTTPConnection; override;
@@ -424,6 +425,28 @@ type
     property Tick : Qword read FTick;
   end;
 
+  { TWCTimeStampLog }
+
+  TWCTimeStampLog = class(TThreadSafeObject)
+  private
+    FPeriod : Integer;
+    FLastStamp : QWord;
+    FFormat : String;
+    FEnabled : Boolean;
+    function GetEnabled : Boolean;
+    function GetFormat : String;
+    function GetPeriod : Integer;
+    procedure SetEnabled(AValue : Boolean);
+    procedure SetFormat(AValue : String);
+    procedure SetPeriod(AValue : Integer);
+  public
+    constructor Create;
+    procedure TryToLog(stmp : TWCTimeStampObj);
+    property Enabled : Boolean read GetEnabled write SetEnabled;
+    property Format : String read GetFormat write SetFormat;
+    property Period : Integer read GetPeriod write SetPeriod;
+  end;
+
   { TWCHTTPApplication }
 
   TWCHTTPApplication = Class(TCustomAbsHTTPApplication)
@@ -434,6 +457,7 @@ type
     FSocketsReferences, FReferences : TNetReferenceList;
     FStartStamp : QWord;
     FNetDebugMode : Boolean;
+    FTimeStampLog : TWCTimeStampLog;
     {$IFDEF SERVER_RPC_MODE}
     FWebClientClass :  TWebClientClass;
     {$ENDIF}
@@ -566,6 +590,7 @@ type
     property ConfigFileName : String read GetConfigFileName write SetConfigFileName;
     //maintaining
     property NeedShutdown : Boolean read GetNeedShutdown write SetNeedShutdown;
+    property TimeStampLog : TWCTimeStampLog read FTimeStampLog;
   end;
 
   TWebCacheCollection = class;
@@ -902,7 +927,7 @@ const
 
 Implementation
 
-uses  CustApp, extopensslsockets, wcutils, math;
+uses  CustApp, extopensslsockets, wcutils, math, LazUTF8;
 const WCSocketReadError = 'Socket read error';
 
 function ParseStartLine(Request : TWCRequest; AStartLine : String) : Boolean;
@@ -973,6 +998,114 @@ begin
   except
     if ShowCleanUpErrors then
       Raise;
+  end;
+end;
+
+{ TWCTimeStampLog }
+
+function TWCTimeStampLog.GetEnabled : Boolean;
+begin
+  Lock;
+  try
+    Result := FEnabled;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCTimeStampLog.GetFormat : String;
+begin
+  Lock;
+  try
+    Result := FFormat;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCTimeStampLog.GetPeriod : Integer;
+begin
+  Lock;
+  try
+    Result := FPeriod;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCTimeStampLog.SetEnabled(AValue : Boolean);
+begin
+  Lock;
+  try
+    FEnabled := AValue;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCTimeStampLog.SetFormat(AValue : String);
+begin
+  Lock;
+  try
+    FFormat := AValue;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCTimeStampLog.SetPeriod(AValue : Integer);
+begin
+  Lock;
+  try
+    FPeriod := AValue;
+  finally
+    UnLock;
+  end;
+end;
+
+constructor TWCTimeStampLog.Create;
+begin
+  inherited Create;
+  FFormat := '%ts%';
+  FPeriod := 1800;
+  FEnabled := false;
+  FLastStamp := GetTickCount64;
+end;
+
+procedure TWCTimeStampLog.TryToLog(stmp : TWCTimeStampObj);
+var S, S0 : String;
+    Fire : Boolean;
+begin
+  Lock;
+  try
+    Fire := FEnabled and (((stmp.Tick - FLastStamp) div 1000) >= FPeriod);
+    if Fire then
+    begin
+      FLastStamp := stmp.Tick;
+      S := FFormat;
+    end;
+  finally
+    UnLock;
+  end;
+
+  if Assigned(Application) and Fire then
+  begin
+    DateTimeToString(S0, 'YY-MM-DD HH:MM:SS', Now, []);
+    S := UTF8StringReplace(S, '%ts%', S0, [rfReplaceAll]);
+    S := UTF8StringReplace(S, '%goc%', inttostr(Application.GarbageCollector.Count), [rfReplaceAll]);
+    if assigned(Application.WCServer) then
+    begin
+      S := UTF8StringReplace(S, '%acc%', inttostr(Application.WCServer.RefConnections.Count), [rfReplaceAll]);
+      if assigned(Application.WCServer.FThreadPool) then
+      with Application.WCServer.FThreadPool do
+      begin
+        S := UTF8StringReplace(S, '%wtc%', inttostr(SortedThreadsCount), [rfReplaceAll]);
+        S := UTF8StringReplace(S, '%ptc%', inttostr(LinearThreadsCount), [rfReplaceAll]);
+        S := UTF8StringReplace(S, '%wjc%', inttostr(SortedJobsCount), [rfReplaceAll]);
+        S := UTF8StringReplace(S, '%pjc%', inttostr(LinearJobsCount), [rfReplaceAll]);
+      end;
+    end;
+    Application.DoInfo(S);
   end;
 end;
 
@@ -1544,6 +1677,9 @@ begin
 
   MaintSec := Root.AddSection(HashToConfig(CFG_MAINTAIN_SEC)^.NAME_STR);
   MaintSec.AddValue(CFG_SHUTDOWN, False);
+  MaintSec.AddValue(CFG_TIMESTAMPLOG, False);
+  MaintSec.AddValue(CFG_TIMESTAMPLOG_FORMAT, '%ts%');
+  MaintSec.AddValue(CFG_TIMESTAMPLOG_PERIOD, 1800);
 end;
 
 { TWCHttpRefSendDataJob }
@@ -2189,6 +2325,13 @@ var r : integer;
     wsopenmode : TWebSocketUpgradeOptions;
     {$ENDIF}
 begin
+  if not TAbsSocketStream(Socket).Accepted then
+  if not TWCHttpServer(Server).AcceptSocket(TAbsSocketStream(Socket)) then
+  begin
+    Result := wccrSocketError;
+    Exit;
+  end;
+
   Result := wccrOK;
   try
     aRefCon := TWCHttpServer(Server).RefConnections.GetByHandle(Socket.Handle);
@@ -2508,6 +2651,12 @@ begin
   {$ENDIF}
 end;
 
+procedure TWCHttpServer.CreateServerSocket;
+begin
+  inherited CreateServerSocket;
+  AllowAccept := false;
+end;
+
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;
 begin
   FSSLLocker.Lock;
@@ -2517,6 +2666,8 @@ begin
     begin
       TExtOpenSSLSocketHandler(Result).AlpnList := AlpnList.Text;
       TExtOpenSSLSocketHandler(Result).SSLMasterKeyLog:= SSLMasterKeyLog;
+      {if Assigned(FSSLContext) then
+        TExtOpenSSLSocketHandler(Result).GlobalContext := FSSLContext;}
     end;
   finally
     FSSLLocker.UnLock;
@@ -2762,6 +2913,7 @@ begin
     SockRef.UnLock;
   end;
   Con.OnRequestError:=@HandleRequestError;
+
   CreateConnectionThread(Con);
 end;
 
@@ -3269,6 +3421,7 @@ begin
   if SameText(WCSocketAddrToString(TWCSocketReference(Obj).Socket.RemoteAddress),
               Pchar(ptrIP)) then
   begin
+    DoInfo('Ip %s is blocked and closed', [StrPas(Pchar(ptrIP))]);
     TWCSocketReference(Obj).SoftClose;
   end;
 end;
@@ -3385,6 +3538,13 @@ begin
         WebFilesIgnore := Sender.Value;
       CFG_EXCLUDE_IGNORE_FILES :
         WebFilesExcludeIgnore := Sender.Value;
+      //TimeStamps
+      CFG_TIMESTAMPLOG :
+        TimeStampLog.Enabled := Sender.Value;
+      CFG_TIMESTAMPLOG_PERIOD :
+        TimeStampLog.Period := Sender.Value;
+      CFG_TIMESTAMPLOG_FORMAT :
+        TimeStampLog.Format := Sender.Value;
     else
       FAppHelpers.DoHelp(TWCHTTPAppConfigRecordHelper, Sender);
     end;
@@ -3414,6 +3574,7 @@ begin
   FConfig := nil;
   FWebFilesIgnoreRx := nil;
   FWebFilesExceptIgnoreRx := nil;
+  FTimeStampLog := TWCTimeStampLog.Create;
 
   FMaxMainThreads:= TThreadInteger.Create(1);
   FMaxPrepareThreads:= TThreadInteger.Create(1);
@@ -3515,6 +3676,7 @@ begin
   FNeedShutdown.Free;
 
   FAppHelpers.Free;
+  FTimeStampLog.Free;
   inherited Destroy;
 end;
 
@@ -3534,6 +3696,7 @@ begin
       WebContainer.DoMaintainingStep;
       GarbageCollector.CleanDead;
       FSocketsReferences.CleanDead;
+      FTimeStampLog.TryToLog(Stamp);
     end;
 
     FAppHelpers.DoHelp(TWCHTTPAppIdleHelper, Stamp);
@@ -3959,7 +4122,7 @@ begin
   FSocketsReferences :=TNetReferenceList.Create;
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;
-  GetWebHandler.AcceptIdleTimeout:=1;
+  GetWebHandler.AcceptIdleTimeout:=5;
   WCServer.RefConnections.GarbageCollector := FReferences;
 
   FStartStamp:= GetTickCount64;

@@ -30,14 +30,18 @@ Type
 
   TExtOpenSSLSocketHandler = Class(TExtSSLSocketHandler)
   Private
+    FOnConnected : TNotifyEvent;
     FSSL: TExtSSL;
     FCTX : TExtSSLContext;
     FSSLLastErrorString: string;
     FSSLLastError : Integer;
+    FSSLMasterKeyLog: String;
     FAlpnList : TStringList;
-    FSSLMasterKEyLog: String;
-    function GetAlpnList: String;
-    procedure SetAlpnList(AValue: String);
+    FUseGlobalContext : Boolean;
+    function GetAlpnList : String;
+    function GetGlobalContext : TExtSSLContext;
+    procedure SetAlpnList(AValue : String);
+    procedure SetGlobalContext(AValue : TExtSSLContext);
     procedure SetSSLMasterKeyLog(AValue: String);
     procedure TryToSaveMasterKey;
   Protected
@@ -61,11 +65,14 @@ Type
     function Send(Const Buffer; Count: Integer): Integer; override;
     function Recv(Const Buffer; Count: Integer): Integer; override;
     function BytesAvailable: Integer; override;
+    function ContextToGlobal : TExtSSLContext;
     // Result of last CheckSSL call.
     Function SSLLastError: integer;
     property SSLLastErrorString: string read FSSLLastErrorString write SetSSLLastErrorString;
-    property AlpnList : String read GetAlpnList write SetAlpnList;
     property SSLMasterKeyLog : String read FSSLMasterKEyLog write SetSSLMasterKeyLog;
+    property GlobalContext : TExtSSLContext read GetGlobalContext write SetGlobalContext;
+    property AlpnList : String read GetAlpnList write SetAlpnList;
+    property OnConnected : TNotifyEvent read FOnConnected write FOnConnected;
   end;
 
 implementation
@@ -162,7 +169,8 @@ var FS : TextFile;
 begin
   if FSSLMasterKeyLog=AValue then Exit;
   FSSLMasterKeyLog:=AValue;
-  if not FileExists(FSSLMasterKEyLog) then
+  if (Length(AValue) > 0) and
+     not FileExists(AValue) then
   begin
     AssignFile(FS, FSSLMasterKeyLog);
     Rewrite(FS);
@@ -175,9 +183,22 @@ begin
   Result := FAlpnList.Text;
 end;
 
+function TExtOpenSSLSocketHandler.GetGlobalContext : TExtSSLContext;
+begin
+  if FUseGlobalContext then
+    Result := FCTX else
+    Result := nil;
+end;
+
 procedure TExtOpenSSLSocketHandler.SetAlpnList(AValue: String);
 begin
   FAlpnList.Text:=AValue;
+end;
+
+procedure TExtOpenSSLSocketHandler.SetGlobalContext(AValue : TExtSSLContext);
+begin
+  FUseGlobalContext := true;
+  FCTX := AValue;
 end;
 
 procedure TExtOpenSSLSocketHandler.TryToSaveMasterKey;
@@ -211,7 +232,7 @@ end;
 
 function TExtOpenSSLSocketHandler.Connect: Boolean;
 begin
-  Result:=Inherited Connect;
+  Result := Inherited Connect;
   Result := Result and InitContext(False);
   if Result then
     begin
@@ -227,6 +248,7 @@ begin
        begin
          SetSSLActive(True);
          TryToSaveMasterKey;
+         if Assigned(FOnConnected) then FOnConnected(Self);
        end;
      end;
     end;
@@ -289,7 +311,9 @@ end;
 function TExtOpenSSLSocketHandler.DoneContext: Boolean;
 begin
   FreeAndNil(FSSL);
-  FreeAndNil(FCTX);
+  if not FUseGlobalContext then
+    FreeAndNil(FCTX) else
+    FCTX := nil;
   ErrRemoveState(0);
   SetSSLActive(False);
   Result:=True;
@@ -367,6 +391,7 @@ constructor TExtOpenSSLSocketHandler.create;
 begin
   inherited create;
   FAlpnList := TStringList.Create;
+  FOnConnected := nil;
   MaybeInitSSLInterface;
 end;
 
@@ -387,43 +412,46 @@ var
   s: AnsiString;
 
 begin
-  Result:=DoneContext;
-  if Not Result then
-    Exit;
+  if not FUseGlobalContext then
+  begin
+    Result:=DoneContext;
+    if Not Result then
+      Exit;
+    try
+      FCTX:=TExtSSLContext.Create(ExSSLType);
+    Except
+      CheckSSL(Nil);
+      Result:=False;
+      Exit;
+    end;
+    S:=CertificateData.CipherList;
+    FCTX.SetCipherList(S);
+    FCTX.SetVerify(VO[VerifypeerCert],Nil);
+    FCTX.SetDefaultPasswdCb(@HandleSSLPwd);
+    FCTX.SetDefaultPasswdCbUserdata(self);
+    if Assigned(FAlpnList) and
+       (FAlpnList.Count > 0) then
+       FCTX.SetAlpnSelect(@AlpnSelect);
+    If NeedCertificate and CertificateData.NeedCertificateData  then
+      if Not CreateSelfSignedCertificate then
+        begin
+        DoneContext;
+        Exit(False);
+        end;
+     if Not InitSSLKeys then
+       begin
+       DoneContext;
+       Exit(False);
+       end;
+  end;
   try
-    FCTX:=TExtSSLContext.Create(ExSSLType);
+    FSSL:=TExtSSL.Create(FCTX);
+    Result:=True;
   Except
     CheckSSL(Nil);
+    DoneContext;
     Result:=False;
-    Exit;
   end;
-  S:=CertificateData.CipherList;
-  FCTX.SetCipherList(S);
-  FCTX.SetVerify(VO[VerifypeerCert],Nil);
-  FCTX.SetDefaultPasswdCb(@HandleSSLPwd);
-  FCTX.SetDefaultPasswdCbUserdata(self);
-  if Assigned(FAlpnList) and
-     (FAlpnList.Count > 0) then
-     FCTX.SetAlpnSelect(@AlpnSelect);
-  If NeedCertificate and CertificateData.NeedCertificateData  then
-    if Not CreateSelfSignedCertificate then
-      begin
-      DoneContext;
-      Exit(False);
-      end;
-   if Not InitSSLKeys then
-     begin
-     DoneContext;
-     Exit(False);
-     end;
-   try
-     FSSL:=TExtSSL.Create(FCTX);
-     Result:=True;
-   Except
-     CheckSSL(Nil);
-     DoneContext;
-     Result:=False;
-   end;
 end;
 
 function TExtOpenSSLSocketHandler.Accept: Boolean;
@@ -496,6 +524,12 @@ end;
 function TExtOpenSSLSocketHandler.BytesAvailable: Integer;
 begin
   Result:= FSSL.Pending;
+end;
+
+function TExtOpenSSLSocketHandler.ContextToGlobal : TExtSSLContext;
+begin
+  Result := FCTX;
+  FUseGlobalContext := true;
 end;
 
 function TExtOpenSSLSocketHandler.SSLLastError: integer;

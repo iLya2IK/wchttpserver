@@ -158,11 +158,24 @@ Type
       Var ARequest  : TAbsHTTPConnectionRequest;
       Var AResponse : TAbsHTTPConnectionResponse) of object;
 
+  TAbsSocketStream = class(TInetSocket)
+  private
+    FAccepted : Boolean;
+    FHandler : TSocketHandler;
+  public
+    property Accepted : Boolean read FAccepted;
+    property Handler : TSocketHandler read FHandler;
+  end;
+
   { TAbsInetServer }
 
   TAbsInetServer = Class(TInetServer)
+  private
+    FAllowAccept : Boolean;
   public
-//    Function SockToStream (ASocket : Longint) : TSocketStream;Override;
+    Function SockToStream (ASocket : Longint) : TAbsSocketStream; Override;
+    function AcceptSocket(SS : TAbsSocketStream) : Boolean;
+    property AllowAccept : Boolean read FAllowAccept write FAllowAccept;
   end;
 
   { TAbsCustomHttpServer }
@@ -194,12 +207,14 @@ Type
     FSSLLoc, FSSLMasterKeyLog : String;
     procedure DoCreateClientHandler(Sender: TObject; out AHandler: TSocketHandler);
     function GetActive: Boolean;
+    function GetAllowAccept : Boolean;
     function GetCertificate: String;
     function GetHostName: string;
     function GetPrivateKey: String;
     function GetSSLMasterKeyLog: String;
     procedure SetAcceptIdleTimeout(AValue: Cardinal);
     procedure SetActive(const AValue: Boolean);
+    procedure SetAllowAccept(AValue : Boolean);
     procedure SetIdle(AValue: TNotifyEvent);
     procedure SetOnAllowConnect(const AValue: TConnectQuery);
     procedure SetAddress(const AValue: string);
@@ -255,6 +270,7 @@ Type
   protected
     // Set to true to start listening.
     Property Active : Boolean Read GetActive Write SetActive Default false;
+    Property AllowAccept : Boolean Read GetAllowAccept write SetAllowAccept;
     // Address to listen on.
     Property Address : string Read FAddress Write SetAddress;
     // Port to listen on.
@@ -273,6 +289,7 @@ Type
     Property OnAcceptIdle : TNotifyEvent Read FOnAcceptIdle Write SetIdle;
     // If >0, when no new connection appeared after timeout, OnAcceptIdle is called.
     Property AcceptIdleTimeout : Cardinal Read FAcceptIdleTimeout Write SetAcceptIdleTimeout;
+    Function AcceptSocket(SS : TAbsSocketStream) : Boolean;
   published
     //aditional server information
     property AdminMail: string read FAdminMail write FAdminMail;
@@ -333,6 +350,46 @@ begin
       Result := Resolver.ResolvedName
   finally
     FreeAndNil(Resolver);
+  end;
+end;
+
+{ TAbsInetServer }
+
+function TAbsInetServer.SockToStream(ASocket : Longint) : TAbsSocketStream;
+Var
+  H : TSocketHandler;
+
+begin
+  H:=GetClientSocketHandler(aSocket);
+  Result:=TAbsSocketStream.Create(ASocket,H);
+  Result.FAccepted := false;
+  Result.FHandler := H;
+  if AllowAccept then
+  begin
+    if (H.Accept) then
+      Result.FAccepted := true
+    else
+    begin
+      H.Shutdown(False);
+      FreeAndNil(Result);
+     end;
+  end;
+end;
+
+function TAbsInetServer.AcceptSocket(SS : TAbsSocketStream) : Boolean;
+begin
+  if not SS.Accepted then
+  begin
+    if (SS.Handler.Accept) then
+    begin
+      SS.FAccepted := true;
+      Result := true;
+    end else
+    begin
+      SS.FAccepted := false;
+      SS.Handler.Shutdown(False);
+      Result := false;
+    end;
   end;
 end;
 
@@ -614,6 +671,11 @@ begin
     Result:=Assigned(FServer);
 end;
 
+function TAbsCustomHttpServer.GetAllowAccept : Boolean;
+begin
+  Result := FServer.AllowAccept;
+end;
+
 function TAbsCustomHttpServer.GetCertificate: String;
 begin
   Result := CertificateData.Certificate.FileName;
@@ -669,6 +731,11 @@ begin
     end
     else
       StopServerSocket;
+end;
+
+procedure TAbsCustomHttpServer.SetAllowAccept(AValue : Boolean);
+begin
+  FServer.AllowAccept := AValue;
 end;
 
 procedure TAbsCustomHttpServer.SetCertificate(AValue: String);
@@ -772,6 +839,7 @@ begin
     FServer:=TAbsInetServer.Create(FPort)
   else
     FServer:=TAbsInetServer.Create(FAddress,FPort);
+  FServer.AllowAccept := true;
   FServer.OnCreateClientSocketHandler:=@DoCreateClientHandler;
   FServer.MaxConnections:=-1;
   FServer.OnConnectQuery:=OnAllowConnect;
@@ -883,6 +951,11 @@ begin
   FreeAndNil(FCertificateData);
   FreeAndNil(FAlpnList);
   inherited Destroy;
+end;
+
+function TAbsCustomHttpServer.AcceptSocket(SS : TAbsSocketStream) : Boolean;
+begin
+  Result := FServer.AcceptSocket(SS);
 end;
 
 end.
