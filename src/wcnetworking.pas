@@ -396,7 +396,7 @@ type
     function    GetByHandle(aSocket : Cardinal) : TWCRefConnection;
     procedure   RemoveDeadConnections(const TS: QWord; MaxLifeTime: Cardinal);
     procedure   Idle(const TS: QWord);
-    procedure   IdleSocketsIO(const TS: QWord);
+    function    IdleSocketsIO(const TS: QWord) : Boolean;
     procedure   RegisterProtocolHelper(Id : TWCProtocolVersion;
                                           aHelper : TWCProtocolHelperClass);
     procedure   PushSocketError;
@@ -466,8 +466,14 @@ procedure TWCIOThread.Execute;
 begin
   while not Terminated do
   begin
-    FOwner.IdleSocketsIO(GetTickCount64);
-    Sleep(0);
+    if FOwner.Count = 0 then
+    begin
+      Sleep(10);
+      Continue;
+    end;
+    if FOwner.IdleSocketsIO(GetTickCount64) then
+      Sleep(0) else
+      Sleep(1);
   end;
 end;
 
@@ -544,9 +550,9 @@ var
 begin
   While Not Terminated do
   begin
-    Sleep(0);
     aCount := FOwner.Count;
     if aCount <= 0 then begin
+      Sleep(10);
       Continue;
     end;
 
@@ -613,7 +619,7 @@ begin
         FEpollLocker.UnLock;
       end;
     end;
-    //FOwner.IdleSocketsIO(GetTickCount64);
+    Sleep(0);
   end;
 end;
 
@@ -626,7 +632,7 @@ begin
   FOwner := aOwner;
   FEpollLocker := TNetCustomLockedObject.Create;
   Inflate;
-  FTimeout := 20;
+  FTimeout := 50;
   FEpollFD := epoll_create(BASE_SIZE);
   FEpollReadFD := epoll_create(BASE_SIZE);
   FEpollMasterFD := epoll_create(2);
@@ -1406,10 +1412,11 @@ begin
   {$endif}
 end;
 
-procedure TWCRefConnections.IdleSocketsIO(const TS : QWord);
+function TWCRefConnections.IdleSocketsIO(const TS : QWord) : Boolean;
 var P :TIteratorObject;
     i : integer;
 begin
+  Result := false;
   Lock;
   try
     P := ListBegin;
@@ -1435,6 +1442,7 @@ begin
           TWCRefConnection(P.Value).ConnectionState:= wcDROPPED else
         if TWCRefConnection(P.Value).TryToIdleStep(TS) then
         begin
+          Result := True;
           FLastUsedConnection := P.Next;
           inc(i);
           if i > 15 then break;
