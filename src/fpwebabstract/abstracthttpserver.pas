@@ -171,11 +171,14 @@ Type
 
   TAbsInetServer = Class(TInetServer)
   private
-    FAllowAccept : Boolean;
+    FAllowHandlerAccept : Boolean;
   public
-    Function SockToStream (ASocket : Longint) : TAbsSocketStream; Override;
-    function AcceptSocket(SS : TAbsSocketStream) : Boolean;
-    property AllowAccept : Boolean read FAllowAccept write FAllowAccept;
+    Function  SockToStream (ASocket : Longint) : TSocketStream; Override;
+    function  AcceptSocket(SS : TAbsSocketStream) : Boolean;
+    property  AllowHandlerAccept : Boolean read FAllowHandlerAccept
+                                             write FAllowHandlerAccept;
+
+    procedure DoConnect(ASocket : TSocketStream); override;
   end;
 
   { TAbsCustomHttpServer }
@@ -264,13 +267,15 @@ Type
     procedure HandleRequestError(Sender: TObject; E: Exception); virtual;
     // Connection count
     Property ConnectionCount : Integer Read FConnectionCount;
+
+    Property IpServer : TAbsInetServer read FServer;
   public
     Constructor Create(AOwner : TComponent); override;
     Destructor Destroy; override;
   protected
     // Set to true to start listening.
     Property Active : Boolean Read GetActive Write SetActive Default false;
-    Property AllowAccept : Boolean Read GetAllowAccept write SetAllowAccept;
+    Property AllowHandlerAccept : Boolean Read GetAllowAccept write SetAllowAccept;
     // Address to listen on.
     Property Address : string Read FAddress Write SetAddress;
     // Port to listen on.
@@ -332,6 +337,10 @@ Type
 
 implementation
 
+{$ifdef unix}
+uses BaseUnix;
+{$endif}
+
 
 resourcestring
   SErrSocketActive       =  'Operation not allowed while server is active';
@@ -355,19 +364,19 @@ end;
 
 { TAbsInetServer }
 
-function TAbsInetServer.SockToStream(ASocket : Longint) : TAbsSocketStream;
+function TAbsInetServer.SockToStream(ASocket : Longint) : TSocketStream;
 Var
   H : TSocketHandler;
 
 begin
   H:=GetClientSocketHandler(aSocket);
   Result:=TAbsSocketStream.Create(ASocket,H);
-  Result.FAccepted := false;
-  Result.FHandler := H;
-  if AllowAccept then
+  TAbsSocketStream(Result).FAccepted := false;
+  TAbsSocketStream(Result).FHandler := H;
+  if AllowHandlerAccept then
   begin
     if (H.Accept) then
-      Result.FAccepted := true
+      TAbsSocketStream(Result).FAccepted := true
     else
     begin
       H.Shutdown(False);
@@ -391,6 +400,11 @@ begin
       Result := false;
     end;
   end;
+end;
+
+procedure TAbsInetServer.DoConnect(ASocket : TSocketStream);
+begin
+  inherited DoConnect(ASocket);
 end;
 
 { TErrContentDataTypeNotProvided }
@@ -673,7 +687,7 @@ end;
 
 function TAbsCustomHttpServer.GetAllowAccept : Boolean;
 begin
-  Result := FServer.AllowAccept;
+  Result := FServer.AllowHandlerAccept;
 end;
 
 function TAbsCustomHttpServer.GetCertificate: String;
@@ -735,7 +749,7 @@ end;
 
 procedure TAbsCustomHttpServer.SetAllowAccept(AValue : Boolean);
 begin
-  FServer.AllowAccept := AValue;
+  FServer.AllowHandlerAccept := AValue;
 end;
 
 procedure TAbsCustomHttpServer.SetCertificate(AValue: String);
@@ -839,7 +853,7 @@ begin
     FServer:=TAbsInetServer.Create(FPort)
   else
     FServer:=TAbsInetServer.Create(FAddress,FPort);
-  FServer.AllowAccept := true;
+  FServer.AllowHandlerAccept := true;
   FServer.OnCreateClientSocketHandler:=@DoCreateClientHandler;
   FServer.MaxConnections:=-1;
   FServer.OnConnectQuery:=OnAllowConnect;

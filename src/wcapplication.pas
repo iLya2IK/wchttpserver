@@ -23,6 +23,8 @@ interface
 {$DEFINE SERVER_REST_MODE}
 {$ENDIF}
 
+{.$define USE_GLOBAL_SSL_CONTEXT}
+
 uses
   Classes,
   StringHashList,
@@ -251,13 +253,18 @@ type
 
   { TWCHttpServer }
 
-  TWCHttpServer = class(TEmbeddedAbsHttpServer)
+  TWCHttpServer = class(TWCCustomHttpServer)
   private
     FThreadPool : TSortedThreadPool;
     FPoolsLocker : TNetCustomLockedObject;
     FSSLLocker : TNetCustomLockedObject;
-    FRefConnections : TWCRefConnections;
     FIPBlocked : TWCIPBlockList;
+    {$ifdef USE_GLOBAL_SSL_CONTEXT}
+    FSSLContext : TExtSSLContext;
+    function AlpnSelect(outv : PPChar; outl : PChar; inv : PChar;
+      inlen : Cardinal) : integer;
+    Procedure InitGlobalSSLContext;
+    {$endif}
     function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
@@ -278,7 +285,7 @@ type
     function AttachRefCon(aRefCon : TWCRefConnection) : TWCRefConnection;
   public
     constructor Create(AOwner: TComponent); override;
-    Procedure CreateServerSocket; override;
+    procedure CreateServerSocket; override;
     function  CreateSSLSocketHandler: TSocketHandler; override;
     Procedure CreateConnectionThread(Conn : TAbsHTTPConnection); override;
     function  CreateConnection(Data : TSocketStream) : TAbsHTTPConnection; override;
@@ -286,6 +293,7 @@ type
     Function  CreateResponse(ARequest : TAbsHTTPConnectionRequest) : TAbsHTTPConnectionResponse; override;
     Procedure InitRequest(ARequest : TAbsHTTPConnectionRequest); override;
     Procedure InitResponse(AResponse : TAbsHTTPConnectionResponse); override;
+
     function AttachNewHTTP2Con(aSocket: TWCSocketReference;
       aOpenMode: THTTP2OpenMode; aServerDoConsume: TRefSocketConsume;
       aSendData: TRefSendData): TWCHTTP2Connection;
@@ -310,7 +318,6 @@ type
     procedure CoolDownIP(const vIP : String; forMinutes : Integer);
     procedure UnfreezeIPs(forSecs : Integer);
 
-    property  RefConnections : TWCRefConnections read FRefConnections;
     property  HTTP2Settings : TWCHTTP2Settings read GetHTTP2Settings;
     {$IFDEF WC_WEB_SOCKETS}
     property  WebSocketSettings : TWCWebSocketSettings read GetWebSocketSettings;
@@ -2644,18 +2651,103 @@ begin
   FThreadPool := nil;
   FPoolsLocker := TNetCustomLockedObject.Create;
   FSSLLocker := TNetCustomLockedObject.Create;
-  FRefConnections := TWCRefConnections.Create(nil);
-  FRefConnections.RegisterProtocolHelper(wcHTTP2, TWCHTTP2ServerHelper);
+  RefConnections.RegisterProtocolHelper(wcHTTP2, TWCHTTP2ServerHelper);
   {$IFDEF WC_WEB_SOCKETS}
-  FRefConnections.RegisterProtocolHelper(wcWebSocket, TWCWebSocketServerHelper);
+  RefConnections.RegisterProtocolHelper(wcWebSocket, TWCWebSocketServerHelper);
   {$ENDIF}
 end;
 
 procedure TWCHttpServer.CreateServerSocket;
 begin
+ {$ifdef USE_GLOBAL_SSL_CONTEXT}
+  if UseSSL then
+    InitGlobalSSLContext;
+ {$ENDIF}
   inherited CreateServerSocket;
-  AllowAccept := false;
 end;
+
+{$ifdef USE_GLOBAL_SSL_CONTEXT}
+Function HandleSSLPwd(buf : PAnsiChar; len:Integer; {%H-}flags:Integer; UD : Pointer):Integer; cdecl;
+var
+  Pwd: AnsiString;
+  H :  TWCHttpServer;
+begin
+  if Not Assigned(UD) then
+    PWD:=''
+  else
+    begin
+    H:=TWCHttpServer(UD);
+    Pwd:=H.CertificateData.KeyPassword;
+    end;
+  if (len<Length(Pwd)+1) then
+    SetLength(Pwd,len-1);
+  pwd:=pwd+#0;
+  Result:=Length(Pwd);
+  Move(Pointer(Pwd)^,Buf^,Result);
+end;
+
+procedure TWCHttpServer.InitGlobalSSLContext;
+var S : String;
+begin
+  if not assigned(FSSLContext) then
+  begin
+    FSSLContext:=TExtSSLContext.Create(SSLType);
+    S := CertificateData.CipherList;
+    FSSLContext.SetCipherList(S);
+    FSSLContext.SetVerify(0,Nil);
+    FSSLContext.SetDefaultPasswdCb(@HandleSSLPwd);
+    FSSLContext.SetDefaultPasswdCbUserdata(self);
+    if Assigned(AlpnList) and
+       (AlpnList.Count > 0) then
+       FSSLContext.SetAlpnSelect(@AlpnSelect);
+    if not CertificateData.Certificate.Empty then
+      FSSLContext.UseCertificate(CertificateData.Certificate);
+    if not CertificateData.PrivateKey.Empty then
+      FSSLContext.UsePrivateKey(CertificateData.PrivateKey);
+    if (CertificateData.CertCA.FileName<>'') then
+      FSSLContext.LoadVerifyLocations(CertificateData.CertCA.FileName,'');
+    if not CertificateData.PFX.Empty then
+      FSSLContext.LoadPFX(CertificateData.PFX,CertificateData.KeyPassword);
+  end;
+end;
+
+function TWCHttpServer.AlpnSelect(outv: PPChar; outl: PChar;
+  inv: PChar; inlen: Cardinal): integer;
+const
+  SSL_TLSEXT_ERR_OK = 0;
+  SSL_TLSEXT_ERR_NOACK = 3;
+var
+  protlen : Byte;
+  prot : PChar;
+  i : integer;
+  id : string;
+begin
+  protlen := 0;
+  prot := inv;
+  id := '';
+
+  while (prot < pointer(inv + inlen)) do begin
+      protlen := PByte(prot)^;
+      Inc(prot);
+      if (pointer(inv + inlen) < pointer(prot + protlen)) then
+          Exit(SSL_TLSEXT_ERR_NOACK);
+
+      SetLength(id, protlen);
+      Move(PByteArray(prot)^, id[1], protlen);
+      for i := 0 to AlpnList.Count-1 do
+      begin
+        if SameText(id, AlpnList[i]) then begin
+            outv^ := prot;
+            PByte(outl)^ := protlen;
+            Exit(SSL_TLSEXT_ERR_OK);
+        end;
+      end;
+      Inc(prot, protlen);
+  end;
+
+  Result := SSL_TLSEXT_ERR_NOACK;
+end;
+{$ENDIF}
 
 function TWCHttpServer.CreateSSLSocketHandler: TSocketHandler;
 begin
@@ -2666,8 +2758,11 @@ begin
     begin
       TExtOpenSSLSocketHandler(Result).AlpnList := AlpnList.Text;
       TExtOpenSSLSocketHandler(Result).SSLMasterKeyLog:= SSLMasterKeyLog;
-      {if Assigned(FSSLContext) then
-        TExtOpenSSLSocketHandler(Result).GlobalContext := FSSLContext;}
+      {$ifdef USE_GLOBAL_SSL_CONTEXT}
+      InitGlobalSSLContext;
+      if Assigned(FSSLContext) then
+        TExtOpenSSLSocketHandler(Result).GlobalContext := FSSLContext;
+      {$ENDIF}
     end;
   finally
     FSSLLocker.UnLock;
@@ -2724,7 +2819,7 @@ function TWCHttpServer.AttachRefCon(aRefCon : TWCRefConnection
 begin
   Result := aRefCon;
   Application.GarbageCollector.Add(Result);
-  FRefConnections.AddConnection(Result);
+  RefConnections.AddConnection(Result);
 end;
 
 function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCSocketReference;
@@ -2732,7 +2827,7 @@ function TWCHttpServer.AttachNewHTTP2Con(aSocket: TWCSocketReference;
   aSendData: TRefSendData): TWCHTTP2Connection;
 begin
   Result := TWCHTTP2Connection(AttachRefCon(
-            TWCHTTP2Connection.Create(FRefConnections,
+            TWCHTTP2Connection.Create(RefConnections,
                                       aSocket,
                                       aOpenMode,
                                       aServerDoConsume,
@@ -2744,7 +2839,7 @@ function TWCHttpServer.AttachNewHTTP11Con(aSocket: TWCSocketReference;
   ): TWCHTTP11Connection;
 begin
   Result := TWCHTTP11Connection(AttachRefCon(
-            TWCHTTP11Connection.Create(FRefConnections,
+            TWCHTTP11Connection.Create(RefConnections,
                                        aSocket,
                                        aServerDoConsume,
                                        aSendData)));
@@ -2757,7 +2852,7 @@ function TWCHttpServer.AttachNewWebSocketCon(aSocket : TWCSocketReference;
   ) : TWCWebSocketConnection;
 begin
   Result := TWCWebSocketConnection(AttachRefCon(
-            TWCWebSocketConnection.Create(FRefConnections,
+            TWCWebSocketConnection.Create(RefConnections,
                                           aOpenMode,
                                           aSocket,
                                           aServerDoConsume,
@@ -2799,7 +2894,7 @@ end;
 
 function TWCHttpServer.GetHTTP2Settings: TWCHTTP2Settings;
 begin
-  Result := TWCHTTP2Helper(FRefConnections.Protocol[wcHTTP2]).Settings;
+  Result := TWCHTTP2Helper(RefConnections.Protocol[wcHTTP2]).Settings;
 end;
 
 procedure TWCHttpServer.AddLinearJob(AJob: TLinearJob);
@@ -2848,7 +2943,7 @@ end;
 {$IFDEF WC_WEB_SOCKETS}
 function TWCHttpServer.GetWebSocketSettings: TWCWebSocketSettings;
 begin
-  Result := TWCWebSocketHelper(FRefConnections.Protocol[wcWebSocket]).Settings;
+  Result := TWCWebSocketHelper(RefConnections.Protocol[wcWebSocket]).Settings;
 end;
 {$ENDIF}
 
@@ -2927,7 +3022,6 @@ begin
   if Assigned(FThreadPool) then FThreadPool.Free;
   FPoolsLocker.Free;
   FSSLLocker.Free;
-  FRefConnections.Free;
   FIPBlocked.Free;
   inherited Destroy;
 end;
@@ -4538,7 +4632,7 @@ begin
     ARequest := TWCRequest(Session.Request);
     Con := ARequest.GetConnection;
 
-    SocketAddr := WCGetGetRemoteAddress(Con.Socket.Handle);
+    SocketAddr := WCGetRemoteAddress(Con.Socket.Handle);
 
     IpV4 := WCSocketAddrToString(SocketAddr);
     IpV6 := '';
