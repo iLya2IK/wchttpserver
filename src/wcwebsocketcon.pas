@@ -334,7 +334,7 @@ type
     constructor Create(aOwner: TWCRefConnections;
         aOpenMode : TWebSocketUpgradeOptions;
         aSocket: TWCSocketReference;
-        aSocketConsume: TRefSocketConsume; aSendData: TRefSendData); overload;
+        aReadData, aSendData: TRefReadSendData); overload;
     destructor Destroy; override;
     procedure ConsumeNextFrame({%H-}Mem : TBufferedStream); override;
     procedure PushFrame(fr : TWCRefProtoFrame); override;
@@ -1457,9 +1457,9 @@ end;
 
 constructor TWCWebSocketConnection.Create(aOwner : TWCRefConnections;
   aOpenMode : TWebSocketUpgradeOptions; aSocket : TWCSocketReference;
-  aSocketConsume : TRefSocketConsume; aSendData : TRefSendData);
+  aReadData, aSendData : TRefReadSendData);
 begin
-  inherited Create(aOwner, aSocket, aSocketConsume, aSendData);
+  inherited Create(aOwner, aSocket, aReadData, aSendData);
   InitializeBuffers;
 
   FOptions := aOpenMode;

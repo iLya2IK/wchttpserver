@@ -13,7 +13,8 @@
         <CustomOptions Value="-dNOGUI
 -dALLOW_STREAM_GZIP
 -dWC_WEB_SOCKETS
--dSERVER_RPC_MODE"/>
+-dSERVER_RPC_MODE
+-dSERVER_NOT_REST_MODE"/>
         <OtherDefines Count="4">
           <Define0 Value="NOGUI"/>
           <Define1 Value="ALLOW_STREAM_GZIP"/>

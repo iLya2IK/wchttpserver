@@ -391,7 +391,7 @@ type
   public
     constructor Create(aOwner: TWCRefConnections;
         aSocket: TWCSocketReference; aOpenningMode: THTTP2OpenMode;
-        aSocketConsume: TRefSocketConsume; aSendData: TRefSendData); overload;
+        aReadData, aSendData: TRefReadSendData); overload;
     class function Protocol : TWCProtocolVersion; override;
     class function CheckProtocolVersion(Data: Pointer; sz: integer): TWCProtocolVersion;
     procedure ConsumeNextFrame(Mem : TBufferedStream); override;
@@ -1630,11 +1630,11 @@ end;
 
 constructor TWCHTTP2Connection.Create(aOwner: TWCRefConnections;
   aSocket: TWCSocketReference; aOpenningMode: THTTP2OpenMode;
-  aSocketConsume: TRefSocketConsume; aSendData: TRefSendData);
+  aReadData, aSendData: TRefReadSendData);
 var i, Sz : integer;
     CSet : PHTTP2SettingsPayload;
 begin
-  inherited Create(aOwner, aSocket, aSocketConsume, aSendData);
+  inherited Create(aOwner, aSocket, aReadData, aSendData);
   FStreams := TWCHTTP2Streams.Create;
   FLastStreamID := 0;
   FConSettings := TThreadSafeHTTP2ConnSettings.Create;
@@ -1691,10 +1691,11 @@ var
   S : TBufferedStream;
   Str, RemoteStr : TWCHTTP2Stream;
 
-function ProceedHeadersPayload(Strm : TWCHTTP2Stream; aSz : Cardinal) : Byte;
+function ProceedHeadersPayload(Strm : TWCHTTP2Stream; aSz : Integer) : Byte;
 var readbuf : TBufferedStream;
     aDecoder : TThreadSafeHPackDecoder;
 begin
+  if aSz <= 0 then Result := H2E_PROTOCOL_ERROR;
   Result := H2E_NO_ERROR;
   //hpack here
   InitHPack;
@@ -1969,10 +1970,6 @@ begin
                   break;
                 end;
                 Str.ResetRecursivePriority;
-              end;
-              if DataSize < 0 then begin
-                err := H2E_PROTOCOL_ERROR;
-                break;
               end;
               err := ProceedHeadersPayload(Str, DataSize);
               if err <> H2E_NO_ERROR then break;
