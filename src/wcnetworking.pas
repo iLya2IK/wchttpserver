@@ -559,9 +559,13 @@ begin
       Sleep(10);
       Continue;
     end;
-    if FOwner.IdleSocketsIO(GetTickCount64) then
-      Sleep(0) else
-      Sleep(1);
+    try
+      if FOwner.IdleSocketsIO(GetTickCount64) then
+        Sleep(0) else
+        Sleep(1);
+    except
+      on E: Exception do ;
+    end;
   end;
 end;
 
@@ -685,7 +689,7 @@ begin
 
     if MasterChanges <= 0 then
     begin
-      if (MasterChanges < 0) and (err <> 0) and (err <> ESysEINTR) then
+      if (err <> 0) and (err <> ESysEINTR) then
         raise ESocketError.CreateFmt('Error on epoll %d', [err]) else
         Sleep(1);
     end else
@@ -1563,7 +1567,7 @@ begin
   FEpollAcceptThread.Start;
   {$endif}
 
-  SetLength(FIOThreads, 2);
+  SetLength(FIOThreads, 1);
   for i := 0 to High(FIOThreads) do
   begin
     FIOThreads[i] := TWCIOThread.Create(Self);

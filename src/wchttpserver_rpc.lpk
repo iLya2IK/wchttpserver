@@ -26,7 +26,7 @@
     <Description Value="HTTP/2+HTTP/1.1+WebSocket server written with Lazarus (Free Pascal). RPC mode"/>
     <License Value="LGPL v2.1"/>
     <Version Minor="9" Build="3"/>
-    <Files Count="14">
+    <Files Count="15">
       <Item1>
         <Filename Value="wcappconfig.inc"/>
         <Type Value="Include"/>
@@ -84,6 +84,10 @@
         <AddToUsesPkgSection Value="False"/>
         <UnitName Value="WebsocketConsts"/>
       </Item14>
+      <Item15>
+        <Filename Value="protocols/extuhpack.pas"/>
+        <UnitName Value="extuhpack"/>
+      </Item15>
     </Files>
     <RequiredPkgs Count="3">
       <Item1>

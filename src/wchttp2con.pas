@@ -28,7 +28,7 @@ uses
   wcNetworking,
   BufferedStream,
   ExtMemoryStream,
-  uhpack,
+  extuhpack,
   HTTP2Consts,
   HTTP1Utils,
   HTTP2HTTP1Conv
@@ -512,8 +512,6 @@ type
   end;
 
 implementation
-
-uses uhpackimp;
 
 { TWCHTTP2ClosedStreams }
 

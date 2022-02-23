@@ -10,7 +10,7 @@ interface
 uses
   wcApplication, wcConfig, wcDebug_vars, wcDecoders, wcDeflateDecoder, 
   wcHTTP2Con, wcNetworking, wcutils, wcWebsocketCon, HTTP1Utils, HTTP2Consts, 
-  HTTP2HTTP1Conv;
+  HTTP2HTTP1Conv, extuhpack;
 
 implementation
 
