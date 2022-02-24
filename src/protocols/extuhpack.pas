@@ -138,6 +138,15 @@ type
     function Decode(aBuf: RawByteString): RawByteString;
   end;
 
+  THPackHuffman = class
+  private
+  public
+    class procedure CreateEncoderDecoders;
+    class procedure DestroyEncoderDecoders;
+    class var Decoder : THPackHuffmanDecoder;
+    class var Encoder : THPackHuffmanEncoder;
+  end;
+
   { THPackDynamicTable }
 
   THPackDynamicTable=class
@@ -212,7 +221,6 @@ type
   protected
     FHeaderListenerAddHeader: THPackHeaderAddEvent;
     FDecodedHeaders: THPackHeaderTextList;
-    Huffman: THPackHuffmanDecoder;
 
     procedure Reset;
     function  GetHeaderField(aIndex: integer): THPackHeaderField;
@@ -260,7 +268,7 @@ type
 
   protected
     DynamicTable: THPackDynamicTable;
-    Huffman: THPackHuffmanEncoder;
+    Huffman: THPackHuffman;
   public
     constructor Create;
     constructor Create(const aMaxHeaderTableSize: Integer);
@@ -279,6 +287,19 @@ implementation
 const
     NOT_FOUND=-1;
 
+{ THPackHuffman }
+
+class procedure THPackHuffman.CreateEncoderDecoders;
+begin
+  Encoder := THPackHuffmanEncoder.Create;
+  Decoder := THPackHuffmanDecoder.Create;
+end;
+
+class procedure THPackHuffman.DestroyEncoderDecoders;
+begin
+  Encoder.Free;
+  Decoder.Free;
+end;
 
 { THPackHeaderTextList }
 
@@ -413,7 +434,6 @@ begin
   UseIndexing := aUseIndexing;
   ForceHuffmanOn := aForceHuffmanOn;
   ForceHuffmanOff := aForceHuffmanOff;
-  Huffman:=THPackHuffmanEncoder.Create;
 end;
 
 destructor THPackEncoder.Destroy;
@@ -584,11 +604,11 @@ begin
     EncodeInteger(aOutStream, $00, 7, 0);
     exit;
   end;
-  HuffmanLength := Huffman.GetEncodedLength(aString);
+  HuffmanLength := THPackHuffman.Encoder.GetEncodedLength(aString);
   if ((HuffmanLength < Length(aString)) and not forceHuffmanOff) or forceHuffmanOn then begin
     EncodeInteger(aOutStream, $80, 7, HuffmanLength);
     if Length(aString)>0 then begin
-      Huffman.Encode(aOutStream, aString);
+      THPackHuffman.Encoder.Encode(aOutStream, aString);
     end;
   end else begin
     EncodeInteger(aOutStream, $00, 7, Length(aString));
@@ -897,7 +917,7 @@ begin
   end;
 
   if (HuffmanEncoded) then begin
-    Result:=Huffman.Decode(buf);
+    Result:=THPackHuffman.Decoder.Decode(buf);
   end else begin
     Result:=buf;
   end;
@@ -1017,7 +1037,6 @@ end;
 
 constructor THPackDecoder.Create(aMaxHeaderSize, aMaxHeaderTableSize: integer);
 begin
-  Huffman:=THPackHuffmanDecoder.Create;
   DynamicTable := THPackDynamicTable.Create(aMaxHeaderTableSize);
   MaxHeaderSize := aMaxHeaderSize;
   MaxDynamicTableSize := aMaxHeaderTableSize;
@@ -1029,7 +1048,6 @@ end;
 
 destructor THPackDecoder.Destroy;
 begin
-  FreeAndNil(Huffman);
   FreeAndNil(DynamicTable);
   FreeAndNil(FDecodedHeaders);
   inherited Destroy;
@@ -1861,8 +1879,10 @@ end;
 
 initialization
   THPackStaticTable.InitializeStaticTable;
+  THPackHuffman.CreateEncoderDecoders;
 finalization;
   THPackStaticTable.DestroyStaticTable;
+  THPackHuffman.DestroyEncoderDecoders;
 
 end.
 

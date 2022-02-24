@@ -623,7 +623,7 @@ begin
             Terminate;
             Break;
           end;
-        end;
+        end else
         if ServerEvents[i].Data.fd = FServerSocket.Socket then
         begin
           L:=SizeOf(Addr);
@@ -726,6 +726,7 @@ begin
           until (Changes >= 0) or (err <> ESysEINTR);
         end
         else
+        if (MasterEvents[i].Data.fd = FEpollReadFD) then
           repeat
             ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
             if ReadChanges < 0 then
@@ -853,6 +854,7 @@ var b : Byte;
 begin
   b := SIGTERM;
   SendEventMsg(b, Sizeof(b));
+  Terminate;
 end;
 
 destructor TWCEpollThread.Destroy;
