@@ -509,6 +509,7 @@ type
     function GetMainHTTP: String;
     function GetMaxMainThreads: Byte;
     function GetMaxPrepareThreads: Byte;
+    function GetMaxIOThreads : Byte;
     function GetMimeLoc: String;
     function GetNeedShutdown: Boolean;
     function GetSessionsDb: String;
@@ -528,6 +529,7 @@ type
     procedure SetMainHTTP(AValue: String);
     procedure SetMaxMainThreads(AValue: Byte);
     procedure SetMaxPrepareThreads(AValue: Byte);
+    procedure SetMaxIOThreads(AValue : Byte);
     procedure SetMimeLoc(AValue: String);
     procedure SetNeedShutdown(AValue: Boolean);
     procedure SetSessionsDb(AValue: String);
@@ -584,6 +586,7 @@ type
     function IsAcceptedWebFile(const FN: String) : Boolean;
     property MimeTemplates : TWCHTTPMimeTemplates read GetMimeTemplates;
     //threads
+    property MaxIOThreads : Byte read GetMaxIOThreads write SetMaxIOThreads;
     property MaxPrepareThreads : Byte read GetMaxPrepareThreads write SetMaxPrepareThreads;
     property MaxMainThreads : Byte read GetMaxMainThreads write SetMaxMainThreads;
     property ThreadPoolJobToJobWait : TJobToJobWait read GetJobToJobWait write SetJobToJobWait;
@@ -931,6 +934,7 @@ const
 
   WC_MAX_MAIN_THREADS = 32;
   WC_MAX_PREP_THREADS = 32;
+  WC_MAX_IO_THREADS   = 8;
 
 {$I wcappconfig.inc}
 
@@ -1643,6 +1647,7 @@ begin
   MainSec.AddValue(CFG_CLIENTS_DB, wccrString);
   MainSec.AddValue(CFG_LOG_DB, wccrString);
   MainSec.AddValue(CFG_MIME_NAME, wccrString);
+  MainSec.AddValue(CFG_IO_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_MAIN_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_PRE_THREAD_CNT, wccrInteger);
   MainSec.AddValue(CFG_JOB_TO_JOB_WAIT, wccrInteger);
@@ -3554,6 +3559,8 @@ begin
         MaxMainThreads:= Sender.Value;
       CFG_PRE_THREAD_CNT :
         MaxPrepareThreads:= Sender.Value;
+      CFG_IO_THREAD_CNT :
+        MaxIOThreads := Sender.Value;
       //openssl
       CFG_SSL_VER : begin
         if ConfigChangeHalt then
@@ -3855,6 +3862,14 @@ begin
   Result := FMaxPrepareThreads.Value;
 end;
 
+function TWCHTTPApplication.GetMaxIOThreads : Byte;
+begin
+  if Assigned(WCServer) and
+     Assigned(WCServer.RefConnections) then
+    Result := WCServer.RefConnections.MaxIOThreads else
+    Result := 0;
+end;
+
 function TWCHTTPApplication.GetMimeLoc: String;
 begin
   Result := FMimeLoc.Value;
@@ -4000,6 +4015,16 @@ begin
   if assigned(WCServer) and
      assigned(WCServer.FThreadPool) then
      WCServer.FThreadPool.LinearThreadsCount:=aValue;
+end;
+
+procedure TWCHTTPApplication.SetMaxIOThreads(AValue : Byte);
+begin
+  if AValue = 0 then AValue := 1;
+  if AValue > WC_MAX_IO_THREADS then AValue := WC_MAX_IO_THREADS;
+
+  if assigned(WCServer) and
+     assigned(WCServer.RefConnections) then
+     WCServer.RefConnections.MaxIOThreads := AValue;
 end;
 
 procedure TWCHTTPApplication.SetMimeLoc(AValue: String);

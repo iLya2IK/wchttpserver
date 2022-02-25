@@ -12,6 +12,7 @@ const
   CFG_JOB_TO_JOB_WAIT              = $A1;
   CFG_JOB_TO_JOB_WAIT_ADAPT_MIN    = $B1;
   CFG_JOB_TO_JOB_WAIT_ADAPT_MAX    = $C1;
+  CFG_IO_THREAD_CNT                = $D1;
   CFG_OPENSSL_SEC                  = $02;
   CFG_USE_SSL                      = $12;
   CFG_HOST_NAME                    = $22;
@@ -65,6 +66,7 @@ const
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_CLIENTS_DB     ;Name:'ClientsDb'     ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_LOG_DB         ;Name:'LogDb'         ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_MIME_NAME      ;Name:'MimeName'      ),
+    (ParentHash:CFG_MAIN_SEC; Hash:CFG_IO_THREAD_CNT;  Name:'IOThreadsCnt'  ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_MAIN_THREAD_CNT;Name:'MainThreadsCnt'),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_PRE_THREAD_CNT ;Name:'PreThreadsCnt' ),
     (ParentHash:CFG_MAIN_SEC; Hash:CFG_JOB_TO_JOB_WAIT ;Name:'ThreadJobToJobWaitMs' ),
