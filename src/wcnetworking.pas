@@ -1860,10 +1860,10 @@ begin
   lEvent.events := EPOLLET or EPOLLOUT or EPOLLERR;
   lEvent.data.ptr := ACon;
   if epoll_ctl(FEpollFD, EPOLL_CTL_ADD, aHandle, @lEvent) < 0 then
-    raise ESocketError.CreateFmt('Error adding handle to epoll', [SocketError]);
+    raise ESocketError.CreateFmt('Error adding handle to epoll: %d', [fpgeterrno]);
   lEvent.events := EPOLLIN or EPOLLPRI or EPOLLHUP or EPOLLET or EPOLLONESHOT;
   if epoll_ctl(FEpollReadFD, EPOLL_CTL_ADD, aHandle, @lEvent) < 0 then
-    raise ESocketError.CreateFmt('Error adding handle to epoll', [SocketError]);
+    raise ESocketError.CreateFmt('Error adding handle to epoll: %d', [fpgeterrno]);
   for i := 0 to high(FEpollIOThreads) do
     FEpollIOThreads[i].Attach(ACon);
 end;
@@ -1884,11 +1884,21 @@ end;
 procedure TWCRefConnections.ResetReadingEPoll(ACon : TWCRefConnection);
 var
   lEvent: TEpollEvent;
+  err : Integer;
 begin
   lEvent.data.ptr := ACon;
   lEvent.events := EPOLLIN or EPOLLPRI or EPOLLHUP or EPOLLET or EPOLLONESHOT;
-  if epoll_ctl(FEpollReadFD, EPOLL_CTL_MOD, ACon.SocketRef.FSocket.Handle, @lEvent) < 0 then
-    raise ESocketError.CreateFmt('Error modify handle in epoll', [SocketError]);
+  ACon.SocketRef.Lock;
+  try
+    if epoll_ctl(FEpollReadFD, EPOLL_CTL_MOD, ACon.SocketRef.FSocket.Handle, @lEvent) < 0 then
+    begin
+      err := fpgeterrno;
+      if (err <> ESysENOENT) then
+        raise ESocketError.CreateFmt('Error modify handle in epoll: %d', [fpgeterrno]);
+    end;
+  finally
+    ACon.SocketRef.UnLock;
+  end;
 end;
 
 {$endif}
@@ -1972,7 +1982,11 @@ procedure TWCRefConnection.ReleaseRead(ConsumeResult : TWCConsumeResult);
 begin
   FDataReading.Value := false;
   {$ifdef SOCKET_EPOLL_MODE}
-  FOwner.ResetReadingEPoll(Self);
+  try
+    FOwner.ResetReadingEPoll(Self);
+  except
+    on ESocketError do ConsumeResult := wccrSocketError;
+  end;
   {$endif}
   if (ConsumeResult in [wccrProtocolError, wccrWrongProtocol,
                         wccrSocketError]) then
