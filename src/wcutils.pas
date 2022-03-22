@@ -18,6 +18,9 @@ unit wcutils;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  commonutils,fpcweb,
+  {$endif}
   Classes, sysutils,
   OGLFastVariantHash,
   HTTPDefs, httpprotocol, sockets,

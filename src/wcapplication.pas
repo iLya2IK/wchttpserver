@@ -29,6 +29,10 @@ interface
 {.$define USE_GLOBAL_SSL_CONTEXT}
 
 uses
+  {$ifdef wiki_docs}
+  commonutils,fpcweb,
+  {$endif}
+
   Classes,
   StringHashList,
   OGLFastList,
@@ -936,7 +940,9 @@ const
   WC_MAX_PREP_THREADS = 32;
   WC_MAX_IO_THREADS   = 8;
 
+{$ifndef wiki_docs}
 {$I wcappconfig.inc}
+{$endif}
 
 Implementation
 

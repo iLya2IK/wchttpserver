@@ -18,6 +18,9 @@ unit wcDecoders;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  commonutils,
+  {$endif}
   Classes, SysUtils, StringHashList,
   ECommonObjs, BufferedStream, ExtMemoryStream;
 

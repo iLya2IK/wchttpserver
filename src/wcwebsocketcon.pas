@@ -20,6 +20,9 @@ unit wcWebsocketCon;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  commonutils,fpcweb,
+  {$endif}
   Classes, SysUtils,
   wcNetworking,
   BufferedStream, ExtMemoryStream,

@@ -20,6 +20,9 @@ unit CustAbsHTTPApp;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  fpcweb,
+  {$endif}
   Classes, SysUtils, httpdefs, custweb, ssockets, AbstractHTTPServer;
 
 type

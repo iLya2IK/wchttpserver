@@ -22,6 +22,9 @@ unit wcHTTP2Con;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  fpcweb, commonutils,
+  {$endif}
   Classes, SysUtils,
   ECommonObjs, OGLFastList,
   fphttp, HTTPDefs, httpprotocol, AbstractHTTPServer,

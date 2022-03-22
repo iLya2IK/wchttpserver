@@ -28,6 +28,10 @@ unit wcNetworking;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  commonutils,fpcweb,
+  {$endif}
+
   Classes, SysUtils,
   ECommonObjs, OGLFastList,
   fphttp, HTTPDefs, httpprotocol, AbstractHTTPServer, CustAbsHTTPApp,
@@ -387,16 +391,22 @@ type
     FIOThreads : Array of TWCIOThread;
     FMaxIOThreads : TThreadInteger;
     {$ifdef socket_epoll_mode}
+    FEpollThreads : TThreadInteger;
     FEpollIOThreads:  Array of TWCEpollIOThread;
     FEpollAcceptThread : TWCEpollAcceptThread;
     FEpollReadFD: THandle;   // this one monitors LT style for READ
     FEpollFD: THandle;       // this one monitors ET style for other
+    FServerSocket : TAbsInetServer;
     procedure AddServerSocket(aSock : TAbsInetServer);
     procedure AttachEpoll(ACon : TWCRefConnection);
     function GetMaxIOThreads : Integer;
     procedure RemoveEpoll(ACon : TWCRefConnection);
     procedure ResetReadingEPoll(ACon : TWCRefConnection);
+    procedure RemoveEpollAcceptThread(aThread : TWCEpollAcceptThread);
+    procedure RemoveEpollIOThread(aThread : TWCEpollIOThread);
     {$endif}
+    procedure RepairIOThreads;
+    procedure RemoveIOThread(aThread : TWCIOThread);
     function GetProtocolHelper(Id : TWCProtocolVersion): TWCProtocolHelper;
     function IsConnDead(aConn: TObject; data: pointer): Boolean;
     procedure AfterConnExtracted(aObj : TObject);
@@ -559,20 +569,24 @@ end;
 
 procedure TWCIOThread.Execute;
 begin
-  while not Terminated do
-  begin
-    if FOwner.Count = 0 then
+  try
+    while not Terminated do
     begin
-      Sleep(10);
-      Continue;
+      if FOwner.Count = 0 then
+      begin
+        Sleep(10);
+        Continue;
+      end;
+      try
+        if FOwner.IdleSocketsIO(GetTickCount64) then
+          Sleep(0) else
+          Sleep(1);
+      except
+        on E: Exception do ;
+      end;
     end;
-    try
-      if FOwner.IdleSocketsIO(GetTickCount64) then
-        Sleep(0) else
-        Sleep(1);
-    except
-      on E: Exception do ;
-    end;
+  finally
+    FOwner.RemoveIOThread(Self);
   end;
 end;
 
@@ -596,69 +610,74 @@ var ServerChanges, err, i, L : Integer;
     listenPip : THandle;
     msg : Byte;
 begin
-  listenPip := InitEventPipe;
+  try
+    listenPip := InitEventPipe;
 
-  FServerSocket := nil;
-  while not Terminated do
-  begin
-    if not assigned(FServerSocket) then
+    FServerSocket := nil;
+    while not Terminated do
     begin
-      Sleep(10);
-      Continue;
-    end;
-    ServerChanges := epoll_wait(FInternalPoll, @(ServerEvents[0]), 16, FTimeout);
-    if ServerChanges < 0 then
-      err := fpgeterrno else
-      err := 0;
-
-    if (err <> 0) and (err <> ESysEINTR) then
-      raise ESocketError.CreateFmt('Error on server epoll %d', [err])
-    else
-    with FOwner do
-    if ServerChanges > 0 then
-    begin
-      err := 0;
-      for i := 0 to ServerChanges-1 do
+      if not assigned(FServerSocket) then
       begin
-        if ServerEvents[i].Data.fd = listenPip then
+        Sleep(10);
+        Continue;
+      end;
+      ServerChanges := epoll_wait(FInternalPoll, @(ServerEvents[0]), 16, FTimeout);
+      if ServerChanges < 0 then
+        err := fpgeterrno else
+        err := 0;
+
+      if (err <> 0) and (err <> ESysEINTR) then
+        raise ESocketError.CreateFmt('Error on server epoll %d', [err])
+      else
+      with FOwner do
+      if ServerChanges > 0 then
+      begin
+        err := 0;
+        for i := 0 to ServerChanges-1 do
         begin
-          err := ReadEventMsg(msg, Sizeof(msg));
-          if err < 0 then
-            raise ESocketError.CreateFmt('Error on event read %d', [err]);
-          if msg = SIGTERM then
+          if ServerEvents[i].Data.fd = listenPip then
           begin
-            Terminate;
-            Break;
-          end;
-        end else
-        if ServerEvents[i].Data.fd = FServerSocket.Socket then
-        begin
-          L:=SizeOf(Addr);
-          repeat
-            try
-              FSocket:=Sockets.fpAccept(FServerSocket.Socket,@Addr,@L);
-              err:=SocketError;
-              If (FSocket<0) then
-              begin
-                Stream := nil;
-                If err=ESysEWOULDBLOCK then
-                  Raise ESocketError.Create(seAcceptWouldBlock,[FServerSocket.Socket]);
-              end else
-              begin
-                if FServerSocket.NonBlocking then
-                  fpfcntl(FSocket, F_SETFD, fpfcntl(FSocket, F_GetFD, 0) or O_NONBLOCK);
-                Stream := FServerSocket.SockToStream(FSocket);
-                FServerSocket.DoConnect(Stream);
-              end;
-            except
-              on E : Exception do Stream := nil;
+            err := ReadEventMsg(msg, Sizeof(msg));
+            if err < 0 then
+              raise ESocketError.CreateFmt('Error on event read %d', [err]);
+            if msg = SIGTERM then
+            begin
+              Terminate;
+              Break;
             end;
-            Sleep(0);
-          until not Assigned(Stream);
+          end else
+          if ServerEvents[i].Data.fd = FServerSocket.Socket then
+          begin
+            L:=SizeOf(Addr);
+            repeat
+              try
+                FSocket:=Sockets.fpAccept(FServerSocket.Socket,@Addr,@L);
+                err:=SocketError;
+                If (FSocket<0) then
+                begin
+                  Stream := nil;
+                  If err=ESysEWOULDBLOCK then
+                    Raise ESocketError.Create(seAcceptWouldBlock,[FServerSocket.Socket]);
+                end else
+                begin
+                  if FServerSocket.NonBlocking then
+                    fpfcntl(FSocket, F_SETFD, fpfcntl(FSocket, F_GetFD, 0) or O_NONBLOCK);
+                  Stream := FServerSocket.SockToStream(FSocket);
+                  FServerSocket.DoConnect(Stream);
+                end;
+              except
+                on E : Exception do Stream := nil;
+              end;
+              Sleep(0);
+            until not Assigned(Stream);
+          end;
         end;
       end;
+      Sleep(0);
     end;
-    Sleep(0);
+
+  finally
+    FOwner.RemoveEPollAcceptThread(Self);
   end;
 end;
 
@@ -685,102 +704,107 @@ var
   listenPip : THandle;
   msg : Byte;
 begin
-  listenPip := InitEventPipe;
+  try
+    listenPip := InitEventPipe;
 
-  While Not Terminated do
-  begin
-    Changes := 0;
-    ReadChanges := 0;
-
-    MasterChanges := epoll_wait(FInternalPoll, @(MasterEvents[0]), 3, FTimeout);
-    if MasterChanges < 0 then
-      err := fpgeterrno else
-      err := 0;
-
-    TS := GetTickCount64;
-
-    if MasterChanges <= 0 then
+    While Not Terminated do
     begin
-      if (err <> 0) and (err <> ESysEINTR) then
-        raise ESocketError.CreateFmt('Error on epoll %d', [err]) else
-        Sleep(1);
-    end else
-    with FOwner do
-    begin
-      err := 0;
-      FEpollLocker.Lock;
-      try
-        aCount := Length(FEvents);
-      finally
-        FEpollLocker.UnLock;
-      end;
-      err := 0;
-      for i := 0 to MasterChanges - 1 do begin
-        if (MasterEvents[i].Data.fd = listenPip) then
-        begin
-          msg := 0;
-          err := ReadEventMsg(msg, Sizeof(msg));
-          if err < 0 then
-            raise ESocketError.CreateFmt('Error on event read %d', [err]);
-          if msg = SIGTERM then
-          begin
-            Terminate;
-            Break;
-          end;
-        end
-        else
-        if (MasterEvents[i].Data.fd = FEpollFD) then
-        begin
-          repeat
-            Changes := epoll_wait(FEpollFD, @FEvents[0], aCount, 0);
-            if Changes < 0 then
-              err := fpgeterrno;
-          until (Changes >= 0) or (err <> ESysEINTR);
-        end
-        else
-        if (MasterEvents[i].Data.fd = FEpollReadFD) then
-          repeat
-            ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
-            if ReadChanges < 0 then
-              err := fpgeterrno;
-          until (ReadChanges >= 0) or (err <> ESysEINTR);
-      end;
-      if (Changes < 0) or (ReadChanges < 0) then
+      Changes := 0;
+      ReadChanges := 0;
+
+      MasterChanges := epoll_wait(FInternalPoll, @(MasterEvents[0]), 3, FTimeout);
+      if MasterChanges < 0 then
+        err := fpgeterrno else
+        err := 0;
+
+      TS := GetTickCount64;
+
+      if MasterChanges <= 0 then
       begin
         if (err <> 0) and (err <> ESysEINTR) then
-          raise ESocketError.CreateFmt('Error on epoll %d', [err]);
+          raise ESocketError.CreateFmt('Error on epoll %d', [err]) else
+          Sleep(1);
       end else
+      with FOwner do
       begin
-        m := Changes;
-        if ReadChanges > m then m := ReadChanges;
-        for i := 0 to m - 1 do begin
-          Temp := nil;
-          if i < Changes then begin
-            Temp := TWCRefConnection(FEvents[i].data.ptr);
-
-            if  ((FEvents[i].events and EPOLLERR) = EPOLLERR) then
-                Temp.SocketRef.PushError;
-
-            if  ((FEvents[i].events and EPOLLOUT) = EPOLLOUT) then
-            begin
-              Temp.SocketRef.SetCanSend;
-              Temp.TryToSendFrames(TS);
-            end;
-          end; // writes
-
-          if i < ReadChanges then begin
-            TempRead := TWCRefConnection(FEventsRead[i].data.ptr);
-
-            if  ((FEventsRead[i].events and (EPOLLIN or EPOLLHUP or EPOLLPRI)) > 0) then
-            begin
-              TempRead.SocketRef.SetCanRead;
-              TempRead.TryToConsumeFrames(TS);
-            end;
-          end; // reads
+        err := 0;
+        FEpollLocker.Lock;
+        try
+          aCount := Length(FEvents);
+        finally
+          FEpollLocker.UnLock;
         end;
+        err := 0;
+        for i := 0 to MasterChanges - 1 do begin
+          if (MasterEvents[i].Data.fd = listenPip) then
+          begin
+            msg := 0;
+            err := ReadEventMsg(msg, Sizeof(msg));
+            if err < 0 then
+              raise ESocketError.CreateFmt('Error on event read %d', [err]);
+            if msg = SIGTERM then
+            begin
+              Terminate;
+              Break;
+            end;
+          end
+          else
+          if (MasterEvents[i].Data.fd = FEpollFD) then
+          begin
+            repeat
+              Changes := epoll_wait(FEpollFD, @FEvents[0], aCount, 0);
+              if Changes < 0 then
+                err := fpgeterrno;
+            until (Changes >= 0) or (err <> ESysEINTR);
+          end
+          else
+          if (MasterEvents[i].Data.fd = FEpollReadFD) then
+            repeat
+              ReadChanges := epoll_wait(FEpollReadFD, @FEventsRead[0], aCount, 0);
+              if ReadChanges < 0 then
+                err := fpgeterrno;
+            until (ReadChanges >= 0) or (err <> ESysEINTR);
+        end;
+        if (Changes < 0) or (ReadChanges < 0) then
+        begin
+          if (err <> 0) and (err <> ESysEINTR) then
+            raise ESocketError.CreateFmt('Error on epoll %d', [err]);
+        end else
+        begin
+          m := Changes;
+          if ReadChanges > m then m := ReadChanges;
+          for i := 0 to m - 1 do begin
+            Temp := nil;
+            if i < Changes then begin
+              Temp := TWCRefConnection(FEvents[i].data.ptr);
+
+              if  ((FEvents[i].events and EPOLLERR) = EPOLLERR) then
+                  Temp.SocketRef.PushError;
+
+              if  ((FEvents[i].events and EPOLLOUT) = EPOLLOUT) then
+              begin
+                Temp.SocketRef.SetCanSend;
+                Temp.TryToSendFrames(TS);
+              end;
+            end; // writes
+
+            if i < ReadChanges then begin
+              TempRead := TWCRefConnection(FEventsRead[i].data.ptr);
+
+              if  ((FEventsRead[i].events and (EPOLLIN or EPOLLHUP or EPOLLPRI)) > 0) then
+              begin
+                TempRead.SocketRef.SetCanRead;
+                TempRead.TryToConsumeFrames(TS);
+              end;
+            end; // reads
+          end;
+        end;
+        Sleep(0);
       end;
-      Sleep(0);
     end;
+
+  finally
+    FOwner.RemoveIOThread(Self);
   end;
 end;
 
@@ -1577,12 +1601,13 @@ begin
     FHelpers[V] := nil;
 
   {$ifdef SOCKET_EPOLL_MODE}
+  FEpollThreads := TThreadInteger.Create(2);
   FEpollFD := epoll_create(BASE_SIZE);
   FEpollReadFD := epoll_create(BASE_SIZE);
   if (FEPollFD < 0) or (FEpollReadFD < 0) then
     raise ESocketError.CreateFmt('Unable to create epoll: %d', [fpgeterrno]);
 
-  SetLength(FEpollIOThreads, 1);
+  SetLength(FEpollIOThreads, FEpollThreads.Value - 1);
   for i := 0 to High(FEpollIOThreads) do
   begin
     FEpollIOThreads[i] := TWCEpollIOThread.Create(Self, -1);
@@ -1628,19 +1653,30 @@ begin
   FMaxIOThreads.Lock;
   try
     for i := 0 to high(FIOThreads) do
+    if Assigned(FIOThreads) then
       FIOThreads[i].Terminate;
   finally
     FMaxIOThreads.UnLock;
   end;
 
   {$ifdef SOCKET_EPOLL_MODE}
-  for i := 0 to high(FEpollIOThreads) do
-    FEpollIOThreads[i].Stop;
-  FEpollAcceptThread.Stop;
-  FEpollAcceptThread.WaitFor;
-  Sleep(0);
-  fpClose(FEpollFD);
-  fpClose(FEpollReadFD);
+  FEpollThreads.Lock;
+  try
+    for i := 0 to high(FEpollIOThreads) do
+    if Assigned(FEpollIOThreads[i]) then
+      FEpollIOThreads[i].Stop;
+    if Assigned(FEpollAcceptThread) then
+    begin
+      FEpollAcceptThread.Stop;
+      FEpollAcceptThread.WaitFor;
+    end;
+    Sleep(0);
+    fpClose(FEpollFD);
+    fpClose(FEpollReadFD);
+  finally
+    FEpollThreads.UnLock;
+  end;
+  FEpollThreads.Free;
   {$endif}
 
   FMaxIOThreads.Free;
@@ -1699,6 +1735,8 @@ begin
   if ((TS - FMaintainStamp) div 1000 > 10) or
      (FNeedToRemoveDeadConnections.Value) then
     RemoveDeadConnections(TS, 120);
+
+  RepairIOThreads();
 end;
 
 function TWCRefConnections.IdleSocketsIO(const TS : QWord) : Boolean;
@@ -1825,7 +1863,10 @@ begin
       if Length(FIOThreads) > AValue then
       begin
         for i := AValue to High(FIOThreads) do
+        if Assigned(FIOThreads[i]) then
           FIOThreads[i].Terminate;
+
+        SetLength(FIOThreads, AValue);
       end else
       begin
         m := Length(FIOThreads);
@@ -1845,6 +1886,7 @@ end;
 {$ifdef SOCKET_EPOLL_MODE}
 procedure TWCRefConnections.AddServerSocket(aSock : TAbsInetServer);
 begin
+  FServerSocket := aSock;
   FEpollAcceptThread.SetServerSocket(aSock);
 end;
 
@@ -1901,7 +1943,104 @@ begin
   end;
 end;
 
+procedure TWCRefConnections.RemoveEpollIOThread(aThread : TWCEpollIOThread);
+var i : integer;
+begin
+  FEpollThreads.Lock;
+  try
+    for i := 0 to High(FEpollIOThreads) do
+    if FEpollIOThreads[i] = aThread then
+    begin
+      FEpollIOThreads[i] := nil;
+      FEpollThreads.DecValue;
+    end;
+  finally
+    FEpollThreads.UnLock;
+  end;
+end;
+
+procedure TWCRefConnections.RemoveEpollAcceptThread(aThread : TWCEpollAcceptThread);
+begin
+  FEpollThreads.Lock;
+  try
+    if FEpollAcceptThread = aThread then
+    begin
+      FEpollAcceptThread := nil;
+      FEpollThreads.DecValue;
+    end;
+  finally
+    FEpollThreads.UnLock;
+  end;
+end;
+
 {$endif}
+
+
+procedure TWCRefConnections.RemoveIOThread(aThread : TWCIOThread);
+var i : integer;
+begin
+  FMaxIOThreads.Lock;
+  try
+    for i := 0 to High(FIOThreads) do
+    if FIOThreads[i] = aThread then
+    begin
+      FIOThreads[i] := nil;
+      FMaxIOThreads.DecValue;
+    end;
+  finally
+    FMaxIOThreads.UnLock;
+  end;
+end;
+
+procedure TWCRefConnections.RepairIOThreads;
+var i : integer;
+begin
+  FMaxIOThreads.Lock;
+  try
+    if FMaxIOThreads.Value < Length(FIOThreads) then
+    begin
+      for i := 0 to High(FIOThreads) do
+      begin
+        if not Assigned(FIOThreads[i]) then
+        begin
+          FIOThreads[i] := TWCIOThread.Create(Self);
+          FIOThreads[i].Start;
+        end;
+      end;
+    end;
+  finally
+    FMaxIOThreads.UnLock;
+  end;
+
+  {$IFDEF SOCKET_EPOLL_MODE}
+  FEpollThreads.Lock;
+  try
+    if FEpollThreads.Value < (Length(FEpollIOThreads) + 1) then
+    begin
+      for i := 0 to High(FEpollIOThreads) do
+      begin
+        if not Assigned(FEpollIOThreads[i]) then
+        begin
+          FEpollIOThreads[i] := TWCEpollIOThread.Create(Self, -1);
+          FEpollIOThreads[i].InitPoll(3);
+          FEpollIOThreads[i].Start;
+          FEpollThreads.IncValue;
+        end;
+      end;
+    end;
+    if not Assigned(FEpollAcceptThread) then
+    begin
+      FEpollAcceptThread := TWCEpollAcceptThread.Create(Self, -1);
+      FEpollAcceptThread.InitPoll(2);
+      FEpollAcceptThread.Start;
+      FEpollAcceptThread.SetServerSocket(FServerSocket);
+      FEpollThreads.IncValue;
+    end;
+  finally
+    FEpollThreads.UnLock;
+  end;
+  {$ENDIF}
+end;
 
 { TWCRefConnection }
 

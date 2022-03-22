@@ -19,6 +19,9 @@ unit HTTP2HTTP1Conv;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  fpcweb,
+  {$endif}
   Classes, SysUtils, AvgLvlTree, httpprotocol;
 
 type

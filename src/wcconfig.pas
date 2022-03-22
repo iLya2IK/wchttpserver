@@ -19,6 +19,9 @@ unit wcConfig;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  commonutils,
+  {$endif}
   Classes, SysUtils, DateUtils,
   OGLFastList,ECommonObjs,
   jsonscanner, jsonparser, fpjson, Variants;
@@ -134,7 +137,9 @@ function  HashToConfig(hash : Cardinal) : PWCConfigRec;
 function  StrConfigToHash(Parent : Cardinal; const str : String) : Cardinal;
 function  VarToConfigKind(const V : Variant) : TWCConfigRecordKind;
 
+{$ifndef wiki_docs}
 var CFG_CONFIGURATION : TWCConfiguration = ();
+{$endif}
 
 implementation
 

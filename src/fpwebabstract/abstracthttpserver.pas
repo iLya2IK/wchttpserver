@@ -19,6 +19,9 @@ unit AbstractHTTPServer;
 interface
 
 uses
+  {$ifdef wiki_docs}
+  fpcweb,
+  {$endif}
   Classes, SysUtils, sockets,
   sslbase, ExtOpenSSL,
   sslsockets, ssockets, resolve,
