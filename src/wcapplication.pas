@@ -291,6 +291,7 @@ type
     procedure SetCertificate(AValue: String); override;
     procedure SetPrivateKey(AValue: String); override;
     function AttachRefCon(aRefCon : TWCRefConnection) : TWCRefConnection;
+    procedure HandleNetworkError(E : Exception); override;
   public
     constructor Create(AOwner: TComponent); override;
     procedure CreateServerSocket; override;
@@ -2828,6 +2829,15 @@ begin
   Result := aRefCon;
   Application.GarbageCollector.Add(Result);
   RefConnections.AddConnection(Result);
+end;
+
+procedure TWCHttpServer.HandleNetworkError(E : Exception);
+begin
+  Try
+    Application.DoError('Error (%s) : %s',[E.ClassName, E.Message]);
+  except
+    // Do not let errors escape
+  end;
 end;
 
 function TWCHttpServer.AttachNewHTTP2Con(aSocket : TWCSocketReference;

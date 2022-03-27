@@ -48,6 +48,7 @@ Type
     procedure SetSSLLastErrorString(AValue: string);
     Function FetchErrorInfo: Boolean;
     procedure HandleSSLIOError(aResult: Integer; isSend: Boolean);
+    procedure HandleSSLLastError();
     function CheckSSL(SSLResult: Integer): Boolean;
     function CheckSSL(SSLResult: Pointer): Boolean;
     function InitContext(NeedCertificate: Boolean): Boolean; virtual;
@@ -283,12 +284,17 @@ begin
       if not IsSSLNonFatalError(FSSLLastError, aResult, FLastError) then
       begin
         if IsSend and (IsPipeError(FLastError)) then
-          raise ESSLIOError.CreateFmt('pipe error %d', [FLastError])
+          raise ESSLIOError.CreateFmt('pipe error %d - %s', [FLastError, FSSLLastErrorString])
         else
-          raise ESSLIOError.CreateFmt('io error %d', [FLastError]);
+          raise ESSLIOError.CreateFmt('io error %d - %s', [FLastError, FSSLLastErrorString]);
       end;
     end;
   end;
+end;
+
+procedure TExtOpenSSLSocketHandler.HandleSSLLastError();
+begin
+  HandleSSLIOError(-1, false);
 end;
 
 function TExtOpenSSLSocketHandler.CheckSSL(SSLResult : Integer) : Boolean;
@@ -310,10 +316,14 @@ end;
 
 function TExtOpenSSLSocketHandler.DoneContext: Boolean;
 begin
-  FreeAndNil(FSSL);
-  if not FUseGlobalContext then
-    FreeAndNil(FCTX) else
-    FCTX := nil;
+  if Assigned(FSSL) then
+    FreeAndNil(FSSL);
+  if Assigned(FCTX) then
+  begin
+    if not FUseGlobalContext then
+      FreeAndNil(FCTX) else
+      FCTX := nil;
+  end;
   ErrRemoveState(0);
   SetSSLActive(False);
   Result:=True;
@@ -397,8 +407,10 @@ end;
 
 destructor TExtOpenSSLSocketHandler.destroy;
 begin
-  FreeAndNil(FCTX);
-  FreeAndNil(FSSL);
+  if Assigned(FCTX) then
+    FreeAndNil(FCTX);
+  if Assigned(FSSL) then
+    FreeAndNil(FSSL);
   FAlpnList.Free;
   inherited destroy;
 end;
@@ -448,9 +460,9 @@ begin
     FSSL:=TExtSSL.Create(FCTX);
     Result:=True;
   Except
+    Result:=False;
     CheckSSL(Nil);
     DoneContext;
-    Result:=False;
   end;
 end;
 
@@ -459,14 +471,15 @@ function TExtOpenSSLSocketHandler.Accept: Boolean;
 begin
   Result:=InitContext(True);
   if Result then
-    begin
+  begin
     Result:=CheckSSL(FSSL.setfd(Socket.Handle));
     if Result then
       Result:=CheckSSL(FSSL.Accept);
-    end;
+  end;
   SetSSLActive(Result);
   if Result then
-    TryToSaveMasterKey;
+    TryToSaveMasterKey else
+    HandleSSLLastError;
 end;
 
 
