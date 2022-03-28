@@ -584,24 +584,20 @@ end;
 procedure TWCIOThread.Execute;
 begin
   try
-    try
-      while not Terminated do
+    while not Terminated do
+    begin
+      if FOwner.Count = 0 then
       begin
-        if FOwner.Count = 0 then
-        begin
-          Sleep(10);
-          Continue;
-        end;
-        try
-          if FOwner.IdleSocketsIO(GetTickCount64) then
-            Sleep(0) else
-            Sleep(1);
-        except
-          on E: Exception do ;
-        end;
+        Sleep(10);
+        Continue;
       end;
-    except
-      on E : Exception do HandleNetworkError(E);
+      try
+        if FOwner.IdleSocketsIO(GetTickCount64) then
+          Sleep(0) else
+          Sleep(1);
+      except
+        on E : Exception do HandleNetworkError(E);
+      end;
     end;
   finally
     FOwner.RemoveIOThread(Self);
@@ -679,16 +675,18 @@ begin
             end else
             if ServerEvents[i].Data.fd = FServerSocket.Socket then
             begin
-              L:=SizeOf(Addr);
               repeat
                 try
                   Stream := nil;
+                  L:=SizeOf(Addr);
                   FSocket:=Sockets.fpAccept(FServerSocket.Socket,@Addr,@L);
                   err:=SocketError;
                   If (FSocket<0) then
                   begin
                     If (err = ESysEWOULDBLOCK) or (err = ESysEAGAIN) then
-                      Break else
+                    begin
+                      Break;
+                    end else
                       Raise ESocketError.Create(seAcceptFailed, [FServerSocket.Socket,
                                                                  err]);
                   end else
@@ -718,6 +716,7 @@ begin
     except
       on E : Exception do HandleNetworkError(E);
     end;
+
   finally
     FOwner.RemoveEPollAcceptThread(Self);
   end;

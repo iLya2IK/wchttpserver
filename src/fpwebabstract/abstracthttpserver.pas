@@ -382,8 +382,11 @@ begin
       TAbsSocketStream(Result).FAccepted := true
     else
     begin
-      H.Shutdown(False);
-      FreeAndNil(Result);
+      try
+        H.Shutdown(False);
+      finally
+        FreeAndNil(Result);
+      end;
      end;
   end;
 end;
