@@ -399,21 +399,24 @@ type
     FEpollReadFD: THandle;   // this one monitors LT style for READ
     FEpollFD: THandle;       // this one monitors ET style for other
     procedure AttachEpoll(ACon : TWCRefConnection);
-    function GetMaxIOThreads : Integer;
     procedure RemoveEpoll(ACon : TWCRefConnection);
     procedure ResetReadingEPoll(ACon : TWCRefConnection);
     procedure RemoveEpollAcceptThread(aThread : TWCEpollAcceptThread);
     procedure RemoveEpollIOThread(aThread : TWCEpollIOThread);
+    procedure RestartServerSocket;
     {$endif}
     procedure RepairIOThreads;
     procedure RemoveIOThread(aThread : TWCIOThread);
     function GetProtocolHelper(Id : TWCProtocolVersion): TWCProtocolHelper;
     function IsConnDead(aConn: TObject; data: pointer): Boolean;
     procedure AfterConnExtracted(aObj : TObject);
+    function GetMaxIOThreads : Integer;
     procedure SetMaxIOThreads(AValue : Integer);
     procedure SetServer(aServer : TWCCustomHttpServer);
   protected
     procedure HandleNetworkError(E : Exception); virtual;
+    procedure HandleNetworkLog(const S : String); virtual;
+    procedure HandleNetworkLog(const S : String; const Params : Array of Const); virtual;
   public
     constructor Create(aGarbageCollector : TNetReferenceList;
                                          aServer: TWCCustomHttpServer);
@@ -494,6 +497,8 @@ type
     procedure SetServerSocket(aSock : TAbsInetServer);
   end;
 
+  EServerSocketError = class(ESocketError);
+
   {$endif}
 
   { TWCCustomHttpServer }
@@ -502,8 +507,13 @@ type
   private
     FRefConnections : TWCRefConnections;
     FServerActive : Boolean;
+    FNeedServerSocketRestart : TThreadBoolean;
+    function GetNeedServerSocketRestart : Boolean;
+    procedure SetNeedServerSocketRestart(AValue : Boolean);
   protected
-    procedure HandleNetworkError(E : Exception); virtual;
+    procedure HandleNetworkError(E : Exception); virtual;abstract;
+    procedure HandleNetworkLog(const S : String); virtual;abstract;
+    procedure HandleNetworkLog(const S : String; const Params : Array of Const); virtual;abstract;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -513,6 +523,8 @@ type
   public
     property  RefConnections : TWCRefConnections read FRefConnections;
     property  ServerActive : Boolean read FServerActive;
+    property  NeedServerSocketRestart : Boolean read GetNeedServerSocketRestart
+                                                write SetNeedServerSocketRestart;
   end;
 
 implementation
@@ -534,16 +546,28 @@ PWCLifeTimeChecker = ^TWCLifeTimeChecker;
 
 { TWCCustomHttpServer }
 
+function TWCCustomHttpServer.GetNeedServerSocketRestart : Boolean;
+begin
+  Result := FNeedServerSocketRestart.Value;
+end;
+
+procedure TWCCustomHttpServer.SetNeedServerSocketRestart(AValue : Boolean);
+begin
+  FNeedServerSocketRestart.Value := AValue;
+end;
+
 constructor TWCCustomHttpServer.Create(AOwner : TComponent);
 begin
   inherited Create(AOwner);
   QueueSize := 100;
+  FNeedServerSocketRestart := TThreadBoolean.Create(false);
   FRefConnections := TWCRefConnections.Create(nil, Self);
 end;
 
 destructor TWCCustomHttpServer.Destroy;
 begin
   FRefConnections.Free;
+  FNeedServerSocketRestart.Free;
   inherited Destroy;
 end;
 
@@ -554,29 +578,58 @@ begin
 end;
 
 procedure TWCCustomHttpServer.StartServerSocket;
+
+procedure DoStartServerSocket;
 begin
   IpServer.Bind;
   IpServer.SetNonBlocking;
-  {$ifdef SOCKET_EPOLL_MODE}
   IpServer.Listen;
   FServerActive := true;
   FRefConnections.SetServer(Self);
-  while FServerActive do
-    IpServer.OnIdle(Self);
-  {$else}
-  IpServer.StartAccepting;
-  {$endif}
+end;
+
+begin
+  try
+    DoStartServerSocket();
+{$ifdef SOCKET_EPOLL_MODE}
+    while FServerActive do
+    begin
+      IpServer.OnIdle(Self);
+      if NeedServerSocketRestart then
+      begin
+        with FRefConnections do
+        if Assigned(FEpollAcceptThread) then
+        begin
+          FEpollAcceptThread.Stop;
+          FEpollAcceptThread.WaitFor;
+        end;
+        try
+          FreeServerSocket;
+        except
+        end;
+        CreateServerSocket;
+        IpServer.QueueSize:=Self.QueueSize;
+        IpServer.ReuseAddress:=true;
+        DoStartServerSocket();
+
+        NeedServerSocketRestart := false;
+      end;
+    end;
+{$ELSE}
+    IpServer.StartAccepting;
+{$ENDIF}
+  except
+    on e : Exception do begin
+      HandleNetworkError(e);
+      FServerActive := false;
+    end;
+  end;
 end;
 
 procedure TWCCustomHttpServer.StopServerSocket;
 begin
   inherited StopServerSocket;
   FServerActive := false;
-end;
-
-procedure TWCCustomHttpServer.HandleNetworkError({%H-}E : Exception);
-begin
-  //do nothing
 end;
 
 { TWCIOThread }
@@ -629,7 +682,7 @@ begin
 end;
 
 procedure TWCEpollAcceptThread.Execute;
-var ServerChanges, err, i, L : Integer;
+var ServerChanges, err, i, L, v : Integer;
     Addr : TINetSockAddr;
     FSocket : THandle;
     Stream : TSocketStream;
@@ -648,13 +701,23 @@ begin
           Sleep(10);
           Continue;
         end;
+        L := sizeof(v);
+        if (fpgetsockopt(FServerSocket.Socket, SOL_SOCKET, SO_ACCEPTCONN, @v, @L) < 0) then
+        begin
+          err := fpgeterrno;
+          raise EServerSocketError.CreateFmt('Server socket fpgetsockopt error %d', [err]);
+        end
+        else
+        if (v <= 0) then
+          raise EServerSocketError.CreateFmt('Server socket is dead %d', [FServerSocket.Socket]);
+
         ServerChanges := epoll_wait(FInternalPoll, @(ServerEvents[0]), 16, FTimeout);
         if ServerChanges < 0 then
           err := fpgeterrno else
           err := 0;
 
-        if (err <> 0) and (err <> ESysEINTR) then
-          raise ESocketError.CreateFmt('Error on server epoll %d', [err])
+        if ((err <> 0) and (err <> ESysEINTR)) then
+          raise EServerSocketError.CreateFmt('Error on server epoll %d', [err])
         else
         with FOwner do
         if ServerChanges > 0 then
@@ -679,6 +742,7 @@ begin
                 try
                   Stream := nil;
                   L:=SizeOf(Addr);
+
                   FSocket:=Sockets.fpAccept(FServerSocket.Socket,@Addr,@L);
                   err:=SocketError;
                   If (FSocket<0) then
@@ -714,6 +778,11 @@ begin
       end;
 
     except
+      on E : EServerSocketError do
+      begin
+        HandleNetworkError(E);
+        FOwner.RestartServerSocket;
+      end;
       on E : Exception do HandleNetworkError(E);
     end;
 
@@ -1935,6 +2004,19 @@ begin
     FServer.HandleNetworkError(E);
 end;
 
+procedure TWCRefConnections.HandleNetworkLog(const S : String);
+begin
+  if Assigned(FServer) then
+    FServer.HandleNetworkLog(S);
+end;
+
+procedure TWCRefConnections.HandleNetworkLog(const S : String;
+  const Params : array of const);
+begin
+  if Assigned(FServer) then
+    FServer.HandleNetworkLog(S, Params);
+end;
+
 {$ifdef SOCKET_EPOLL_MODE}
 
 procedure TWCRefConnections.AttachEpoll(ACon : TWCRefConnection);
@@ -2004,6 +2086,12 @@ begin
   finally
     FEpollThreads.UnLock;
   end;
+end;
+
+procedure TWCRefConnections.RestartServerSocket;
+begin
+  if Assigned(FServer) then
+    FServer.NeedServerSocketRestart := true;
 end;
 
 procedure TWCRefConnections.RemoveEpollAcceptThread(aThread : TWCEpollAcceptThread);

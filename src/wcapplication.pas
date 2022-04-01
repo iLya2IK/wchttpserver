@@ -292,6 +292,8 @@ type
     procedure SetPrivateKey(AValue: String); override;
     function AttachRefCon(aRefCon : TWCRefConnection) : TWCRefConnection;
     procedure HandleNetworkError(E : Exception); override;
+    procedure HandleNetworkLog(const S : String); override;
+    procedure HandleNetworkLog(const S : String; const Params : Array of Const); override;
   public
     constructor Create(AOwner: TComponent); override;
     procedure CreateServerSocket; override;
@@ -493,6 +495,8 @@ type
 
     FNeedShutdown : TThreadBoolean;
 
+    function GetNeedRestartServerSocket : Boolean;
+    procedure SetNeedRestartServerSocket(AValue : Boolean);
     procedure SoftCloseIP(Obj : TObject; ptrIP : Pointer);
 
     procedure DoOnConfigChanged(Sender : TWCConfigRecord);
@@ -607,6 +611,8 @@ type
     property ConfigFileName : String read GetConfigFileName write SetConfigFileName;
     //maintaining
     property NeedShutdown : Boolean read GetNeedShutdown write SetNeedShutdown;
+    property NeedRestartServerSocket : Boolean read GetNeedRestartServerSocket
+                                               write SetNeedRestartServerSocket;
     property TimeStampLog : TWCTimeStampLog read FTimeStampLog;
   end;
 
@@ -1698,6 +1704,7 @@ begin
 
   MaintSec := Root.AddSection(HashToConfig(CFG_MAINTAIN_SEC)^.NAME_STR);
   MaintSec.AddValue(CFG_SHUTDOWN, False);
+  MaintSec.AddValue(CFG_RESTART,  False);
   MaintSec.AddValue(CFG_TIMESTAMPLOG, False);
   MaintSec.AddValue(CFG_TIMESTAMPLOG_FORMAT, '%ts%');
   MaintSec.AddValue(CFG_TIMESTAMPLOG_PERIOD, 1800);
@@ -2840,6 +2847,25 @@ begin
   end;
 end;
 
+procedure TWCHttpServer.HandleNetworkLog(const S : String);
+begin
+  Try
+    Application.DoInfo(S);
+  except
+    // Do not let errors escape
+  end;
+end;
+
+procedure TWCHttpServer.HandleNetworkLog(const S : String;
+  const Params : array of const);
+begin
+  Try
+    Application.DoInfo(S, Params);
+  except
+    // Do not let errors escape
+  end;
+end;
+
 function TWCHttpServer.AttachNewHTTP2Con(aSocket : TWCSocketReference;
   aOpenMode : THTTP2OpenMode; aReadData, aSendData : TRefReadSendData
   ) : TWCHTTP2Connection;
@@ -3539,6 +3565,8 @@ begin
     case Sender.HashName of
       CFG_SHUTDOWN :
         NeedShutdown := Sender.Value;
+      CFG_RESTART :
+        NeedRestartServerSocket := true;
       CFG_SITE_FOLDER :
         WebFilesLoc := Sender.Value + cSysDelimiter;
       CFG_SERVER_NAME :
@@ -3894,6 +3922,18 @@ end;
 function TWCHTTPApplication.GetNeedShutdown: Boolean;
 begin
   Result := FNeedShutdown.Value;
+end;
+
+function TWCHTTPApplication.GetNeedRestartServerSocket : Boolean;
+begin
+  if Assigned(WCServer) then
+    Result := WCServer.NeedServerSocketRestart;
+end;
+
+procedure TWCHTTPApplication.SetNeedRestartServerSocket(AValue : Boolean);
+begin
+  if Assigned(WCServer) then
+    WCServer.NeedServerSocketRestart := AValue;
 end;
 
 function TWCHTTPApplication.GetSessionsDb: String;
