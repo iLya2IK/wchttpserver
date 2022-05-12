@@ -3566,7 +3566,7 @@ begin
       CFG_SHUTDOWN :
         NeedShutdown := Sender.Value;
       CFG_RESTART :
-        NeedRestartServerSocket := true;
+        NeedRestartServerSocket := Sender.Value;
       CFG_SITE_FOLDER :
         WebFilesLoc := Sender.Value + cSysDelimiter;
       CFG_SERVER_NAME :

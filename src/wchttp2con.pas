@@ -418,7 +418,7 @@ type
                         aDataSize : Cardinal;
                         aOwnPayload : Boolean = true); overload;
     function PopRequestedStream : TWCHTTP2Stream;
-    function TryToIdleStep(const TS: Qword): Boolean; override;
+    function TryToIdleStep(const TS : QWord) : Boolean; override;
     procedure ResetStream(aSID, aError: Cardinal);
     procedure GoAway(aError : Cardinal);
     property HTTP2Settings : TWCHTTP2Settings read GetHTTP2Settings;
@@ -2291,7 +2291,7 @@ begin
   end;
 end;
 
-function TWCHTTP2Connection.TryToIdleStep(const TS: Qword): Boolean;
+function TWCHTTP2Connection.TryToIdleStep(const TS : QWord) : Boolean;
 begin
   Result:=inherited TryToIdleStep(TS);
   FStreams.RemoveClosedStreams;
