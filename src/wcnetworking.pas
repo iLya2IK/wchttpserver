@@ -17,9 +17,9 @@ unit wcNetworking;
 {$mode objfpc}{$H+}
 {$modeswitch advancedrecords}
 {$ifdef linux}
-{.$define socket_epoll_mode}
+{$define socket_epoll_mode}
 {$define socket_epoll_accept}
-{$define socket_select_mode}
+{.$define socket_select_mode}
 {$ifdef socket_epoll_accept}
 {$define use_epoll}
 {$endif}
@@ -256,6 +256,25 @@ type
     property Value : TWCConnectionState read GetConnState write SetConnState;
   end;
 
+  {$ifdef SOCKET_EPOLL_MODE}
+  TWCIOCandidateType = (ctSend, ctRead);
+
+  { TThreadCandidate }
+
+  TThreadCandidate = class(TThreadSafeObject)
+  private
+    FValues : Array [TWCIOCandidateType] of Integer;
+    function GetValue(Pos : TWCIOCandidateType) : Integer;
+    procedure SetValue(Pos : TWCIOCandidateType; AValue : Integer);
+  public
+    property Value[Pos : TWCIOCandidateType] : Integer read GetValue
+                                                               write SetValue;
+    procedure DecValue(Pos : TWCIOCandidateType);
+    procedure IncValue(Pos : TWCIOCandidateType);
+  end;
+
+  {$endif}
+
   { TWCRefConnection }
 
   TWCRefConnection = class(TNetReferencedObject)
@@ -273,10 +292,10 @@ type
     FSendData : TRefReadSendData;
     FDataSending, FDataReading : TThreadBoolean;
     {$IFDEF SOCKET_EPOLL_MODE}
-    FIsIOCandidate : TThreadInteger;
-    procedure IncIOCandidate;
-    procedure DecIOCandidate;
-    function  IsIOCandidate : Boolean;
+    FIsIOCandidate : TThreadCandidate;
+    procedure IncIOCandidate(aType : TWCIOCandidateType);
+    procedure DecIOCandidate(aType : TWCIOCandidateType);
+    function  IsIOCandidate(aType : TWCIOCandidateType) : Boolean;
     {$endif}
 
     function GetConnectionState: TWCConnectionState;
@@ -398,6 +417,7 @@ type
   {$endif}
 
   {$ifdef socket_epoll_mode}
+
   TWCEpollIOThread = class;
 
   { TWCIOCandidate }
@@ -405,10 +425,12 @@ type
   TWCIOCandidate = class
   private
     FCon : TWCRefConnection;
+    FType : TWCIOCandidateType;
   public
-    constructor Create(aCon : TWCRefConnection);
+    constructor Create(aCon : TWCRefConnection; aType : TWCIOCandidateType);
     destructor Destroy; override;
     property Con : TWCRefConnection read FCon;
+    property CType : TWCIOCandidateType read FType;
   end;
 
   TWCIOPool = class(specialize TThreadSafeFastBaseSeq<TWCIOCandidate>);
@@ -444,9 +466,11 @@ type
     FIOPool : TWCIOPool;
     procedure AttachEpoll(ACon : TWCRefConnection);
     procedure RemoveEpoll(ACon : TWCRefConnection);
+    procedure RemoveIOPoll(ACon : TWCRefConnection);
     procedure ResetReadingEPoll(ACon : TWCRefConnection);
     procedure RemoveEpollIOThread(aThread : TWCEpollIOThread);
-    procedure TryIO(aCon : TWCRefConnection);
+    procedure TryIO(aCon : TWCRefConnection; aType : TWCIOCandidateType);
+    function IsConnEqual(aConn: TObject; data: pointer): Boolean;
     {$endif}
     {$ifdef SOCKET_EPOLL_ACCEPT}
     procedure RemoveEpollAcceptThread(aThread : TWCEpollAcceptThread);
@@ -592,6 +616,7 @@ const
   MAX_IO_THREADS_DEFAULT = 1;
   MAX_IO_CHUNCK = 8;
 {$ifdef socket_epoll_mode}
+  EPOLLRDHUP = $2000;
   BASE_SIZE = 100;
   EPOLL_MAX_IO_TIMEOUT = -1;
   EPOLL_MAX_IO_THREADS = 1;
@@ -604,6 +629,7 @@ const
   sleep_timeout0 : Ttimespec = (tv_sec:0; tv_nsec:0);
   sleep_timeout1 : Ttimespec = (tv_sec:0; tv_nsec:1000000);
   sleep_timeout10 : Ttimespec = (tv_sec:0; tv_nsec:10000000);
+  sleep_timeout100 : Ttimespec = (tv_sec:0; tv_nsec:100000000);
 {$endif}
 
 type
@@ -644,6 +670,11 @@ end;
 procedure lsleep10; inline;
 begin
   fpnanosleep(@sleep_timeout10,nil);
+end;
+
+procedure lsleep100; inline;
+begin
+  fpnanosleep(@sleep_timeout100,nil);
 end;
 
 {$endif}
@@ -735,16 +766,28 @@ end;
 { TWCIOThread }
 
 procedure TWCIOThread.Execute;
+var FStandBy : Word;
 begin
   try
+    FStandBy := 0;
     while not Terminated do
     begin
       if FOwner.IOWaiting then
       begin
-        lsleep10;
+        if FStandBy < $FFFF then
+          inc(FStandBy);
+        if (FStandBy and $FF00) > 0 then
+        begin
+          lsleep100;
+        end else
+        if (FStandBy and $FFF0) > 0 then
+        begin
+          lsleep10;
+        end else
+          lsleep0;
         Continue;
       end;
-
+      FStandBy := 0;
       FOwner.IdleSocketsIO(GetTickCount64);
       lsleep0;
     end;
@@ -969,18 +1012,62 @@ end;
 
 {$ifdef socket_epoll_mode}
 
+{ TThreadCandidate }
+
+function TThreadCandidate.GetValue(Pos : TWCIOCandidateType) : Integer;
+begin
+  Lock;
+  try
+    Result := FValues[Pos];
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadCandidate.SetValue(Pos : TWCIOCandidateType; AValue : Integer);
+begin
+  Lock;
+  try
+    FValues[Pos] := AValue;
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadCandidate.DecValue(Pos : TWCIOCandidateType);
+begin
+  Lock;
+  try
+    Dec(FValues[Pos]);
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TThreadCandidate.IncValue(Pos : TWCIOCandidateType);
+begin
+  Lock;
+  try
+    Inc(FValues[Pos]);
+  finally
+    UnLock;
+  end;
+end;
+
 { TWCIOCandidate }
 
-constructor TWCIOCandidate.Create(aCon : TWCRefConnection);
+constructor TWCIOCandidate.Create(aCon : TWCRefConnection;
+  aType : TWCIOCandidateType);
 begin
   aCon.IncReference;
   FCon := aCon;
-  FCon.IncIOCandidate;
+  FType := aType;
+  FCon.IncIOCandidate(FType);
 end;
 
 destructor TWCIOCandidate.Destroy;
 begin
-  FCon.DecIOCandidate;
+  FCon.DecIOCandidate(FType);
   FCon.DecReference;
   inherited Destroy;
 end;
@@ -1012,7 +1099,7 @@ begin
           err := fpgeterrno;
           If err = ESysEINTR then
           begin
-            lsleep1;
+            lsleep10;
             Continue;
           end else
             raise ESocketError.CreateFmt('Error on epoll %d', [err]);
@@ -1078,7 +1165,7 @@ begin
                 if  ((FEvents[i].events and EPOLLOUT) = EPOLLOUT) then
                 begin
                   Temp.SocketRef.SetCanSend;
-                  FOwner.TryIO(Temp);
+                  FOwner.TryIO(Temp, ctSend);
                   Temp.TryToSendFrames(TS);
                 end;
               end; // writes
@@ -1086,10 +1173,13 @@ begin
               if i < ReadChanges then begin
                 TempRead := TWCRefConnection(FEventsRead[i].data.ptr);
 
-                if  ((FEventsRead[i].events and (EPOLLIN or EPOLLHUP or EPOLLPRI)) > 0) then
+                if  ((FEventsRead[i].events and (EPOLLHUP or EPOLLRDHUP)) > 0) then
+                  TempRead.SocketRef.PushError
+                else
+                if  ((FEventsRead[i].events and (EPOLLIN or EPOLLPRI)) > 0) then
                 begin
                   TempRead.SocketRef.SetCanRead;
-                  FOwner.TryIO(TempRead);
+                  FOwner.TryIO(TempRead, ctRead);
                   TempRead.TryToConsumeFrames;
                 end;
               end; // reads
@@ -1120,7 +1210,7 @@ var
   lEvent : TEpollEvent;
 begin
   inherited InitPoll(aSz);
-  lEvent.events := EPOLLIN or EPOLLOUT or EPOLLPRI or EPOLLERR or EPOLLHUP or EPOLLET;
+  lEvent.events := EPOLLIN or EPOLLOUT or EPOLLPRI or EPOLLERR or EPOLLRDHUP or EPOLLHUP or EPOLLET;
   lEvent.data.fd := FOwner.FEpollFD;
   if epoll_ctl(FInternalPoll, EPOLL_CTL_ADD, FOwner.FEpollFD, @lEvent) < 0 then
     raise ESocketError.CreateFmt('Unable to add FDs to master epoll FD: %d', [fpGetErrno]);
@@ -1513,8 +1603,8 @@ begin
     FErrorFDSet^.fd_count := 1;
     FErrorFDSet^.fd_array[0] := Socket.Handle;
     n := Select(Socket.Handle+1, FReadFDSet, FWriteFDSet, FErrorFDSet, @FWaitTime);
-    {$endif}
     FSocketStates:= FSocketStates - [ssCanRead, ssCanSend];
+    {$endif}
     if n < 0 then
     begin
       err := socketerror;
@@ -1528,7 +1618,8 @@ begin
     begin
       {$ifdef windows}
       if FD_ISSET(Socket.Handle, FErrorFDSet^) then
-         FSocketStates:=FSocketStates + [ssError] else begin
+         FSocketStates:=FSocketStates + [ssError] else
+      begin
         if FD_ISSET(Socket.Handle, FReadFDSet^) then
            FSocketStates:=FSocketStates + [ssCanRead];
         if FD_ISSET(Socket.Handle, FWriteFDSet^) then
@@ -1537,7 +1628,8 @@ begin
       {$endif}
       {$ifdef unix}
       if fpFD_ISSET(Socket.Handle, FErrorFDSet^)>0 then
-         FSocketStates:=FSocketStates + [ssError] else begin
+         FSocketStates:=FSocketStates + [ssError] else
+      begin
         if fpFD_ISSET(Socket.Handle, FReadFDSet^)>0 then
            FSocketStates:=FSocketStates + [ssCanRead];
         if fpFD_ISSET(Socket.Handle, FWriteFDSet^)>0 then
@@ -1670,7 +1762,7 @@ begin
   try
     try
       Result := FSocket.Write(Buffer, Size);
-      {$IFDEF SOCKET_EPOLL_MODE}
+      {$IFDEF unix}
       if (Result <= 0) and (errno = ESysEAGAIN) then
       {$ENDIF}
       begin
@@ -1699,7 +1791,7 @@ begin
   try
     try
       Result := FSocket.Read(Buffer, Size);
-      {$IFDEF SOCKET_EPOLL_MODE}
+      {$IFDEF unix}
       if (Result < Size) or (errno = ESysEAGAIN) then
       {$ENDIF}
       begin
@@ -1815,6 +1907,7 @@ procedure TWCRefConnections.AfterConnExtracted(aObj: TObject);
 begin
   {$ifdef SOCKET_EPOLL_MODE}
   RemoveEpoll(TWCRefConnection(aObj));
+  RemoveIOPoll(TWCRefConnection(aObj));
   {$endif}
   TWCRefConnection(aObj).FFramesToSend.Clean;
   TWCRefConnection(aObj).DecReference;
@@ -1976,6 +2069,8 @@ end;
 function TWCRefConnections.IdleSocketsIO(const TS : QWord) : Boolean;
 {$ifdef SOCKET_EPOLL_MODE}
 var C : TWCIOCandidate;
+    CType : TWCIOCandidateType;
+    Con : TWCRefConnection;
     i : integer;
 begin
   {$ifdef SOCKET_EPOLL_ACCEPT}
@@ -1989,22 +2084,30 @@ begin
     C := FIOPool.PopValue;
     if Assigned(C) then
     begin
-      try
-        if (C.Con.ConnectionAvaible) then
+      Con := C.Con;
+      CType := C.CType;
+      C.Free;
+      if (Con.ConnectionAvaible) then
+      begin
+        if Con.FSocketRef.HasErrors then
+          Con.ConnectionState:= wcDROPPED else
         begin
-          if C.Con.FSocketRef.HasErrors then
-            C.Con.ConnectionState:= wcDROPPED else
-          begin
-            C.Con.TryToSendFrames(TS);
-            C.Con.TryToConsumeFrames;
-
-            Result := true;
+          case CType of
+            ctSend : begin
+              if (not Con.TryToSendFrames(TS)) and Con.ReadyToWrite then
+                TryIO(Con, ctSend);
+            end;
+            ctRead : begin
+              if (not Con.TryToConsumeFrames) and Con.ReadyToRead and
+                  (Con.FSocketRef.CanRead or Con.RequestsWaiting) then
+                TryIO(Con, ctRead);
+            end;
           end;
+
+          Result := true;
         end;
-        Inc(i);
-      finally
-        C.Free;
       end;
+      Inc(i);
     end else
       Break;
   end;
@@ -2171,7 +2274,12 @@ end;
 
 function TWCRefConnections.IOWaiting : Boolean;
 begin
-  Result := (Count = 0){$ifdef SOCKET_EPOLL_ACCEPT} and (FAcceptancePool.Count = 0){$endif};
+  {$ifdef SOCKET_EPOLL_MODE}
+  Result := (FIOPool.Count = 0)
+  {$ELSE}
+  Result := (Count = 0)
+  {$endif}
+  {$ifdef SOCKET_EPOLL_ACCEPT} and (FAcceptancePool.Count = 0){$endif};
 end;
 
 procedure TWCRefConnections.HandleNetworkError(E : Exception);
@@ -2208,13 +2316,14 @@ begin
   lEvent.data.ptr := ACon;
   if epoll_ctl(FEpollFD, EPOLL_CTL_ADD, aHandle, @lEvent) < 0 then
     raise ESocketError.CreateFmt('Error adding handle to epoll: %d', [fpgeterrno]);
-  lEvent.events := EPOLLIN or EPOLLPRI or EPOLLHUP or EPOLLET or EPOLLONESHOT;
+  lEvent.events := EPOLLIN or EPOLLPRI or EPOLLRDHUP or EPOLLHUP or EPOLLET or EPOLLONESHOT;
   if epoll_ctl(FEpollReadFD, EPOLL_CTL_ADD, aHandle, @lEvent) < 0 then
     raise ESocketError.CreateFmt('Error adding handle to epoll: %d', [fpgeterrno]);
   for i := 0 to high(FEpollIOThreads) do
     FEpollIOThreads[i].Attach(ACon);
 
-  TryIO(ACon);
+  TryIO(ACon, ctRead);
+  TryIO(ACon, ctSend);
 end;
 
 procedure TWCRefConnections.RemoveEpoll(ACon : TWCRefConnection);
@@ -2230,13 +2339,18 @@ begin
   end;
 end;
 
+procedure TWCRefConnections.RemoveIOPoll(ACon : TWCRefConnection);
+begin
+  FIOPool.EraseObjectsByCriteria(@IsConnEqual, ACon);
+end;
+
 procedure TWCRefConnections.ResetReadingEPoll(ACon : TWCRefConnection);
 var
   lEvent: TEpollEvent;
   err : Integer;
 begin
   lEvent.data.ptr := ACon;
-  lEvent.events := EPOLLIN or EPOLLPRI or EPOLLHUP or EPOLLET or EPOLLONESHOT;
+  lEvent.events := EPOLLIN or EPOLLPRI or EPOLLRDHUP or EPOLLHUP or EPOLLET or EPOLLONESHOT;
   ACon.SocketRef.Lock;
   try
     if epoll_ctl(FEpollReadFD, EPOLL_CTL_MOD, ACon.SocketRef.FSocket.Handle, @lEvent) < 0 then
@@ -2266,10 +2380,17 @@ begin
   end;
 end;
 
-procedure TWCRefConnections.TryIO(aCon : TWCRefConnection);
+procedure TWCRefConnections.TryIO(aCon : TWCRefConnection;
+  aType : TWCIOCandidateType);
 begin
-  if aCon.IsIOCandidate then
-    FIOPool.Push_back(TWCIOCandidate.Create(aCon));
+  if aCon.IsIOCandidate(aType) then
+    FIOPool.Push_back(TWCIOCandidate.Create(aCon, aType));
+end;
+
+function TWCRefConnections.IsConnEqual(aConn : TObject; data : pointer
+  ) : Boolean;
+begin
+  Result := aConn = TObject(data);
 end;
 
 {$endif}
@@ -2491,24 +2612,26 @@ begin
   FFramesToSend := TThreadSafeFastSeq.Create;
   FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
   {$IFDEF SOCKET_EPOLL_MODE}
-  FIsIOCandidate := TThreadInteger.Create(0);
+  FIsIOCandidate := TThreadCandidate.Create();
+  FIsIOCandidate.Value[ctRead] := 0;
+  FIsIOCandidate.Value[ctSend] := 0;
   {$endif}
 end;
 
 {$IFDEF SOCKET_EPOLL_MODE}
-procedure TWCRefConnection.IncIOCandidate;
+procedure TWCRefConnection.IncIOCandidate(aType : TWCIOCandidateType);
 begin
-  FIsIOCandidate.IncValue;
+  FIsIOCandidate.IncValue(aType);
 end;
 
-procedure TWCRefConnection.DecIOCandidate;
+procedure TWCRefConnection.DecIOCandidate(aType : TWCIOCandidateType);
 begin
-  FIsIOCandidate.DecValue;
+  FIsIOCandidate.DecValue(aType);
 end;
 
-function TWCRefConnection.IsIOCandidate : Boolean;
+function TWCRefConnection.IsIOCandidate(aType : TWCIOCandidateType) : Boolean;
 begin
-  Result := FIsIOCandidate.Value <= 0;
+  Result := FIsIOCandidate.Value[aType] <= 0;
 end;
 {$ENDIF}
 
@@ -2519,7 +2642,7 @@ begin
   try
     FOwner.ResetReadingEPoll(Self);
     if (FSocketRef.CanRead or RequestsWaiting) then
-      FOwner.TryIO(Self);
+      FOwner.TryIO(Self, ctRead);
   except
     on ESocketError do ConsumeResult := wccrSocketError;
   end;
@@ -2551,7 +2674,7 @@ end;
 procedure TWCRefConnection.PushFrame(fr: TWCRefProtoFrame);
 begin
   {$IFDEF SOCKET_EPOLL_MODE}
-  if (FFramesToSend.Count = 0) then FOwner.TryIO(Self);
+  FOwner.TryIO(Self, ctSend);
   {$ENDIF}
   FFramesToSend.Push_back(fr);
 end;
@@ -2580,7 +2703,7 @@ end;
 procedure TWCRefConnection.PushFrameFront(fr: TWCRefProtoFrame);
 begin
   {$IFDEF SOCKET_EPOLL_MODE}
-  if (FFramesToSend.Count = 0) then FOwner.TryIO(Self);
+  FOwner.TryIO(Self, ctSend);
   {$ENDIF}
   FFramesToSend.Push_front(fr);
 end;
@@ -2666,9 +2789,8 @@ begin
   end;
 
   {$ifdef SOCKET_EPOLL_MODE}
-  if FSocketRef.CanSend and
-      ((FFramesToSend.Count > 0) or (FWriteTailSize > 0)) then
-    FOwner.TryIO(Self);
+  if ((FFramesToSend.Count > 0) or (FWriteTailSize > 0)) then
+     FOwner.TryIO(Self, ctSend);
   {$ENDIF}
 
   if (FFramesToSend.Count = 0) and
