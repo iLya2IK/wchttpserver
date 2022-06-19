@@ -562,6 +562,8 @@ type
     procedure DoError(const V : String; const aParams : Array Of const); overload;
     procedure SendError(AResponse: TAbsHTTPConnectionResponse; errno: Integer);
     procedure AddHelper(Hlp : TWCHTTPAppHelper);
+    procedure RegisterProtocolHelper(Id : TWCProtocolVersion;
+                                          aHelper : TWCProtocolHelperClass);
     procedure CoolDownIP(const vIP : String; forMinutes : Integer);
     Procedure Initialize; override;
     function GetWebHandler: TWCHttpServerHandler;
@@ -874,6 +876,7 @@ type
     constructor Create(ARequest : TWCRequest); overload;
     destructor Destroy; override;
     procedure SendUTf8String(const S: String);
+    procedure SendRawData(Buffer : Pointer; aSize : Int64);
     procedure CloseStream;
     procedure ReleaseRefStream;
     Procedure DoSendHeaders(Headers : TStrings); override;
@@ -955,6 +958,7 @@ Implementation
 
 uses  CustApp, extopensslsockets, wcutils, math, LazUTF8;
 const WCSocketReadError = 'Socket read error';
+      WCSocketWriteError = 'Socket write error %d';
 
 function ParseStartLine(Request : TWCRequest; AStartLine : String) : Boolean;
 
@@ -2038,7 +2042,34 @@ begin
         if C < 0 then
         begin
           // do nothing
-          raise ESocketError.CreateFmt('Socket write error %d', [GetConnection.Socket.LastError]);
+          raise ESocketError.CreateFmt(WCSocketWriteError, [GetConnection.Socket.LastError]);
+        end;
+      end;
+    end;
+  end;
+end;
+
+procedure TWCResponse.SendRawData(Buffer : Pointer; aSize : Int64);
+var C : integer;
+begin
+  if aSize > 0 then
+  begin
+    if WCConn.HTTPVersion = wcHTTP2 then
+    begin
+      TWCHTTP2Stream(WCConn.RefRequest).Response.PushData(Buffer, aSize);
+      TWCHTTP2Stream(WCConn.RefRequest).Response.SerializeData(not KeepStreamAlive);
+    end else
+    begin
+      if Assigned(WCConn.RefCon) then
+      begin
+        //not implemented
+      end else
+      begin
+        C := WCConn.Socket.Write(Buffer^, aSize);
+        if C < 0 then
+        begin
+          // do nothing
+          raise ESocketError.CreateFmt(WCSocketWriteError, [GetConnection.Socket.LastError]);
         end;
       end;
     end;
@@ -2480,7 +2511,15 @@ begin
           end else
             FRequest.DecodeContent;
         end else
-          Result := wccrNoData;
+        begin
+          RefRequest := TWCHTTP2Connection(RefCon).PopRequestChunk;
+          if Assigned(RefRequest) then
+          begin
+            if not assigned(FRequest) then
+              FRequest := ConvertFromRefRequest(RefRequest);
+          end else
+            Result := wccrNoData;
+        end;
       end;
       {$IFDEF WC_WEB_SOCKETS}
       if FProtocolVersion = wcWebSocket then
@@ -4270,6 +4309,13 @@ end;
 procedure TWCHTTPApplication.AddHelper(Hlp : TWCHTTPAppHelper);
 begin
   FAppHelpers.Push_back(Hlp);
+end;
+
+procedure TWCHTTPApplication.RegisterProtocolHelper(Id : TWCProtocolVersion;
+  aHelper : TWCProtocolHelperClass);
+begin
+  if Assigned(WCServer) then
+    WCServer.RefConnections.RegisterProtocolHelper(Id, aHelper);
 end;
 
 procedure TWCHTTPApplication.CoolDownIP(const vIP : String; forMinutes : Integer
