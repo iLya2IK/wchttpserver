@@ -320,6 +320,7 @@ type
     destructor Destroy; override;
     function GetReqContentStream : TStream; override;
     function IsReqContentStreamOwn : Boolean; override;
+    procedure Release; override;
     property TotalSize : Int64 read GetTotalSize;
     property Data : TExtMemoryStream read FData;
     procedure CopyToHTTP1Request(aReq1 : TWCConnectionRequest); override;
@@ -332,11 +333,22 @@ type
   { TWCHTTP2IncomingChunks }
 
   TWCHTTP2IncomingChunks = class(TThreadSafeFastSeq)
+  private
+    FHolders : Integer;
   public
+    constructor Create;
+
     function  PopChunk : TWCHTTP2IncomingChunk;
     procedure PushChunk(aChunk : TWCHTTP2IncomingChunk);
+
+    procedure Hold;
+    procedure Release;
+    function  IsReleased : Boolean;
+
     destructor Destroy; override;
   end;
+
+  TWCHTTP2IncomingChunksMode = (h2icmNone, h2icmChaos, h2icmSerial);
 
   { TWCHTTP2Stream }
 
@@ -359,15 +371,16 @@ type
     FHeadersComplete : Boolean;
     FResponseProceed : Boolean;
     FIncomingChunks : TWCHTTP2IncomingChunks;
+    FIncomingChunksMode : TWCHTTP2IncomingChunksMode;
     function GetCurResponse : TWCHTTP2Response;
     function GetExtData : TObject;
     function GetRecursedPriority: Byte;
-    function GetRequestProceed : Boolean;
+    function GetRequestProceed : TWCHTTP2IncomingChunksMode;
     function GetResponseProceed: Boolean;
     procedure ResetRecursivePriority;
     procedure PushRequest;
     procedure SetExtData(AValue : TObject);
-    procedure SetRequestProceed(AValue : Boolean);
+    procedure SetRequestProceed(AValue : TWCHTTP2IncomingChunksMode);
     procedure SetResponseProceed(AValue: Boolean);
     procedure SetWaitingForContinueFrame(AValue: Boolean);
     procedure UpdateState(Head : TWCHTTP2FrameHeader);
@@ -378,6 +391,9 @@ type
     procedure PushData(Data : Pointer; sz : Cardinal);
     procedure PushChunk(Data : Pointer; sz : Cardinal);
     function FinishHeaders(aDecoder: TThreadSafeHPackDecoder): Byte;
+    procedure HoldChunks;
+    procedure ReleaseChunks;
+    function  ChunksReleased : Boolean;
   public
     constructor Create(aConnection : TWCHTTP2Connection; aStreamID : Cardinal);
     destructor Destroy; override;
@@ -400,7 +416,8 @@ type
     property Request : TWCHTTP2Request read FCurRequest;
     property Response : TWCHTTP2Response read GetCurResponse;
     property ResponseProceed : Boolean read GetResponseProceed write SetResponseProceed;
-    property ChunkedRequest : Boolean read GetRequestProceed write SetRequestProceed;
+    property ChunkedRequest : TWCHTTP2IncomingChunksMode read GetRequestProceed
+                                         write SetRequestProceed;
     property SendWindow : TThreadSafeHTTP2WindowSize read FSendWindow;
 
     property ExtData : TObject read GetExtData write SetExtData;
@@ -620,6 +637,12 @@ begin
   Result:=true;
 end;
 
+procedure TWCHTTP2IncomingChunk.Release;
+begin
+  FStream.ReleaseChunks;
+  inherited Release;
+end;
+
 procedure TWCHTTP2IncomingChunk.CopyToHTTP1Request(aReq1 : TWCConnectionRequest
   );
 begin
@@ -641,6 +664,12 @@ end;
 
 { TWCHTTP2IncomingChunks }
 
+constructor TWCHTTP2IncomingChunks.Create;
+begin
+  inherited Create;
+  FHolders := 0;
+end;
+
 function TWCHTTP2IncomingChunks.PopChunk : TWCHTTP2IncomingChunk;
 var
   it : TIteratorObject;
@@ -650,6 +679,7 @@ begin
     It := ListBegin;
     if Assigned(It) then
     begin
+      Hold;
       Result := TWCHTTP2IncomingChunk(It.Value);
       Result.DecReference;
       Extract(It);
@@ -663,6 +693,36 @@ end;
 procedure TWCHTTP2IncomingChunks.PushChunk(aChunk : TWCHTTP2IncomingChunk);
 begin
   Push_back(aChunk);
+end;
+
+procedure TWCHTTP2IncomingChunks.Hold;
+begin
+  Lock;
+  try
+    Inc(FHolders);
+  finally
+    UnLock;
+  end;
+end;
+
+procedure TWCHTTP2IncomingChunks.Release;
+begin
+  Lock;
+  try
+    Dec(FHolders);
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTP2IncomingChunks.IsReleased : Boolean;
+begin
+  Lock;
+  try
+    Result := FHolders <= 0;
+  finally
+    UnLock;
+  end;
 end;
 
 destructor TWCHTTP2IncomingChunks.Destroy;
@@ -2957,11 +3017,11 @@ begin
   end else Result := FRecursedPriority;
 end;
 
-function TWCHTTP2Stream.GetRequestProceed : Boolean;
+function TWCHTTP2Stream.GetRequestProceed : TWCHTTP2IncomingChunksMode;
 begin
   Lock;
   try
-    Result := Assigned(FIncomingChunks);
+    Result := FIncomingChunksMode;
   finally
     UnLock;
   end;
@@ -3002,14 +3062,15 @@ begin
   FExternalData := AValue;
 end;
 
-procedure TWCHTTP2Stream.SetRequestProceed(AValue : Boolean);
+procedure TWCHTTP2Stream.SetRequestProceed(AValue : TWCHTTP2IncomingChunksMode);
 begin
   Lock;
   try
-    if Assigned(FIncomingChunks)=AValue then Exit;
-    if AValue then
+    if FIncomingChunksMode=AValue then Exit;
+    if AValue > h2icmNone then
       FIncomingChunks := TWCHTTP2IncomingChunks.Create else
       FreeAndNil(FIncomingChunks);
+    FIncomingChunksMode := AValue;
   finally
     UnLock;
   end;
@@ -3102,7 +3163,7 @@ end;
 
 procedure TWCHTTP2Stream.PushData(Data: Pointer; sz: Cardinal);
 begin
-  if ChunkedRequest then
+  if ChunkedRequest > h2icmNone then
     PushChunk(Data, sz) else
   begin
     Lock;
@@ -3198,6 +3259,13 @@ begin
   end;
 end;
 
+function TWCHTTP2Stream.ChunksReleased : Boolean;
+begin
+  if Assigned(FIncomingChunks) then
+    Result := FIncomingChunks.IsReleased else
+    Result := true;
+end;
+
 constructor TWCHTTP2Stream.Create(aConnection: TWCHTTP2Connection;
   aStreamID: Cardinal);
 begin
@@ -3216,6 +3284,7 @@ begin
   FCurRequest := TWCHTTP2Request.Create(FConnection, Self);
   FResponseProceed := false;
   FIncomingChunks := nil;
+  FIncomingChunksMode := h2icmNone;
   FExternalData := nil;
   FOwnExtData := true;
 end;
@@ -3278,6 +3347,18 @@ begin
   Result := true;
 end;
 
+procedure TWCHTTP2Stream.HoldChunks;
+begin
+  if (FIncomingChunksMode = h2icmSerial) then
+    FIncomingChunks.Hold;
+end;
+
+procedure TWCHTTP2Stream.ReleaseChunks;
+begin
+  if (FIncomingChunksMode = h2icmSerial) then
+    FIncomingChunks.Release;
+end;
+
 procedure TWCHTTP2Stream.CopyToHTTP1Request(AReq: TWCConnectionRequest);
 begin
   with FCurRequest do
@@ -3302,14 +3383,16 @@ end;
 function TWCHTTP2Stream.ChunkReady : Boolean;
 begin
   if Assigned(FIncomingChunks) then
-    Result := FIncomingChunks.Count > 0 else
+    Result := (FIncomingChunks.Count > 0) else
     Result := false;
 end;
 
 function TWCHTTP2Stream.PopRequestChunk : TWCHTTP2IncomingChunk;
 begin
-  if Assigned(FIncomingChunks) then
-    Result := FIncomingChunks.PopChunk else
+  if Assigned(FIncomingChunks) and ChunksReleased then
+  begin
+    Result := FIncomingChunks.PopChunk;
+  end else
     Result := nil;
 end;
 
