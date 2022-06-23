@@ -656,6 +656,11 @@ begin
   Sleep(10);
 end;
 
+procedure lsleep100; inline;
+begin
+  Sleep(100);
+end;
+
 {$else ifdef unix}
 procedure lsleep0; inline;
 begin
@@ -780,16 +785,24 @@ begin
         begin
           lsleep100;
         end else
+        {$ifdef SOCKET_SELECT_MODE}
+          lsleep10;
+        {$else}
         if (FStandBy and $FFF0) > 0 then
         begin
           lsleep10;
         end else
           lsleep0;
+        {$endif}
         Continue;
       end;
       FStandBy := 0;
       FOwner.IdleSocketsIO(GetTickCount64);
+      {$ifdef SOCKET_SELECT_MODE}
+      lsleep10;
+      {$else}
       lsleep0;
+      {$endif}
     end;
   finally
     FOwner.RemoveIOThread(Self);
