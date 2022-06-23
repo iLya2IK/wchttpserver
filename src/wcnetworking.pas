@@ -626,7 +626,7 @@ const
   EPOLL_MAX_ACCEPT_THREADS = 1;
 {$endif}
 {$ifdef unix}
-  sleep_timeout0 : Ttimespec = (tv_sec:0; tv_nsec:0);
+  sleep_timeout0 : Ttimespec = (tv_sec:0; tv_nsec:1000);
   sleep_timeout1 : Ttimespec = (tv_sec:0; tv_nsec:1000000);
   sleep_timeout10 : Ttimespec = (tv_sec:0; tv_nsec:10000000);
   sleep_timeout100 : Ttimespec = (tv_sec:0; tv_nsec:100000000);
@@ -785,13 +785,13 @@ begin
         begin
           lsleep100;
         end else
-        {$ifdef SOCKET_SELECT_MODE}
-          lsleep10;
-        {$else}
         if (FStandBy and $FFF0) > 0 then
         begin
           lsleep10;
         end else
+        {$ifdef SOCKET_SELECT_MODE}
+          lsleep1;
+        {$else}
           lsleep0;
         {$endif}
         Continue;
@@ -799,7 +799,7 @@ begin
       FStandBy := 0;
       FOwner.IdleSocketsIO(GetTickCount64);
       {$ifdef SOCKET_SELECT_MODE}
-      lsleep10;
+      lsleep1;
       {$else}
       lsleep0;
       {$endif}
