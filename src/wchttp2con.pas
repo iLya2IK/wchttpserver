@@ -335,11 +335,15 @@ type
   TWCHTTP2IncomingChunks = class(TThreadSafeFastSeq)
   private
     FHolders : Integer;
+    FTotalSize : Int64;
   public
     constructor Create;
 
     function  PopChunk : TWCHTTP2IncomingChunk;
-    procedure PushChunk(aChunk : TWCHTTP2IncomingChunk);
+    function PushChunk(aStrm : TWCHTTP2Stream; Data : Pointer; sz : Integer
+      ) : TWCHTTP2IncomingChunk;
+
+    function TotalSize : Int64;
 
     procedure Hold;
     procedure Release;
@@ -388,8 +392,8 @@ type
   protected
     property WaitingForContinueFrame : Boolean read FWaitingForContinueFrame write
                                          SetWaitingForContinueFrame;
-    procedure PushData(Data : Pointer; sz : Cardinal);
-    procedure PushChunk(Data : Pointer; sz : Cardinal);
+    function PushData(Data : Pointer; sz : Cardinal) : Boolean;
+    function PushChunk(Data : Pointer; sz : Cardinal) : Boolean;
     function FinishHeaders(aDecoder: TThreadSafeHPackDecoder): Byte;
     procedure HoldChunks;
     procedure ReleaseChunks;
@@ -595,6 +599,8 @@ type
 
 implementation
 
+const HTTP2_MAX_CHUNKS_TOTAL_SIZE = $A00000; //10 MB max buffer
+
 { TWCHTTP2IncomingChunk }
 
 function TWCHTTP2IncomingChunk.GetTotalSize : Int64;
@@ -668,6 +674,7 @@ constructor TWCHTTP2IncomingChunks.Create;
 begin
   inherited Create;
   FHolders := 0;
+  FTotalSize := 0;
 end;
 
 function TWCHTTP2IncomingChunks.PopChunk : TWCHTTP2IncomingChunk;
@@ -681,6 +688,8 @@ begin
     begin
       Hold;
       Result := TWCHTTP2IncomingChunk(It.Value);
+      Dec(FTotalSize, Result.TotalSize);
+
       Result.DecReference;
       Extract(It);
     end else
@@ -690,9 +699,35 @@ begin
   end;
 end;
 
-procedure TWCHTTP2IncomingChunks.PushChunk(aChunk : TWCHTTP2IncomingChunk);
+function TWCHTTP2IncomingChunks.PushChunk(aStrm : TWCHTTP2Stream;
+                      Data : Pointer;
+                      sz : Integer) : TWCHTTP2IncomingChunk;
 begin
-  Push_back(aChunk);
+  Lock;
+  try
+    if (FTotalSize + sz) > HTTP2_MAX_CHUNKS_TOTAL_SIZE then
+    begin
+      Result := nil;
+    end else
+    begin
+      Result := TWCHTTP2IncomingChunk.Create(aStrm);
+      Result.PushData(Data, sz);
+      Inc(FTotalSize, sz);
+      Push_back(Result);
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCHTTP2IncomingChunks.TotalSize : Int64;
+begin
+  Lock;
+  try
+    Result := FTotalSize;
+  finally
+    UnLock;
+  end;
 end;
 
 procedure TWCHTTP2IncomingChunks.Hold;
@@ -2213,7 +2248,11 @@ begin
                 SendUpdateWindow(nil, HTTP2Settings.GetByID(H2SET_INITIAL_WINDOW_SIZE,
                                                             HTTP2_INITIAL_WINDOW_SIZE));
               //
-              Str.PushData(Pointer(S.Memory + S.Position), DataSize);
+              if not Str.PushData(Pointer(S.Memory + S.Position), DataSize) then
+              begin
+                err := H2E_INTERNAL_ERROR;
+                break;
+              end;
               S.Position := S.Position + FrameHeader.PayloadLength;
               CheckStreamAfterState(Str);
             end;
@@ -3161,28 +3200,34 @@ begin
   end;
 end;
 
-procedure TWCHTTP2Stream.PushData(Data: Pointer; sz: Cardinal);
+function TWCHTTP2Stream.PushData(Data : Pointer; sz : Cardinal) : Boolean;
 begin
   if ChunkedRequest > h2icmNone then
-    PushChunk(Data, sz) else
+  begin
+    Result := PushChunk(Data, sz);
+  end else
   begin
     Lock;
     try
       FCurRequest.PushData(Data, sz);
+      Result := true;
     finally
       UnLock;
     end;
   end;
 end;
 
-procedure TWCHTTP2Stream.PushChunk(Data : Pointer; sz : Cardinal);
+function TWCHTTP2Stream.PushChunk(Data : Pointer; sz : Cardinal) : Boolean;
 var Chunk : TWCHTTP2IncomingChunk;
 begin
-  Chunk := TWCHTTP2IncomingChunk.Create(Self);
-  Chunk.PushData(Data, sz);
-  Chunk.IncReference;
-  FIncomingChunks.PushChunk(Chunk);
-  FConnection.Owner.GarbageCollector.Add(Chunk);
+  Chunk := FIncomingChunks.PushChunk(Self, Data, sz);
+  if Assigned(Chunk) then
+  begin
+    Chunk.IncReference;
+    FConnection.Owner.GarbageCollector.Add(Chunk);
+    Result := true;
+  end else
+    Result := false;
 end;
 
 function TWCHTTP2Stream.FinishHeaders(aDecoder: TThreadSafeHPackDecoder) : Byte;
