@@ -120,7 +120,7 @@ var
   { ADD NEW ONES WHEN THEY APPEAR!
     Always make .so/dylib first, then versions, in descending order!
     Add "." .before the version, first is always just "" }
-  DLLVersions: array[1..18] of string = ('', '.1.1.1',
+  DLLVersions: array[1..19] of string = ('', '.3', '.1.1.1',
                                         '.1.1', '.1.0.6', '.1.0.5', '.1.0.4', '.1.0.3',
                                         '.1.0.2', '.1.0.1','.1.0.0','.0.9.8',
                                         '.0.9.7', '.0.9.6', '.0.9.5', '.0.9.4',

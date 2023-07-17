@@ -1748,7 +1748,8 @@ begin
   try
     FConnection.SendFrames;
   except
-    on e: Exception do FConnection.ConnectionState:= wcDROPPED;
+    on e: Exception do
+      FConnection.ConnectionState:= wcDROPPED;
   end;
 end;
 
