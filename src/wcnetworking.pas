@@ -2436,6 +2436,7 @@ begin
       if not Assigned(aSocket) then break;
 
       try
+        Stream := nil;
         if FServer.ipServer.NonBlocking then
           fpfcntl(aSocket.Socket, F_SETFD, fpfcntl(aSocket.Socket, F_GetFD, 0) or O_NONBLOCK);
         Stream := FServer.ipServer.SockToStream(aSocket.Socket);

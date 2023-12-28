@@ -4703,7 +4703,7 @@ var CID : Cardinal;
 begin
   CID := FCurCID.ID;
   Result := EncodeIntToB64(CID, 4) + '-' +
-            EncodeInt64ToB64(QWord(TimeStampToMSecs(DateTimeToTimeStamp(Now))), 8);
+            EncodeInt64ToB64(GetTickCount64, 8);
   PREP_ClientSetLastCUID.Execute([CID+1]);
 end;
 
