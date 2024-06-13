@@ -1,3 +1,6 @@
 [submodule "examples/webcamserver"]
 	path = examples/webcamserver
 	url = git@github.com:iLya2IK/wcwebcamserver.git
+[submodule "src/pasmp"]
+	path = src/pasmp
+	url = https://github.com/BeRo1985/pasmp

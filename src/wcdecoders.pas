@@ -21,7 +21,7 @@ uses
   {$ifdef wiki_docs}
   commonutils,
   {$endif}
-  Classes, SysUtils, StringHashList,
+  Classes, SysUtils, StringHashList, PasMP,
   ECommonObjs, BufferedStream, ExtMemoryStream;
 
 type
@@ -42,7 +42,7 @@ type
 
   { TThreadSafeDecoders }
 
-  TThreadSafeDecoders = class(TNetCustomLockedObject)
+  TThreadSafeDecoders = class(TPasMPMultipleReaderSingleWriterLock)
   private
     FHash : TStringHashList;
     function GetDecoder(const index : String): TWCClientDecoderClass;
@@ -107,36 +107,41 @@ end;
 function TThreadSafeDecoders.GetDecoder(const index : String
   ) : TWCClientDecoderClass;
 begin
-  Result := TWCClientDecoderClass(FHash[index]);
+  BeginRead;
+  try
+    Result := TWCClientDecoderClass(FHash[index]);
+  finally
+    EndRead;
+  end;
 end;
 
 procedure TThreadSafeDecoders.Clear;
 begin
-  Lock;
+  if BeginWrite then
   try
     FHash.Clear;
   finally
-    Unlock;
+    EndWrite;
   end;
 end;
 
 procedure TThreadSafeDecoders.AddNew(aData : TWCClientDecoderClass);
 begin
-  Lock;
+  if BeginWrite then
   try
     FHash.Add(aData.DecoderName, aData);
   finally
-    UnLock;
+    EndWrite;
   end;
 end;
 
 procedure TThreadSafeDecoders.Remove(aData : TWCClientDecoderClass);
 begin
-  Lock;
+  if BeginWrite then
   try
     FHash.Remove(aData.DecoderName);
   finally
-    UnLock;
+    EndWrite;
   end;
 end;
 
@@ -144,7 +149,7 @@ function TThreadSafeDecoders.GetListOfDecoders : String;
 var i : integer;
     D : String;
 begin
-  Lock;
+  BeginRead;
   try
     Result := '';
     for i := 0 to FHash.Count-1 do
@@ -154,7 +159,7 @@ begin
       Result := Result + D;
     end;
   finally
-    UnLock;
+    EndRead;
   end;
 end;
 
@@ -163,7 +168,7 @@ var i : integer;
     DList : TStringList;
     D : String;
 begin
-  Lock;
+  if BeginWrite then
   try
     DList := TStringList.Create;
     try
@@ -189,7 +194,7 @@ begin
       DList.Free;
     end;
   finally
-    UnLock;
+    EndWrite;
   end;
 end;
 

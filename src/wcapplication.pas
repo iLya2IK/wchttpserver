@@ -4,7 +4,7 @@
 
    Part of WCHTTPServer project
 
-   Copyright (c) 2020-2021 by Ilya Medvedkov
+   Copyright (c) 2020-2024 by Ilya Medvedkov
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -66,6 +66,8 @@ uses
   BufferedStream,
   SortedThreadPool,
   RegExpr,
+  PasMP,
+  wcMPUtils,
   {$ifdef DEBUG_STAT}
   wcDebug_vars,
   {$endif}
@@ -231,7 +233,7 @@ type
 
   { TWCIPBlocked }
 
-  TWCIPBlocked = class(TThreadSafeObject)
+  TWCIPBlocked = class(TPasMPMultipleReaderSingleWriterLock)
   private
     FCoolDownTime : Integer;
     FIP : String; // with or without port
@@ -480,12 +482,12 @@ type
     FServerAnalizeJobClass : TWCPreAnalizeJobClass;
 
     FConfig : TWCHTTPConfig;
-    FMaxMainThreads: TThreadInteger;
-    FMaxPrepareThreads: TThreadInteger;
+    FMaxMainThreads: TAtomicInteger;
+    FMaxPrepareThreads: TAtomicInteger;
     FThreadJobToJobWait : TThreadJobToJobWait;
-    FCompressLimit: TThreadInteger;
-    FClientCookieMaxAge : TThreadInteger;
-    FClientTimeOut : TThreadInteger;
+    FCompressLimit: TAtomicInteger;
+    FClientCookieMaxAge : TAtomicInteger;
+    FClientTimeOut : TAtomicInteger;
     FClientDecoders : TThreadSafeDecoders;
     FVPath, FMainHTTP, FSessionsLoc,
     FSessionsDb, FLogDbLoc,
@@ -493,7 +495,7 @@ type
     FWebFilesIgnore, FWebFilesExceptIgnore : TThreadUtf8String;
     FWebFilesIgnoreRx, FWebFilesExceptIgnoreRx : TRegExpr;
 
-    FNeedShutdown : TThreadBoolean;
+    FNeedShutdown : TAtomicBoolean;
 
     function GetNeedRestartServerSocket : Boolean;
     procedure SetNeedRestartServerSocket(AValue : Boolean);
@@ -628,7 +630,7 @@ type
     FAccessTime,
     FDataTime : TDateTime;
     FCache, FDeflateCache : TRefMemoryStream;
-    FNeedToCompress : TThreadBoolean;
+    FNeedToCompress : TAtomicBoolean;
     FDeflateSize: QWord;
     {$IFDEF ALLOW_STREAM_GZIP}
     FGzipSize: QWord;
@@ -733,13 +735,13 @@ type
     FCUID : String;
     FCurStates : TWebThreadSafeCacheStates;
     FOwner : TWebClients;
-    FAcceptGZip : TThreadBoolean;
-    FAcceptDeflate : TThreadBoolean;
-    FHasSynConnection : TThreadBoolean;
+    FAcceptGZip : TAtomicBoolean;
+    FAcceptDeflate : TAtomicBoolean;
+    FHasSynConnection : TAtomicBoolean;
     FOnRemove : TNotifyEvent;
     FStartStamp : QWord;
-    FScore : TThreadInteger;
-    FLastConnection : TThreadInteger;
+    FScore : TAtomicInteger;
+    FLastConnection : TAtomicInteger;
     function GetAcceptGZip: Boolean;
     function GetLastConnection: Integer;
     function GetScore: Integer;
@@ -822,7 +824,7 @@ type
     FCurCID : TThreadSafeAutoIncrementCardinal;
     FConnectedClients : TWebClients;
     //
-    FVerbose : TThreadBoolean;
+    FVerbose : TAtomicBoolean;
     procedure ClientRemove(Sender : TObject);
     function GetVerbose : Boolean;
     function OnGenSessionID({%H-}aSession : TSqliteWebSession) : String;
@@ -1182,31 +1184,31 @@ end;
 
 function TWCIPBlocked.IsBlocked : Boolean;
 begin
-  Lock;
+  BeginRead;
   try
     Result := FCoolDownTime > 0;
   finally
-    UnLock;
+    EndRead;
   end;
 end;
 
 procedure TWCIPBlocked.CoolDown(Minutes : Integer);
 begin
-  Lock;
+  if BeginWrite then
   try
     FCoolDownTime := Minutes * 60;
   finally
-    UnLock;
+    EndWrite;
   end;
 end;
 
 procedure TWCIPBlocked.Unfreeze(forSecs : Integer);
 begin
-  Lock;
+  if BeginWrite then
   try
     Dec(FCoolDownTime, forSecs);
   finally
-    UnLock;
+    EndWrite;
   end;
 end;
 
@@ -3212,12 +3214,12 @@ begin
   FOwner := AOwner;
   FStartStamp := GetTickCount64;
   FCurStates := TWebThreadSafeCacheStates.Create;
-  FHasSynConnection := TThreadBoolean.Create(false);
-  FAcceptGZip := TThreadBoolean.Create(false);
-  FAcceptDeflate := TThreadBoolean.Create(false);
+  FHasSynConnection := TAtomicBoolean.Create(false);
+  FAcceptGZip := TAtomicBoolean.Create(false);
+  FAcceptDeflate := TAtomicBoolean.Create(false);
   FOnRemove:=nil;
-  FScore := TThreadInteger.Create(0);
-  FLastConnection := TThreadInteger.Create(0);
+  FScore := TAtomicInteger.Create(0);
+  FLastConnection := TAtomicInteger.Create(0);
   FOwner.AddNew(aCUID, Self);
 
   Application.GarbageCollector.Add(Self);
@@ -3751,11 +3753,11 @@ begin
   FWebFilesExceptIgnoreRx := nil;
   FTimeStampLog := TWCTimeStampLog.Create;
 
-  FMaxMainThreads:= TThreadInteger.Create(1);
-  FMaxPrepareThreads:= TThreadInteger.Create(1);
-  FCompressLimit:= TThreadInteger.Create(500);
-  FClientCookieMaxAge := TThreadInteger.Create(86400);
-  FClientTimeOut := TThreadInteger.Create(10);
+  FMaxMainThreads:= TAtomicInteger.Create(1);
+  FMaxPrepareThreads:= TAtomicInteger.Create(1);
+  FCompressLimit:= TAtomicInteger.Create(500);
+  FClientCookieMaxAge := TAtomicInteger.Create(86400);
+  FClientTimeOut := TAtomicInteger.Create(10);
   FVPath := TThreadUtf8String.Create('');
   FMainHTTP := TThreadUtf8String.Create('');
   FSessionsLoc := TThreadUtf8String.Create('');
@@ -3768,7 +3770,7 @@ begin
   FMimeLoc := TThreadUtf8String.Create('');
   FClientDecoders := TThreadSafeDecoders.Create;
   FThreadJobToJobWait := TThreadJobToJobWait.Create(DefaultJobToJobWait);
-  FNeedShutdown := TThreadBoolean.Create(False);
+  FNeedShutdown := TAtomicBoolean.Create(False);
   OnException:=@DoOnException;
 
   FNetDebugMode:=False;
@@ -4023,7 +4025,7 @@ end;
 
 procedure TWCHTTPApplication.SetClientTimeOut(AValue: Integer);
 begin
-  FClientTimeOut.Lock;
+  //FClientTimeOut.Lock;
   try
     FClientTimeOut.Value:=AValue;
     {$IFDEF SERVER_RPC_MODE}
@@ -4031,7 +4033,7 @@ begin
       WebContainer.Sessions.DefaultTimeOutMinutes:= AValue;
     {$ENDIF}
   finally
-    FClientTimeOut.UnLock;
+    //FClientTimeOut.UnLock;
   end;
 end;
 
@@ -4527,7 +4529,7 @@ begin
   FOwner := aOwner;
   FCacheControl := TThreadUtf8String.Create('');
   FCharset := TThreadUtf8String.Create('');
-  FNeedToCompress := TThreadBoolean.Create(false);
+  FNeedToCompress := TAtomicBoolean.Create(false);
   FCache := nil;
   FSize := 0;
   FDeflateCache := nil;
