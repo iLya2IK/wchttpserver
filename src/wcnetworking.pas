@@ -267,6 +267,9 @@ type
     function GetValue(Pos : TWCIOCandidateType) : Integer;
     procedure SetValue(Pos : TWCIOCandidateType; AValue : Integer);
   public
+    constructor Create;
+    destructor Destroy; override;
+
     property Value[Pos : TWCIOCandidateType] : Integer read GetValue
                                                                write SetValue;
     procedure DecValue(Pos : TWCIOCandidateType);
@@ -285,7 +288,7 @@ type
     FReadBufferSize, FWriteBufferSize : Cardinal;
     FReadTailSize, FWriteTailSize : Integer;
     FSocket : Cardinal;
-    FTimeStamp : TThreadQWord;
+    FTimeStamp : TAtomicQWord;
     FFramesToSend : TThreadSafeFastSeq;
     FSocketRef : TWCSocketReference;
     FReadData : TRefReadSendData;
@@ -452,20 +455,20 @@ type
     FGarbageCollector : TNetReferenceList;
     FServer       : TWCCustomHttpServer;
 
-    FNeedToRemoveDeadConnections : TThreadBoolean;
+    FNeedToRemoveDeadConnections : TAtomicBoolean;
     FHelpers : Array [TWCProtocolVersion] of TWCProtocolHelper;
     //Threads
     FIOThreads : Array of TWCIOThread;
     FMaxIOThreads : TThreadInteger;
-    FLiveIOThreads : TThreadInteger;
+    FLiveIOThreads : TAtomicInteger;
     //EPoll
     {$ifdef SOCKET_EPOLL_ACCEPT}
-    FLiveEpollAcceptThreads : TThreadInteger;
+    FLiveEpollAcceptThreads : TAtomicInteger;
     FEpollAcceptThreads : Array of TWCEpollAcceptThread;
     FAcceptancePool : TWCAcceptancePool;
     {$endif}
     {$ifdef socket_epoll_mode}
-    FLiveEpollIOThreads : TThreadInteger;
+    FLiveEpollIOThreads : TAtomicInteger;
     FEpollIOThreads:  Array of TWCEpollIOThread;
     FEpollReadFD: THandle;   // this one monitors LT style for READ
     FEpollFD : THandle;       // this one monitors ET style for other
@@ -1057,6 +1060,16 @@ begin
   finally
     UnLock;
   end;
+end;
+
+constructor TThreadCandidate.Create;
+begin
+  inherited Create;
+end;
+
+destructor TThreadCandidate.Destroy;
+begin
+  inherited Destroy;
 end;
 
 procedure TThreadCandidate.DecValue(Pos : TWCIOCandidateType);
@@ -1947,7 +1960,7 @@ var v : TWCProtocolVersion;
 begin
   inherited Create;
   FServer := aServer;
-  FNeedToRemoveDeadConnections := TThreadBoolean.Create(false);
+  FNeedToRemoveDeadConnections := TAtomicBoolean.Create(false);
   FMaintainStamp := GetTickCount64;
   FLastUsedConnection := nil;
   FGarbageCollector := aGarbageCollector;
@@ -1958,7 +1971,7 @@ begin
   FIOPool := TWCIOPool.Create;
   FIOEvent := RTLEventCreate;
 
-  FLiveEpollIOThreads := TThreadInteger.Create(EPOLL_MAX_IO_THREADS);
+  FLiveEpollIOThreads := TAtomicInteger.Create(EPOLL_MAX_IO_THREADS);
   FEpollFD := epoll_create(BASE_SIZE);
   FEpollReadFD := epoll_create(BASE_SIZE);
   if (FEPollFD < 0) or (FEpollReadFD < 0) then
@@ -1975,7 +1988,7 @@ begin
 
   {$ifdef SOCKET_EPOLL_ACCEPT}
   FAcceptancePool := TWCAcceptancePool.Create;
-  FLiveEpollAcceptThreads := TThreadInteger.Create(EPOLL_MAX_ACCEPT_THREADS);
+  FLiveEpollAcceptThreads := TAtomicInteger.Create(EPOLL_MAX_ACCEPT_THREADS);
   SetLength(FEpollAcceptThreads, FLiveEpollAcceptThreads.Value);
   for i := 0 to High(FEpollAcceptThreads) do
   begin
@@ -1986,7 +1999,7 @@ begin
   {$endif}
 
   FMaxIOThreads := TThreadInteger.Create(MAX_IO_THREADS_DEFAULT);
-  FLiveIOThreads := TThreadInteger.Create(MAX_IO_THREADS_DEFAULT);
+  FLiveIOThreads := TAtomicInteger.Create(MAX_IO_THREADS_DEFAULT);
   FMaxIOThreads.Lock;
   try
     SetLength(FIOThreads, FMaxIOThreads.Value);
@@ -2414,7 +2427,7 @@ end;
 procedure TWCRefConnections.RemoveEpollIOThread(aThread : TWCEpollIOThread);
 var i : integer;
 begin
-  FLiveEpollIOThreads.Lock;
+//  FLiveEpollIOThreads.Lock;
   try
     for i := 0 to High(FEpollIOThreads) do
     if FEpollIOThreads[i] = aThread then
@@ -2423,7 +2436,7 @@ begin
       FLiveEpollIOThreads.DecValue;
     end;
   finally
-    FLiveEpollIOThreads.UnLock;
+//    FLiveEpollIOThreads.UnLock;
   end;
 end;
 
@@ -2501,7 +2514,7 @@ end;
 procedure TWCRefConnections.RemoveEpollAcceptThread(aThread : TWCEpollAcceptThread);
 var i : integer;
 begin
-  FLiveEpollAcceptThreads.Lock;
+//  FLiveEpollAcceptThreads.Lock;
   try
     for i := 0 to High(FEpollAcceptThreads) do
     if FEpollAcceptThreads[i] = aThread then
@@ -2510,7 +2523,7 @@ begin
       FLiveEpollAcceptThreads.DecValue;
     end;
   finally
-    FLiveEpollAcceptThreads.UnLock;
+//    FLiveEpollAcceptThreads.UnLock;
   end;
 end;
 
@@ -2655,7 +2668,7 @@ begin
   FSocketRef.IncReference;
   FSocket:= FSocketRef.Socket.Handle;
   TS := GetTickCount64;
-  FTimeStamp := TThreadQWord.Create(TS);
+  FTimeStamp := TAtomicQWord.Create(TS);
   FReadTailSize := 0;
   FWriteTailSize:= 0;
   FReadData := aReadData;

@@ -493,7 +493,7 @@ type
     FWebFilesIgnore, FWebFilesExceptIgnore : TThreadUtf8String;
     FWebFilesIgnoreRx, FWebFilesExceptIgnoreRx : TRegExpr;
 
-    FNeedShutdown : TThreadBoolean;
+    FNeedShutdown : TAtomicBoolean;
 
     function GetNeedRestartServerSocket : Boolean;
     procedure SetNeedRestartServerSocket(AValue : Boolean);
@@ -628,7 +628,7 @@ type
     FAccessTime,
     FDataTime : TDateTime;
     FCache, FDeflateCache : TRefMemoryStream;
-    FNeedToCompress : TThreadBoolean;
+    FNeedToCompress : TAtomicBoolean;
     FDeflateSize: QWord;
     {$IFDEF ALLOW_STREAM_GZIP}
     FGzipSize: QWord;
@@ -733,13 +733,13 @@ type
     FCUID : String;
     FCurStates : TWebThreadSafeCacheStates;
     FOwner : TWebClients;
-    FAcceptGZip : TThreadBoolean;
-    FAcceptDeflate : TThreadBoolean;
-    FHasSynConnection : TThreadBoolean;
+    FAcceptGZip : TAtomicBoolean;
+    FAcceptDeflate : TAtomicBoolean;
+    FHasSynConnection : TAtomicBoolean;
     FOnRemove : TNotifyEvent;
     FStartStamp : QWord;
-    FScore : TThreadInteger;
-    FLastConnection : TThreadInteger;
+    FScore : TAtomicInteger;
+    FLastConnection : TAtomicInteger;
     function GetAcceptGZip: Boolean;
     function GetLastConnection: Integer;
     function GetScore: Integer;
@@ -822,7 +822,7 @@ type
     FCurCID : TThreadSafeAutoIncrementCardinal;
     FConnectedClients : TWebClients;
     //
-    FVerbose : TThreadBoolean;
+    FVerbose : TAtomicBoolean;
     procedure ClientRemove(Sender : TObject);
     function GetVerbose : Boolean;
     function OnGenSessionID({%H-}aSession : TSqliteWebSession) : String;
@@ -3212,12 +3212,12 @@ begin
   FOwner := AOwner;
   FStartStamp := GetTickCount64;
   FCurStates := TWebThreadSafeCacheStates.Create;
-  FHasSynConnection := TThreadBoolean.Create(false);
-  FAcceptGZip := TThreadBoolean.Create(false);
-  FAcceptDeflate := TThreadBoolean.Create(false);
+  FHasSynConnection := TAtomicBoolean.Create(false);
+  FAcceptGZip := TAtomicBoolean.Create(false);
+  FAcceptDeflate := TAtomicBoolean.Create(false);
   FOnRemove:=nil;
-  FScore := TThreadInteger.Create(0);
-  FLastConnection := TThreadInteger.Create(0);
+  FScore := TAtomicInteger.Create(0);
+  FLastConnection := TAtomicInteger.Create(0);
   FOwner.AddNew(aCUID, Self);
 
   Application.GarbageCollector.Add(Self);
@@ -3768,7 +3768,7 @@ begin
   FMimeLoc := TThreadUtf8String.Create('');
   FClientDecoders := TThreadSafeDecoders.Create;
   FThreadJobToJobWait := TThreadJobToJobWait.Create(DefaultJobToJobWait);
-  FNeedShutdown := TThreadBoolean.Create(False);
+  FNeedShutdown := TAtomicBoolean.Create(False);
   OnException:=@DoOnException;
 
   FNetDebugMode:=False;
@@ -4527,7 +4527,7 @@ begin
   FOwner := aOwner;
   FCacheControl := TThreadUtf8String.Create('');
   FCharset := TThreadUtf8String.Create('');
-  FNeedToCompress := TThreadBoolean.Create(false);
+  FNeedToCompress := TAtomicBoolean.Create(false);
   FCache := nil;
   FSize := 0;
   FDeflateCache := nil;
@@ -4824,7 +4824,7 @@ begin
 
   {$IFDEF SERVER_RPC_MODE}
   GetWebCachedItem(Application.MainURI);
-  FVerbose := TThreadBoolean.Create(true);
+  FVerbose := TAtomicBoolean.Create(true);
   FConnectedClients := TWebClients.Create(Self);
 
   FClientsDB := TExtSqlite3Dataset.Create(nil);

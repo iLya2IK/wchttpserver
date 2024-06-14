@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CONFIG>
   <ProjectOptions>
-    <Version Value="11"/>
+    <Version Value="12"/>
     <General>
       <Flags>
         <MainUnitHasCreateFormStatements Value="False"/>
         <MainUnitHasTitleStatement Value="False"/>
         <MainUnitHasScaledStatement Value="False"/>
+        <CompatibilityMode Value="True"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <MainUnit Value="0"/>
       <Title Value="wchttpserver"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
@@ -42,6 +42,7 @@
           <Linking>
             <Debugging>
               <GenerateDebugInfo Value="False"/>
+              <DebugInfoType Value="dsDwarf2"/>
             </Debugging>
             <LinkSmart Value="True"/>
           </Linking>
@@ -53,12 +54,6 @@
 -dALLOW_STREAM_GZIP
 -dWC_WEB_SOCKETS
 -dSERVER_RPC_MODE"/>
-            <OtherDefines Count="4">
-              <Define0 Value="NOGUI"/>
-              <Define1 Value="ALLOW_STREAM_GZIP"/>
-              <Define2 Value="WC_WEB_SOCKETS"/>
-              <Define3 Value="SERVER_RPC_MODE"/>
-            </OtherDefines>
           </Other>
         </CompilerOptions>
       </Item2>
@@ -72,7 +67,6 @@
     </PublishOptions>
     <RunParams>
       <FormatVersion Value="2"/>
-      <Modes Count="0"/>
     </RunParams>
     <RequiredPackages Count="4">
       <Item1>
