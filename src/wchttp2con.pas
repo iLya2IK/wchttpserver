@@ -2247,6 +2247,7 @@ begin
               if FRecvWindow.Blocked then
                 SendUpdateWindow(nil, HTTP2Settings.GetByID(H2SET_INITIAL_WINDOW_SIZE,
                                                             HTTP2_INITIAL_WINDOW_SIZE));
+
               //
               if not Str.PushData(Pointer(S.Memory + S.Position), DataSize) then
               begin

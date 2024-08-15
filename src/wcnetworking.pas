@@ -201,6 +201,8 @@ type
 
     function  CanRead : Boolean;
     function  CanSend : Boolean;
+    function  ReadyToRead : Boolean;
+    function  ReadyToSend : Boolean;
     function  HasErrors : Boolean;
     function  HasNoErrors : Boolean;
     function  StartReading : Boolean;
@@ -1725,6 +1727,26 @@ begin
   end;
 end;
 
+function TWCSocketReference.ReadyToRead: Boolean;
+begin
+  Lock;
+  try
+    Result := ([ssCanRead, ssError] * FSocketStates) = [ssCanRead];
+  finally
+    UnLock;
+  end;
+end;
+
+function TWCSocketReference.ReadyToSend: Boolean;
+begin
+  Lock;
+  try
+    Result := ([ssCanSend, ssError] * FSocketStates) = [ssCanSend];
+  finally
+    UnLock;
+  end;
+end;
+
 function TWCSocketReference.HasErrors: Boolean;
 begin
   Lock;
@@ -1744,7 +1766,7 @@ function TWCSocketReference.StartReading : Boolean;
 begin
   Lock;
   try
-    if CanRead then begin
+    if ReadyToRead then begin
       FSocketStates := FSocketStates + [ssReading];
       Result := true;
     end else Result := false;
@@ -2114,6 +2136,7 @@ var C : TWCIOCandidate;
     CType : TWCIOCandidateType;
     Con : TWCRefConnection;
     i : integer;
+    b1, b2, b3 : Boolean;
 begin
   {$ifdef SOCKET_EPOLL_ACCEPT}
   Result := DoAccept;
@@ -2141,8 +2164,11 @@ begin
                 TryIO(Con, ctSend);
             end;
             ctRead : begin
-              if (not Con.TryToConsumeFrames) and Con.ReadyToRead and
-                  (Con.FSocketRef.CanRead or Con.RequestsWaiting) then
+              b1 := Con.ReadyToRead;
+              b2 := Con.FSocketRef.ReadyToRead;
+              b3 := Con.RequestsWaiting;
+
+              if (not Con.TryToConsumeFrames) and b1 and (b2 or b3) then
                 TryIO(Con, ctRead);
             end;
           end;
@@ -2446,8 +2472,8 @@ begin
   if aCon.IsIOCandidate(aType) then
   begin
     FIOPool.Push_back(TWCIOCandidate.Create(aCon, aType));
-    SendIOEvent;
   end;
+  SendIOEvent;
 end;
 
 function TWCRefConnections.IsConnEqual(aConn : TObject; data : pointer
@@ -2707,7 +2733,7 @@ begin
   {$ifdef SOCKET_EPOLL_MODE}
   try
     FOwner.ResetReadingEPoll(Self);
-    if (FSocketRef.CanRead or RequestsWaiting) then
+    if (FSocketRef.ReadyToRead or RequestsWaiting) then
       FOwner.TryIO(Self, ctRead);
   except
     on ESocketError do ConsumeResult := wccrSocketError;
@@ -2739,10 +2765,10 @@ end;
 
 procedure TWCRefConnection.PushFrame(fr: TWCRefProtoFrame);
 begin
+  FFramesToSend.Push_back(fr);
   {$IFDEF SOCKET_EPOLL_MODE}
   FOwner.TryIO(Self, ctSend);
   {$ENDIF}
-  FFramesToSend.Push_back(fr);
 end;
 
 procedure TWCRefConnection.PushFrame(const S: String);
@@ -2768,10 +2794,10 @@ end;
 
 procedure TWCRefConnection.PushFrameFront(fr: TWCRefProtoFrame);
 begin
+  FFramesToSend.Push_front(fr);
   {$IFDEF SOCKET_EPOLL_MODE}
   FOwner.TryIO(Self, ctSend);
   {$ENDIF}
-  FFramesToSend.Push_front(fr);
 end;
 
 procedure TWCRefConnection.SendFrames;
@@ -2835,7 +2861,8 @@ begin
             Sz := FSocketRef.Write(CurBuffer^, WrBuf.Position + FWriteTailSize);
             if (Sz < WrBuf.Position) and (FSocketRef.HasNoErrors) then
             begin
-              if Sz < 0 then Sz := 0; // ignore non-fatal errors. rollback to tail
+              if Sz < 0 then
+                 Sz := 0; // ignore non-fatal errors. rollback to tail
               FWriteTailSize := WrBuf.Position + FWriteTailSize - Sz;
               if Sz > 0 then
                 Move(Pointer(CurBuffer + Sz)^, CurBuffer^, FWriteTailSize);
@@ -2874,6 +2901,10 @@ end;
 
 function TWCRefConnection.TryToIdleStep(const TS : Qword): Boolean;
 begin
+  {$IFDEF SOCKET_EPOLL_MODE}
+  if HasFramesToSend then
+    FOwner.TryIO(Self, ctSend);
+  {$ENDIF}
   Result := true;
 end;
 
@@ -2894,7 +2925,9 @@ begin
       FReadData(Self);
       Result := true;
     end else
+    begin
       Result := false;
+    end;
   finally
     FDataReading.UnLock;
   end;

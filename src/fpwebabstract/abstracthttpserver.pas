@@ -760,7 +760,10 @@ end;
 
 procedure TAbsCustomHttpServer.SetCertificate(AValue: String);
 begin
-  CertificateData.Certificate.FileName:= FSSLLoc + AValue;
+  if Length(AValue) = 0 then
+    CertificateData.Certificate.FileName:= ''
+  else
+    CertificateData.Certificate.FileName:= FSSLLoc + AValue;
 end;
 
 procedure TAbsCustomHttpServer.SetCertificateData(AValue: TCertificateData);
@@ -804,7 +807,10 @@ end;
 
 procedure TAbsCustomHttpServer.SetPrivateKey(AValue: String);
 begin
-  CertificateData.PrivateKey.FileName:= FSSLLoc + AValue;
+  if Length(AValue) = 0 then
+    CertificateData.PrivateKey.FileName:= ''
+  else
+    CertificateData.PrivateKey.FileName:= FSSLLoc + AValue;
 end;
 
 procedure TAbsCustomHttpServer.SetQueueSize(const AValue: Word);

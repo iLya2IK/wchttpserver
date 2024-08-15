@@ -465,7 +465,7 @@ begin
     Result:=UsePrivateKeyFile(FN,SSL_FILETYPE_PEM);
     if (Result<>1) then
       Result:=UsePrivateKeyFile(FN,SSL_FILETYPE_ASN1);
-    end;
+    end
 end;
 
 function TExtSSLContext.UseCertificate(Data: TSSLData): cint;

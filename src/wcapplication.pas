@@ -17,7 +17,6 @@ unit wcApplication;
 
 interface
 
-
 {$IFDEF SERVER_NOT_RPC_MODE}
 {$UNDEF SERVER_RPC_MODE}
 {$ENDIF}
@@ -2519,7 +2518,9 @@ begin
             if not assigned(FRequest) then
               FRequest := ConvertFromRefRequest(RefRequest);
           end else
+          begin
             Result := wccrNoData;
+          end;
         end;
       end;
       {$IFDEF WC_WEB_SOCKETS}
@@ -4699,11 +4700,19 @@ end;
 
 function TWebClientsContainer.OnGenSessionID({%H-}aSession: TSqliteWebSession
   ): String;
-var CID : Cardinal;
+var
+  CID : Cardinal;
+  bytew : Array [0..8] of Byte;
 begin
   CID := FCurCID.ID;
-  Result := EncodeIntToB64(CID, 4) + '-' +
-            EncodeInt64ToB64(GetTickCount64, 8);
+
+  PInt32(@(bytew[0]))^ := int32(CID and $ffffffff);
+  PInt16(@(bytew[4]))^ := int16((CID and $ffff) xor $E7BD);
+  PInt16(@(bytew[6]))^ := int16((GetTickCount64 mod 100000) and $ffff);
+  bytew[8] := Byte(Random(256));
+
+  Result := EncodeBufToB64(bytew, 9, true);
+
   PREP_ClientSetLastCUID.Execute([CID+1]);
 end;
 
