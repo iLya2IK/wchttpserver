@@ -173,8 +173,7 @@ type
     property WCContent : TWCContent read GetWCContent;
   end;
 
-  TSocketState = (ssCanRead, ssCanSend, ssReading, ssSending, ssError);
-  TSocketStates = set of TSocketState;
+  TSocketStates = TAtomicCardinal;
 
   { TWCSocketReference }
 
@@ -188,10 +187,7 @@ type
     {$endif}
     FSocket : TSocketStream;
     FSocketStates: TSocketStates;
-  public
-    constructor Create(aSocket : TSocketStream);
-    destructor Destroy; override;
-
+  protected
     {$ifdef socket_select_mode}
     procedure GetSocketStates;
     {$endif}
@@ -199,8 +195,8 @@ type
     procedure SetCanSend;
     procedure PushError;
 
-    function  CanRead : Boolean;
-    function  CanSend : Boolean;
+    function  Readable : Boolean;
+    function  Sendable : Boolean;
     function  ReadyToRead : Boolean;
     function  ReadyToSend : Boolean;
     function  HasErrors : Boolean;
@@ -209,6 +205,10 @@ type
     procedure StopReading;
     function  StartSending : Boolean;
     procedure StopSending;
+
+  public
+    constructor Create(aSocket : TSocketStream);
+    destructor Destroy; override;
 
     function Write(const Buffer; Size : Integer) : Integer;
     function Read(var Buffer; Size : Integer) : Integer;
@@ -295,7 +295,7 @@ type
     FSocketRef : TWCSocketReference;
     FReadData : TRefReadSendData;
     FSendData : TRefReadSendData;
-    FDataSending, FDataReading : TThreadBoolean;
+    FDataSending, FDataReading : TAtomicBoolean;
     {$IFDEF SOCKET_EPOLL_MODE}
     FIsIOCandidate : TThreadCandidate;
     procedure IncIOCandidate(aType : TWCIOCandidateType);
@@ -644,6 +644,12 @@ const
   sleep_timeout10 : Ttimespec = (tv_sec:0; tv_nsec:10000000);
   sleep_timeout100 : Ttimespec = (tv_sec:0; tv_nsec:100000000);
 {$endif}
+
+  SS_CAN_READ : Cardinal = $00000001;
+  SS_CAN_SEND : Cardinal = $00000002;
+  SS_READING  : Cardinal = $00000004;
+  SS_SENDING  : Cardinal = $00000008;
+  SS_ERROR    : Cardinal = $00000010;
 
 type
   TWCLifeTimeChecker = record
@@ -1606,7 +1612,7 @@ begin
   FWaitTime.tv_sec := 0;
   FWaitTime.tv_usec := 1000;
   {$endif}
-  FSocketStates:=[ssCanSend, ssCanRead];
+  FSocketStates:= TSocketStates.Create(SS_CAN_READ or SS_CAN_SEND);
 end;
 
 destructor TWCSocketReference.Destroy;
@@ -1617,6 +1623,7 @@ begin
   FreeMem(Pointer(FWriteFDSet), SOCKET_FDSET_SIZE);
   FreeMem(Pointer(FErrorFDSet), SOCKET_FDSET_SIZE);
   {$endif}
+  FSocketStates.Free;
   inherited Destroy;
 end;
 
@@ -1687,74 +1694,39 @@ end;
 
 procedure TWCSocketReference.SetCanRead;
 begin
-  Lock;
-  try
-    FSocketStates:=FSocketStates + [ssCanRead];
-  finally
-    UnLock;
-  end;
+  FSocketStates.OrValue(SS_CAN_READ);
 end;
 
 procedure TWCSocketReference.SetCanSend;
 begin
-  Lock;
-  try
-    FSocketStates:=FSocketStates + [ssCanSend];
-  finally
-    UnLock;
-  end;
-end;
-
-function TWCSocketReference.CanRead: Boolean;
-begin
-  Lock;
-  try
-    Result := ([ssCanRead, ssReading,
-                ssSending, ssError] * FSocketStates) = [ssCanRead];
-  finally
-    UnLock;
-  end;
-end;
-
-function TWCSocketReference.CanSend: Boolean;
-begin
-  Lock;
-  try
-    Result := ([ssCanSend, ssReading,
-                ssSending, ssError] * FSocketStates) = [ssCanSend];
-  finally
-    UnLock;
-  end;
+  FSocketStates.OrValue(SS_CAN_SEND);
 end;
 
 function TWCSocketReference.ReadyToRead: Boolean;
 begin
-  Lock;
-  try
-    Result := ([ssCanRead, ssError] * FSocketStates) = [ssCanRead];
-  finally
-    UnLock;
-  end;
+  Result := (FSocketStates.Value and (SS_CAN_READ or SS_READING or
+              SS_SENDING or SS_ERROR)) = SS_CAN_READ;
 end;
 
 function TWCSocketReference.ReadyToSend: Boolean;
 begin
-  Lock;
-  try
-    Result := ([ssCanSend, ssError] * FSocketStates) = [ssCanSend];
-  finally
-    UnLock;
-  end;
+  Result := (FSocketStates.Value and (SS_CAN_SEND or SS_READING or
+              SS_SENDING or SS_ERROR)) = SS_CAN_SEND;
+end;
+
+function TWCSocketReference.Readable: Boolean;
+begin
+  Result := (FSocketStates.Value and (SS_CAN_READ or SS_ERROR)) = SS_CAN_READ;
+end;
+
+function TWCSocketReference.Sendable: Boolean;
+begin
+  Result := (FSocketStates.Value and (SS_CAN_SEND or SS_ERROR)) = SS_CAN_SEND;
 end;
 
 function TWCSocketReference.HasErrors: Boolean;
 begin
-  Lock;
-  try
-    Result := ssError in FSocketStates;
-  finally
-    UnLock;
-  end;
+  Result := (FSocketStates.Value and SS_ERROR) > 0;
 end;
 
 function TWCSocketReference.HasNoErrors: Boolean;
@@ -1764,58 +1736,33 @@ end;
 
 function TWCSocketReference.StartReading : Boolean;
 begin
-  Lock;
-  try
-    if ReadyToRead then begin
-      FSocketStates := FSocketStates + [ssReading];
-      Result := true;
-    end else Result := false;
-  finally
-    UnLock;
-  end;
+  if Readable then begin
+    FSocketStates.OrValue(SS_READING);
+    Result := true;
+  end else Result := false;
 end;
 
 procedure TWCSocketReference.StopReading;
 begin
-  Lock;
-  try
-    FSocketStates := FSocketStates - [ssReading];
-  finally
-    UnLock;
-  end;
+  FSocketStates.AndValue(not SS_READING);
 end;
 
 function TWCSocketReference.StartSending: Boolean;
 begin
-  Lock;
-  try
-    if CanSend then begin
-      FSocketStates := FSocketStates + [ssSending];
-      Result := true;
-    end else Result := false;
-  finally
-    UnLock;
-  end;
+  if Sendable then begin
+    FSocketStates.OrValue(SS_SENDING);
+    Result := true;
+  end else Result := false;
 end;
 
 procedure TWCSocketReference.StopSending;
 begin
-  Lock;
-  try
-    FSocketStates := FSocketStates - [ssSending];
-  finally
-    UnLock;
-  end;
+  FSocketStates.AndValue(not SS_SENDING);
 end;
 
 procedure TWCSocketReference.PushError;
 begin
-  Lock;
-  try
-    FSocketStates := FSocketStates + [ssError];
-  finally
-    UnLock;
-  end;
+  FSocketStates.OrValue(SS_ERROR);
 end;
 
 function TWCSocketReference.Write(const Buffer; Size: Integer): Integer;
@@ -1828,12 +1775,7 @@ begin
       if (Result <= 0) and (errno = ESysEAGAIN) then
       {$ENDIF}
       begin
-        Lock;
-        try
-          FSocketStates := FSocketStates - [ssCanSend];
-        finally
-          UnLock;
-        end;
+        FSocketStates.AndValue(not SS_CAN_SEND);
       end;
     except
       on E : ESocketError do begin
@@ -1857,12 +1799,7 @@ begin
       if (Result < Size) or (errno = ESysEAGAIN) then
       {$ENDIF}
       begin
-        Lock;
-        try
-          FSocketStates := FSocketStates - [ssCanRead];
-        finally
-          UnLock;
-        end;
+        FSocketStates.AndValue(not SS_CAN_READ);
       end;
     except
       on E : ESocketError do begin
@@ -2136,7 +2073,7 @@ var C : TWCIOCandidate;
     CType : TWCIOCandidateType;
     Con : TWCRefConnection;
     i : integer;
-    b1, b2, b3 : Boolean;
+    b1, b2 : Boolean;
 begin
   {$ifdef SOCKET_EPOLL_ACCEPT}
   Result := DoAccept;
@@ -2164,11 +2101,10 @@ begin
                 TryIO(Con, ctSend);
             end;
             ctRead : begin
-              b1 := Con.ReadyToRead;
-              b2 := Con.FSocketRef.ReadyToRead;
-              b3 := Con.RequestsWaiting;
+              b1 := Con.ReadyToRead or Con.RequestsWaiting;
+              b2 := Con.FSocketRef.Readable;
 
-              if (not Con.TryToConsumeFrames) and b1 and (b2 or b3) then
+              if (not Con.TryToConsumeFrames) and b1 and b2 then
                 TryIO(Con, ctRead);
             end;
           end;
@@ -2699,8 +2635,8 @@ begin
   FWriteTailSize:= 0;
   FReadData := aReadData;
   FSendData := aSendData;
-  FDataSending := TThreadBoolean.Create(false);
-  FDataReading := TThreadBoolean.Create(false);
+  FDataSending := TAtomicBoolean.Create(false);
+  FDataReading := TAtomicBoolean.Create(false);
   FFramesToSend := TThreadSafeFastSeq.Create;
   FConnectionState := TThreadSafeConnectionState.Create(wcCONNECTED);
   {$IFDEF SOCKET_EPOLL_MODE}
@@ -2733,7 +2669,7 @@ begin
   {$ifdef SOCKET_EPOLL_MODE}
   try
     FOwner.ResetReadingEPoll(Self);
-    if (FSocketRef.ReadyToRead or RequestsWaiting) then
+    if (FSocketRef.Readable or RequestsWaiting) then
       FOwner.TryIO(Self, ctRead);
   except
     on ESocketError do ConsumeResult := wccrSocketError;
@@ -2915,9 +2851,9 @@ end;
 
 function TWCRefConnection.TryToConsumeFrames : Boolean;
 begin
-  FDataReading.Lock;
+  //FDataReading.Lock;
   try
-    if (FSocketRef.CanRead or RequestsWaiting) and
+    if (FSocketRef.ReadyToRead or RequestsWaiting) and
         ReadyToRead and
         assigned(FReadData) then
     begin
@@ -2929,15 +2865,15 @@ begin
       Result := false;
     end;
   finally
-    FDataReading.UnLock;
+    //FDataReading.UnLock;
   end;
 end;
 
 function TWCRefConnection.TryToSendFrames(const TS : Qword) : Boolean;
 begin
-  FDataSending.Lock;
+  //FDataSending.Lock;
   try
-    if FSocketRef.CanSend and
+    if FSocketRef.ReadyToSend and
         ReadyToWrite and
         Assigned(FSendData) then
     begin
@@ -2948,7 +2884,7 @@ begin
     end else
       Result := false;
   finally
-    FDataSending.UnLock;
+    //FDataSending.UnLock;
   end;
 end;
 
