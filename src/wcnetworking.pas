@@ -1652,7 +1652,7 @@ begin
     FErrorFDSet^.fd_count := 1;
     FErrorFDSet^.fd_array[0] := Socket.Handle;
     n := Select(Socket.Handle+1, FReadFDSet, FWriteFDSet, FErrorFDSet, @FWaitTime);
-    FSocketStates:= FSocketStates - [ssCanRead, ssCanSend];
+    FSocketStates.AndValue(not (SS_CAN_READ or SS_CAN_SEND));
     {$endif}
     if n < 0 then
     begin
@@ -1667,22 +1667,22 @@ begin
     begin
       {$ifdef windows}
       if FD_ISSET(Socket.Handle, FErrorFDSet^) then
-         FSocketStates:=FSocketStates + [ssError] else
+         FSocketStates.OrValue(SS_ERROR) else
       begin
         if FD_ISSET(Socket.Handle, FReadFDSet^) then
-           FSocketStates:=FSocketStates + [ssCanRead];
+           FSocketStates.OrValue(SS_CAN_READ);
         if FD_ISSET(Socket.Handle, FWriteFDSet^) then
-           FSocketStates:=FSocketStates + [ssCanSend];
+           FSocketStates.OrValue(SS_CAN_SEND);
       end;
       {$endif}
       {$ifdef unix}
       if fpFD_ISSET(Socket.Handle, FErrorFDSet^)>0 then
-         FSocketStates:=FSocketStates + [ssError] else
+         FSocketStates.OrValue(SS_ERROR) else
       begin
         if fpFD_ISSET(Socket.Handle, FReadFDSet^)>0 then
-           FSocketStates:=FSocketStates + [ssCanRead];
+           FSocketState.OrValue(SS_CAN_READ);
         if fpFD_ISSET(Socket.Handle, FWriteFDSet^)>0 then
-           FSocketStates:=FSocketStates + [ssCanSend];
+           FSocketStates.OrValue(SS_CAN_SEND);
       end;
       {$endif}
     end;
