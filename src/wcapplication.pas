@@ -272,7 +272,7 @@ type
       inlen : Cardinal) : integer;
     Procedure InitGlobalSSLContext;
     {$endif}
-    function CompareMainJobs({%H-}Tree: TAvgLvlTree; Data1, Data2: Pointer) : Integer;
+    function CompareMainJobs(const aJob: TSortedJob) : Integer;
     procedure AddToMainPool(AJob : TWCMainClientJob);
     procedure CheckThreadPool;
     function GetHTTP2Settings: TWCHTTP2Settings;
@@ -948,6 +948,10 @@ const
   WC_MAX_MAIN_THREADS = 32;
   WC_MAX_PREP_THREADS = 32;
   WC_MAX_IO_THREADS   = 8;
+
+  WC_SORTED_LEVEL_HIGH      = 7;
+  WC_SORTED_LEVEL_COUNT     = 8;
+  WC_SORTED_LEVEL_SEL_SHIFT = 1;
 
 {$ifndef wiki_docs}
 {$I wcappconfig.inc}
@@ -2662,7 +2666,7 @@ begin
     aConn.Client.UpdateScore;
   end else
   {$ENDIF}
-    inherited Create( GetTickCount64 div 1000 );
+    inherited Create( GetTickCount64 and $F );
 
   FConn := aConn;
   FResponseReadyToSend := true;
@@ -2693,11 +2697,10 @@ end;
 
 { TWCHttpServer }
 
-function TWCHttpServer.CompareMainJobs(Tree: TAvgLvlTree; Data1, Data2: Pointer
-  ): Integer;
+function TWCHttpServer.CompareMainJobs(const aJob: TSortedJob): Integer;
 begin
-  Result := CompareValue(TWCMainClientJob(Data1).Score,
-                         TWCMainClientJob(Data2).Score);
+  Result := aJob.Score shr WC_SORTED_LEVEL_SEL_SHIFT;
+  if Result > WC_SORTED_LEVEL_HIGH then Result := WC_SORTED_LEVEL_HIGH;
 end;
 
 constructor TWCHttpServer.Create(AOwner: TComponent);
@@ -2964,7 +2967,8 @@ begin
    try
      if not assigned(FThreadPool) then
      begin
-       FThreadPool := TSortedThreadPool.Create(@CompareMainJobs,
+       FThreadPool := TSortedThreadPool.Create(WC_SORTED_LEVEL_COUNT,
+                                               @CompareMainJobs,
                                                Application.ThreadPoolJobToJobWait,
                                                Application.MaxMainThreads,
                                                Application.MaxPrepareThreads);
