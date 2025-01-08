@@ -44,8 +44,9 @@ uses
   HTTP2Consts,
   AbstractHTTPServer,
   wcHTTP2Con,
-  ExtOpenSSL,
+  ExtOpenSSL, sslsockets,
   custweb, CustAbsHTTPApp,
+  extopensslsockets,
   {$IFDEF SERVER_RPC_MODE}
   OGLB64Utils,
   SqliteWebSession,
@@ -256,6 +257,13 @@ type
     function FindIP(const vIP : String) : TWCIPBlocked;
     procedure Unfreeze(forSec : Integer);
     procedure FreeUnblocked;
+  end;
+
+  { TWCOpenSSLSocketHandler }
+
+  TWCOpenSSLSocketHandler = class(TExtOpenSSLSocketHandler)
+  public
+    function Accept : Boolean; override;
   end;
 
   { TWCHttpServer }
@@ -959,7 +967,7 @@ const
 
 Implementation
 
-uses  CustApp, extopensslsockets, wcutils, math, LazUTF8;
+uses  CustApp, wcutils, math, LazUTF8;
 const WCSocketReadError = 'Socket read error';
       WCSocketWriteError = 'Socket write error %d';
 
@@ -1016,6 +1024,7 @@ begin
   fpSignal(SIGPIPE, @SignalHandler);
   {$ENDIF}
   AddWCConfiguration(WC_CFG_CONFIGURATION);
+  TSSLSocketHandler.SetDefaultHandlerClass(TWCOpenSSLSocketHandler);
   Application:=TWCHTTPApplication.Create(Nil);
   if not assigned(CustomApplication) then
     CustomApplication := Application;
@@ -1129,6 +1138,8 @@ begin
     if assigned(Application.WCServer) then
     begin
       S := UTF8StringReplace(S, '%acc%', inttostr(Application.WCServer.RefConnections.Count), [rfReplaceAll]);
+      S := UTF8StringReplace(S, '%scc%', inttostr(Application.WCServer.ConnectedSocketsCount), [rfReplaceAll]);
+      S := UTF8StringReplace(S, '%icc%', inttostr(Application.WCServer.IncomingSocketsCount), [rfReplaceAll]);
       if assigned(Application.WCServer.FThreadPool) then
       with Application.WCServer.FThreadPool do
       begin
@@ -1172,6 +1183,14 @@ end;
 procedure TWCIPBlockList.FreeUnblocked;
 begin
   EraseObjectsByCriteria(@IsUnblocked, nil);
+end;
+
+{ TWCOpenSSLSocketHandler }
+
+function TWCOpenSSLSocketHandler.Accept : Boolean;
+begin
+  Socket.IOTimeout := wcNetworking.SOCKET_ACCEPT_TIMEOUT_MS;
+  Result := inherited Accept;
 end;
 
 { TWCIPBlocked }
@@ -1257,6 +1276,7 @@ end;
 
 constructor TWCPreAnalizeJob.Create(aConn : TWCAppConnection);
 begin
+  inherited Create;
   FConn := aConn;
 end;
 
@@ -2816,12 +2836,12 @@ begin
     Result:=inherited CreateSSLSocketHandler;
     if assigned(Result) then
     begin
-      TExtOpenSSLSocketHandler(Result).AlpnList := AlpnList.Text;
-      TExtOpenSSLSocketHandler(Result).SSLMasterKeyLog:= SSLMasterKeyLog;
+      TWCOpenSSLSocketHandler(Result).AlpnList := AlpnList.Text;
+      TWCOpenSSLSocketHandler(Result).SSLMasterKeyLog:= SSLMasterKeyLog;
       {$ifdef USE_GLOBAL_SSL_CONTEXT}
       InitGlobalSSLContext;
       if Assigned(FSSLContext) then
-        TExtOpenSSLSocketHandler(Result).GlobalContext := FSSLContext;
+        TWCOpenSSLSocketHandler(Result).GlobalContext := FSSLContext;
       {$ENDIF}
     end;
   finally
@@ -2849,7 +2869,6 @@ end;
 function TWCHttpServer.CreateConnection(Data: TSocketStream): TAbsHTTPConnection;
 begin
   Result:= TWCAppConnection.Create(Self, Data);
-  Data.IOTimeout := 10000;
 end;
 
 function TWCHttpServer.CreateRequest: TAbsHTTPConnectionRequest;

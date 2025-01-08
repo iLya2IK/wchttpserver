@@ -263,9 +263,9 @@ type
 
   { TThreadCandidate }
 
-  TThreadCandidate = class(TThreadSafeObject)
+  TThreadCandidate = class
   private
-    FValues : Array [TWCIOCandidateType] of Integer;
+    FValues : Array [TWCIOCandidateType] of TAtomicInteger;
     function GetValue(Pos : TWCIOCandidateType) : Integer;
     procedure SetValue(Pos : TWCIOCandidateType; AValue : Integer);
   public
@@ -602,6 +602,8 @@ type
     FRefConnections : TWCRefConnections;
     FServerActive : Boolean;
     FNeedServerSocketRestart : TThreadBoolean;
+    function GetAbsConnections : Integer;
+    function GetIncomingConnections : Integer;
     function GetNeedServerSocketRestart : Boolean;
     procedure SetNeedServerSocketRestart(AValue : Boolean);
   protected
@@ -615,11 +617,17 @@ type
     procedure StartServerSocket; override;
     procedure StopServerSocket; override;
   public
+    property  ConnectedSocketsCount : Integer read GetAbsConnections;
+    property  IncomingSocketsCount : Integer read GetIncomingConnections;
     property  RefConnections : TWCRefConnections read FRefConnections;
     property  ServerActive : Boolean read FServerActive;
     property  NeedServerSocketRestart : Boolean read GetNeedServerSocketRestart
                                                 write SetNeedServerSocketRestart;
   end;
+
+const
+  SOCKET_ACCEPT_TIMEOUT_MS = 3000;
+  SOCKET_READ_TIMEOUT_MS   = 10000;
 
 implementation
 
@@ -708,6 +716,21 @@ end;
 function TWCCustomHttpServer.GetNeedServerSocketRestart : Boolean;
 begin
   Result := FNeedServerSocketRestart.Value;
+end;
+
+function TWCCustomHttpServer.GetAbsConnections : Integer;
+begin
+  Result := ConnectionCount;
+end;
+
+function TWCCustomHttpServer.GetIncomingConnections : Integer;
+begin
+  {$ifdef SOCKET_EPOLL_ACCEPT}
+  Result := RefConnections.FAcceptancePool.Count;
+  {$else}
+  // Not supported
+  Result := 0;
+  {$endif}
 end;
 
 procedure TWCCustomHttpServer.SetNeedServerSocketRestart(AValue : Boolean);
@@ -1052,52 +1075,46 @@ end;
 
 function TThreadCandidate.GetValue(Pos : TWCIOCandidateType) : Integer;
 begin
-  Lock;
-  try
-    Result := FValues[Pos];
-  finally
-    UnLock;
-  end;
+  Result := FValues[Pos].Value;
 end;
 
 procedure TThreadCandidate.SetValue(Pos : TWCIOCandidateType; AValue : Integer);
 begin
-  Lock;
-  try
-    FValues[Pos] := AValue;
-  finally
-    UnLock;
-  end;
+  FValues[Pos].Value := AValue;
 end;
 
 constructor TThreadCandidate.Create;
+var
+  cd : TWCIOCandidateType;
 begin
   inherited Create;
+
+  for cd := Low(TWCIOCandidateType) to High(TWCIOCandidateType) do
+  begin
+    FValues[cd] := TAtomicInteger.Create(0);
+  end;
 end;
 
 destructor TThreadCandidate.Destroy;
+var
+  cd : TWCIOCandidateType;
 begin
+  for cd := Low(TWCIOCandidateType) to High(TWCIOCandidateType) do
+  begin
+    FValues[cd].Free;
+  end;
+
   inherited Destroy;
 end;
 
 procedure TThreadCandidate.DecValue(Pos : TWCIOCandidateType);
 begin
-  Lock;
-  try
-    Dec(FValues[Pos]);
-  finally
-    UnLock;
-  end;
+  FValues[Pos].DecValue;
 end;
 
 procedure TThreadCandidate.IncValue(Pos : TWCIOCandidateType);
 begin
-  Lock;
-  try
-    Inc(FValues[Pos]);
-  finally
-    UnLock;
-  end;
+  FValues[Pos].IncValue;
 end;
 
 { TWCIOCandidate }
@@ -2455,6 +2472,7 @@ begin
           fpfcntl(aSocket.Socket, F_SETFD, fpfcntl(aSocket.Socket, F_GetFD, 0) or O_NONBLOCK);
         Stream := FServer.ipServer.SockToStream(aSocket.Socket);
         if Assigned(Stream) then begin
+          Stream.IOTimeout := SOCKET_READ_TIMEOUT_MS;
           FServer.ipServer.DoConnect(Stream);
           Stream := nil;
         end;

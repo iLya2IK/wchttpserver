@@ -527,7 +527,7 @@ function TExtOpenSSLSocketHandler.Recv(const Buffer; Count: Integer): Integer;
 begin
   Result:=FSSL.Read(@Buffer, Count);
   FSSLLastError:=FSSL.GetError(Result);
-  if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout>0) then
+  if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout > 0) then
     FSSLLastError:=SSL_ERROR_ZERO_RETURN;
   if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
     Result:=0 else
