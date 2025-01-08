@@ -103,6 +103,7 @@ Type
     function Accept : cInt;
     function Connect : cInt;
     function Shutdown : cInt;
+    function GetShutdown : Boolean;
     function Read(buf: SslPtr; num: cInt):cInt;
     function Peek(buf: SslPtr; num: cInt):cInt;
     function Write(buf: SslPtr; num: cInt):cInt;
@@ -634,12 +635,12 @@ end;
 
 { TExtSSL }
 
-Constructor TExtSSL.Create(ASSL: PSSL);
+constructor TExtSSL.Create(ASSL : PSSL);
 begin
   FSSL:=ASSL;
 end;
 
-Constructor TExtSSL.Create(AContext: TExtSSLContext);
+constructor TExtSSL.Create(AContext : TExtSSLContext);
 begin
   FSSL:=Nil;
   FHasFatalError := false;
@@ -694,6 +695,11 @@ begin
   end;
 end;
 
+function TExtSSL.GetShutdown : Boolean;
+begin
+  Result := (SslGetShutdown(FSSL) and SSL_RECEIVED_SHUTDOWN) = SSL_RECEIVED_SHUTDOWN;
+end;
+
 function TExtSSL.Read(buf: SslPtr; num: cInt): cInt;
 begin
   Result:=sslRead(FSSL,buf,num);
@@ -709,7 +715,7 @@ begin
   Result:=sslWrite(FSSL,buf,num);
 end;
 
-Function TExtSSL.PeerCertificate: PX509;
+function TExtSSL.PeerCertificate : PX509;
 begin
   Result:=sslGetPeercertificate(FSSL);
 end;
@@ -719,7 +725,7 @@ begin
   Result:=sslPending(FSSL);
 end;
 
-Function TExtSSL.GetError(AResult: cint): cint;
+function TExtSSL.GetError(AResult : cint) : cint;
 begin
   Result:=SslGetError(FSsl,AResult);
   if (Result in [SSL_ERROR_SYSCALL, SSL_ERROR_SSL]) then
@@ -786,7 +792,7 @@ begin
     end;
 end;
 
-Function TExtSSL.PeerIssuer: String;
+function TExtSSL.PeerIssuer : String;
 
 var
   C: PX509;
@@ -805,7 +811,7 @@ begin
   end;
 end;
 
-Function TExtSSL.PeerSerialNo: Integer;
+function TExtSSL.PeerSerialNo : Integer;
 var
   C : PX509;
   SN : PASN1_INTEGER;
@@ -823,7 +829,7 @@ begin
   end;
 end;
 
-Function TExtSSL.PeerFingerprint: String;
+function TExtSSL.PeerFingerprint : String;
 var
   C : PX509;
   L : integer;
@@ -843,7 +849,7 @@ begin
   end;
 end;
 
-Function TExtSSL.CertInfo: String;
+function TExtSSL.CertInfo : String;
 var
   C : PX509;
   B : PBIO;
@@ -888,7 +894,7 @@ begin
   SSLCipherGetBits(GetCurrentCipher,Result);
 end;
 
-Function TExtSSL.VerifyResult: Integer;
+function TExtSSL.VerifyResult : Integer;
 
 begin
   Result:=SslGetVerifyResult(FSsl);

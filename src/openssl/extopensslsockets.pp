@@ -26,6 +26,8 @@ Type
 
   ESSLIOError = class(ESocketError);
 
+  TExtOpenSSLFunc = (esslfUnknown, esslfConnect, esslfAccept, esslfRead, esslfWrite, esslfShutdown);
+
   { TExtOpenSSLSocketHandler }
 
   TExtOpenSSLSocketHandler = Class(TExtSSLSocketHandler)
@@ -35,6 +37,8 @@ Type
     FCTX : TExtSSLContext;
     FSSLLastErrorString: string;
     FSSLLastError : Integer;
+    FLocation : TExtOpenSSLFunc;
+    FLastResult : Integer;
     FSSLMasterKeyLog: String;
     FAlpnList : TStringList;
     FUseGlobalContext : Boolean;
@@ -44,10 +48,11 @@ Type
     procedure SetGlobalContext(AValue : TExtSSLContext);
     procedure SetSSLMasterKeyLog(AValue: String);
     procedure TryToSaveMasterKey;
+    function OpenSSLFuncToStr() : String;
   Protected
     procedure SetSSLLastErrorString(AValue: string);
     Function FetchErrorInfo: Boolean;
-    procedure HandleSSLIOError(aResult: Integer; isSend: Boolean);
+    procedure HandleSSLIOError(isSend: Boolean);
     procedure HandleSSLLastError();
     function CheckSSL(SSLResult: Integer): Boolean;
     function CheckSSL(SSLResult: Pointer): Boolean;
@@ -130,7 +135,7 @@ end;
 
 function IsSSLBlockError(const anError: Longint): Boolean; inline;
 begin
-  Result := (anError = SSL_ERROR_WANT_READ) or (anError = SSL_ERROR_WANT_WRITE);
+  Result := (anError = SSL_ERROR_WANT_READ) or (anError = SSL_ERROR_WANT_WRITE) or (anError = SSL_ERROR_ZERO_RETURN);
 end;
 
 function IsSSLNonFatalError(const anError, aRet: Longint; out aErr : Longint): Boolean; inline;
@@ -138,7 +143,7 @@ begin
   aErr := SSL_ERROR_NONE;
   Result := (anError <> SSL_ERROR_SSL); // SSL_ERROR_SSL - fatal error
   if (anError = SSL_ERROR_SYSCALL) then begin
-    aErr := ErrGetError();
+    aErr := ErrPeekLastError();
     if aErr = 0 then begin // we need to check the ret
       if aRet < 0 then
       begin
@@ -225,6 +230,19 @@ begin
   end;
 end;
 
+function TExtOpenSSLSocketHandler.OpenSSLFuncToStr() : String;
+begin
+  case FLocation of
+    esslfConnect : Result := 'Conenct';
+    esslfAccept : Result := 'Accept';
+    esslfRead : Result := 'Read';
+    esslfWrite : Result := 'Write';
+    esslfShutdown : Result := 'Shutdown';
+  else
+    Result := 'Unknown';
+  end;
+end;
+
 procedure TExtOpenSSLSocketHandler.SetSSLLastErrorString(AValue: string);
 begin
   if FSSLLastErrorString=AValue then Exit;
@@ -242,6 +260,7 @@ begin
      begin
        if SendHostAsSNI  and (Socket is TInetSocket) then
          FSSL.Ctrl(SSL_CTRL_SET_TLSEXT_HOSTNAME,TLSEXT_NAMETYPE_host_name,PAnsiChar(AnsiString((Socket as TInetSocket).Host)));
+       FLocation := esslfConnect;
        Result:=CheckSSL(FSSL.Connect);
        if Result and VerifyPeerCert then
          Result:=(FSSL.VerifyResult<>0) or (not DoVerifyCert);
@@ -261,32 +280,37 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.FetchErrorInfo: Boolean;
+const LEN_OF_ERROR_STR = 256;
 var
   S : AnsiString;
 begin
   FSSLLastErrorString:='';
-  FSSLLastError:=ErrGetError;
-  ErrClearError;
-  Result:=(FSSLLastError<>0);
+  Result:=(FSSLLastError <> SSL_ERROR_NONE);
   if Result then
   begin
-    S:=StringOfChar(#0,256);
-    ErrErrorString(FSSLLastError,S,256);
-    FSSLLastErrorString:=s;
+    S:=StringOfChar(#0,LEN_OF_ERROR_STR);
+    ErrErrorString(FSSLLastError, S, LEN_OF_ERROR_STR);
+    FSSLLastErrorString := s;
   end;
+  ErrClearError;
 end;
 
-procedure TExtOpenSSLSocketHandler.HandleSSLIOError(aResult: Integer; isSend : Boolean);
+procedure TExtOpenSSLSocketHandler.HandleSSLIOError(isSend : Boolean);
 begin
-  if (FSSLLastError <> 0) then begin
+  if (FSSLLastError <> SSL_ERROR_NONE) then begin
     if not IsSSLBlockError(FSSLLastError) then
     begin
-      if not IsSSLNonFatalError(FSSLLastError, aResult, FLastError) then
+      if not IsSSLNonFatalError(FSSLLastError, FLastResult, FLastError) then
       begin
         if IsSend and (IsPipeError(FLastError)) then
           raise ESSLIOError.CreateFmt('pipe error %d - %s', [FLastError, FSSLLastErrorString])
         else
-          raise ESSLIOError.CreateFmt('io error %d - %s', [FLastError, FSSLLastErrorString]);
+          raise ESSLIOError.CreateFmt('at %s io_error %d, ssl_error %d, ssl_result %d %s',
+                                                    [OpenSSLFuncToStr,
+                                                     FLastError,
+                                                     FSSLLastError,
+                                                     FLastResult,
+                                                     FSSLLastErrorString]);
       end;
     end;
   end;
@@ -294,24 +318,32 @@ end;
 
 procedure TExtOpenSSLSocketHandler.HandleSSLLastError();
 begin
-  HandleSSLIOError(-1, false);
+  HandleSSLIOError(false);
 end;
 
 function TExtOpenSSLSocketHandler.CheckSSL(SSLResult : Integer) : Boolean;
 begin
-  Result:=(SSLResult > 0);
+  FLastResult := SSLResult;
+  Result := (SSLResult > 0);
   if Not Result then
   begin
-     FSSLLastError:=SSLResult;
-     FetchErrorInfo;
+    if Assigned(FSSL) then
+      FSSLLastError := FSSL.GetError(SSLResult)
+    else
+      FSSLLastError := ErrPeekLastError;
+    FetchErrorInfo;
   end;
 end;
 
 function TExtOpenSSLSocketHandler.CheckSSL(SSLResult: Pointer): Boolean;
 begin
-  Result:=(SSLResult<>Nil);
+  FLastResult := 0;
+  Result := Assigned(SSLResult);
   if not Result then
+  begin
+    FSSLLastError := ErrPeekLastError;
     Result:=FetchErrorInfo;
+  end;
 end;
 
 function TExtOpenSSLSocketHandler.DoneContext: Boolean;
@@ -402,15 +434,20 @@ begin
   inherited create;
   FAlpnList := TStringList.Create;
   FOnConnected := nil;
+  FSSL := nil;
   MaybeInitSSLInterface;
 end;
 
 destructor TExtOpenSSLSocketHandler.destroy;
 begin
-  if Assigned(FCTX) then
-    FreeAndNil(FCTX);
   if Assigned(FSSL) then
     FreeAndNil(FSSL);
+  if Assigned(FCTX) then
+  begin
+    if not FUseGlobalContext then
+      FreeAndNil(FCTX) else
+      FCTX := nil;
+  end;
   FAlpnList.Free;
   inherited destroy;
 end;
@@ -424,6 +461,8 @@ var
   s: AnsiString;
 
 begin
+  FLocation := esslfUnknown;
+
   if not FUseGlobalContext then
   begin
     Result:=DoneContext;
@@ -467,14 +506,35 @@ begin
 end;
 
 function TExtOpenSSLSocketHandler.Accept: Boolean;
-
+const MAX_ACCEPT_TIMES = 3;
+var
+  acceptTimeOut : Integer;
 begin
   Result:=InitContext(True);
   if Result then
   begin
+    FLocation := esslfAccept;
     Result:=CheckSSL(FSSL.setfd(Socket.Handle));
-    if Result then
+    acceptTimeOut := 0;
+    while Result do
+    begin
       Result:=CheckSSL(FSSL.Accept);
+      if (not Result) then
+      begin
+        case FSSLLastError of
+         SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE:
+         begin
+           Inc(acceptTimeOut);
+           Sleep(500);
+           if (acceptTimeOut < MAX_ACCEPT_TIMES) then
+             Result := True;
+         end;
+        else
+          break;
+        end;
+      end else
+        break;
+    end;
   end;
   SetSSLActive(Result);
   if Result then
@@ -484,15 +544,25 @@ end;
 
 
 function TExtOpenSSLSocketHandler.Shutdown(BiDirectional : Boolean): boolean;
-
 var
   r : integer;
-
 begin
   Result:=assigned(FSsl);
   if Result then
     If Not BiDirectional then
-      Result:=CheckSSL(FSSL.Shutdown)
+    begin
+      FLocation := esslfShutdown;
+
+      if not FSSL.GetShutdown then
+      begin
+        if FSSLLastError = SSL_ERROR_SSL then
+          Result := true
+        else begin
+          FSSL.Shutdown;
+          ErrClearError;
+        end;
+      end;
+    end
     else
     begin
       r:=FSSL.Shutdown;
@@ -511,27 +581,39 @@ end;
 
 function TExtOpenSSLSocketHandler.Send(const Buffer; Count: Integer): Integer;
 begin
-  // sentinel so we can tell if failure happened without any error code
-  // (otherwise we might see ESysENoTTY)
-  {$ifdef unix}
-  FpSetErrNo(Low(SocketError));
-  {$endif}
-  Result:=FSsl.Write(@Buffer, Count);
-  FSSLLastError:=FSsl.GetError(Result);
-  if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
-    Result:=0 else
-    HandleSSLIOError(Result, true);
+  if (FSSLLastError = SSL_ERROR_NONE) or (IsSSLBlockError(FSSLLastError)) then
+  begin
+    // sentinel so we can tell if failure happened without any error code
+    // (otherwise we might see ESysENoTTY)
+    {$ifdef unix}
+    FpSetErrNo(Low(SocketError));
+    {$endif}
+    FLocation := esslfWrite;
+    Result:=FSsl.Write(@Buffer, Count);
+    FLastResult := Result;
+    FSSLLastError:=FSsl.GetError(Result);
+    if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
+      Result:=0 else
+      HandleSSLIOError(true);
+  end else
+    Result := -1;
 end;
 
 function TExtOpenSSLSocketHandler.Recv(const Buffer; Count: Integer): Integer;
 begin
-  Result:=FSSL.Read(@Buffer, Count);
-  FSSLLastError:=FSSL.GetError(Result);
-  if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout > 0) then
-    FSSLLastError:=SSL_ERROR_ZERO_RETURN;
-  if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
-    Result:=0 else
-    HandleSSLIOError(Result, false);
+  if (FSSLLastError = SSL_ERROR_NONE) or (IsSSLBlockError(FSSLLastError)) then
+  begin
+    FLocation := esslfRead;
+    Result:=FSSL.Read(@Buffer, Count);
+    FLastResult := Result;
+    FSSLLastError:=FSSL.GetError(Result);
+    if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout > 0) then
+      FSSLLastError:=SSL_ERROR_ZERO_RETURN;
+    if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
+      Result:=0 else
+      HandleSSLIOError(false);
+  end else
+    Result := -1;
 end;
 
 function TExtOpenSSLSocketHandler.BytesAvailable: Integer;

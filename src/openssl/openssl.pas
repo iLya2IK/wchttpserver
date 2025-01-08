@@ -1178,6 +1178,7 @@ var
   procedure EVPcleanup;
   function SSLeayversion(t: cInt): string;  deprecated 'For 1.1+ use OpenSSL_version';
   procedure ErrErrorString(e: cInt; var buf: string; len: cInt);
+  function ErrPeekLastError : cInt;
   function ErrGetError: cInt;
   procedure ErrClearError;
   procedure ErrFreeStrings;
@@ -1665,6 +1666,7 @@ type
   TSSLeayversion = function(t: cInt): PChar; cdecl;
   TErrErrorString = procedure(e: cInt; buf: PChar; len: cInt); cdecl;
   TErrGetError = function: cInt; cdecl;
+  TErrPeekLastError = function: cInt; cdecl;
   TErrClearError = procedure; cdecl;
   TErrFreeStrings = procedure; cdecl;
   TErrRemoveState = procedure(pid: cInt); cdecl;
@@ -1908,6 +1910,7 @@ var
   _EVPcleanup: TEVPcleanup = nil;
   _SSLeayversion: TSSLeayversion = nil;
   _ErrErrorString: TErrErrorString = nil;
+  _ErrPeekLastError: TErrPeekLastError = nil;
   _ErrGetError: TErrGetError = nil;
   _ErrClearError: TErrClearError = nil;
   _ErrFreeStrings: TErrFreeStrings = nil;
@@ -2838,6 +2841,14 @@ begin
   else
     buf := SFailedToLoadOpenSSL;
   buf := PChar(Buf);
+end;
+
+function ErrPeekLastError : cInt;
+begin
+  if InitSSLInterface and Assigned(_ErrPeekLastError) then
+    Result := _ErrPeekLastError
+  else
+    Result := SSL_ERROR_SSL;
 end;
 
 function ErrGetError: cInt;
@@ -5115,6 +5126,7 @@ begin
     _SSLeayversion := GetProcAddr(SSLUtilHandle, 'OpenSSL_version');
   _ErrErrorString := GetProcAddr(SSLUtilHandle, 'ERR_error_string_n');
   _ErrGetError := GetProcAddr(SSLUtilHandle, 'ERR_get_error');
+  _ErrPeekLastError := GetProcAddr(SSLUtilHandle, 'ERR_peek_last_error');
   _ErrClearError := GetProcAddr(SSLUtilHandle, 'ERR_clear_error');
   _ErrFreeStrings := GetProcAddr(SSLUtilHandle, 'ERR_free_strings');
   _ErrRemoveState := GetProcAddr(SSLUtilHandle, 'ERR_remove_state');

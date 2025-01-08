@@ -259,13 +259,13 @@ type
   end;
 
   {$ifdef SOCKET_EPOLL_MODE}
-  TWCIOCandidateType = (ctSend, ctRead);
+  TWCIOCandidateType = (ctSend, ctRead, ctError);
 
   { TThreadCandidate }
 
-  TThreadCandidate = class
+  TThreadCandidate = class(TThreadSafeObject)
   private
-    FValues : Array [TWCIOCandidateType] of TAtomicInteger;
+    FValues : Array [TWCIOCandidateType] of Integer;
     function GetValue(Pos : TWCIOCandidateType) : Integer;
     procedure SetValue(Pos : TWCIOCandidateType; AValue : Integer);
   public
@@ -626,7 +626,7 @@ type
   end;
 
 const
-  SOCKET_ACCEPT_TIMEOUT_MS = 3000;
+  SOCKET_ACCEPT_TIMEOUT_MS = 10000;
   SOCKET_READ_TIMEOUT_MS   = 10000;
 
 implementation
@@ -1075,46 +1075,70 @@ end;
 
 function TThreadCandidate.GetValue(Pos : TWCIOCandidateType) : Integer;
 begin
-  Result := FValues[Pos].Value;
+//  Result := FValues[Pos].Value;
+  Lock;
+  try
+    Result := FValues[Pos];
+  finally
+    UnLock;
+  end;
 end;
 
 procedure TThreadCandidate.SetValue(Pos : TWCIOCandidateType; AValue : Integer);
 begin
-  FValues[Pos].Value := AValue;
+//  FValues[Pos].Value := AValue;
+  Lock;
+  try
+    FValues[Pos] := AValue;
+  finally
+    UnLock;
+  end;
 end;
 
 constructor TThreadCandidate.Create;
-var
-  cd : TWCIOCandidateType;
+{var
+  cd : TWCIOCandidateType;}
 begin
   inherited Create;
 
-  for cd := Low(TWCIOCandidateType) to High(TWCIOCandidateType) do
+ { for cd := Low(TWCIOCandidateType) to High(TWCIOCandidateType) do
   begin
     FValues[cd] := TAtomicInteger.Create(0);
-  end;
+  end;  }
 end;
 
 destructor TThreadCandidate.Destroy;
-var
-  cd : TWCIOCandidateType;
+{var
+  cd : TWCIOCandidateType;        }
 begin
-  for cd := Low(TWCIOCandidateType) to High(TWCIOCandidateType) do
+ { for cd := Low(TWCIOCandidateType) to High(TWCIOCandidateType) do
   begin
     FValues[cd].Free;
-  end;
+  end; }
 
   inherited Destroy;
 end;
 
 procedure TThreadCandidate.DecValue(Pos : TWCIOCandidateType);
 begin
-  FValues[Pos].DecValue;
+  //FValues[Pos].DecValue;
+  Lock;
+  try
+    Dec(FValues[Pos]);
+  finally
+    UnLock;
+  end;
 end;
 
 procedure TThreadCandidate.IncValue(Pos : TWCIOCandidateType);
 begin
-  FValues[Pos].IncValue;
+  //FValues[Pos].IncValue;
+  Lock;
+  try
+    Inc(FValues[Pos]);
+  finally
+    UnLock;
+  end;
 end;
 
 { TWCIOCandidate }
@@ -1225,8 +1249,10 @@ begin
                 Temp := TWCRefConnection(FEvents[i].data.ptr);
 
                 if  ((FEvents[i].events and EPOLLERR) = EPOLLERR) then
+                begin
                   Temp.SocketRef.PushError;
-
+                  FOwner.TryIO(Temp, ctError);
+                end else
                 if  ((FEvents[i].events and EPOLLOUT) = EPOLLOUT) then
                 begin
                   Temp.SocketRef.SetCanSend;
@@ -1239,7 +1265,10 @@ begin
                 TempRead := TWCRefConnection(FEventsRead[i].data.ptr);
 
                 if  ((FEventsRead[i].events and (EPOLLHUP or EPOLLRDHUP)) > 0) then
-                  TempRead.SocketRef.PushError
+                begin
+                  TempRead.SocketRef.PushError;
+                  FOwner.TryIO(TempRead, ctError);
+                end
                 else
                 if  ((FEventsRead[i].events and (EPOLLIN or EPOLLPRI)) > 0) then
                 begin
@@ -1785,7 +1814,7 @@ end;
 function TWCSocketReference.Write(const Buffer; Size: Integer): Integer;
 begin
   if StartSending then
-  try
+  begin
     try
       Result := FSocket.Write(Buffer, Size);
       {$IFDEF unix}
@@ -1794,22 +1823,21 @@ begin
       begin
         FSocketStates.AndValue(not SS_CAN_SEND);
       end;
+      StopSending;
     except
       on E : ESocketError do begin
+       StopSending;
        Result := -1;
        PushError;
-       Raise;
       end;
     end;
-  finally
-    StopSending;
   end else Result := 0;
 end;
 
 function TWCSocketReference.Read(var Buffer; Size: Integer): Integer;
 begin
   if StartReading then
-  try
+  begin
     try
       Result := FSocket.Read(Buffer, Size);
       {$IFDEF unix}
@@ -1818,15 +1846,14 @@ begin
       begin
         FSocketStates.AndValue(not SS_CAN_READ);
       end;
+      StopReading;
     except
       on E : ESocketError do begin
+       StopReading;
        Result := -1;
        PushError;
-       Raise;
       end;
     end;
-  finally
-    StopReading;
   end else Result := 0;
 end;
 
@@ -1888,7 +1915,14 @@ end;
 destructor TWCConnection.Destroy;
 begin
   SetRefCon(nil);
-  if assigned(FSocketRef) then FSocketRef.DecReference;
+  if assigned(FSocketRef) then
+  begin
+    FSocketRef.DecReference;
+    if not FSocketRef.HasReferences then
+    begin
+      FSocketRef := nil;
+    end;
+  end;
   FSocketRef := nil;
   inherited Destroy;
 end;
@@ -2825,7 +2859,8 @@ begin
             end;
           end;
         except
-          on E: ESocketError do ConnectionState:= wcDROPPED;
+          on E: ESocketError do
+            ConnectionState:= wcDROPPED;
         end;
       finally
         FWriteBuffer.UnLock;
@@ -2977,6 +3012,11 @@ begin
     WriteTo.Position := FallBackPos;
     L := TruncReadBuffer(WriteTo);
     L := ReadMore(Buffered, L);
+    if L < 0 then
+    begin
+      L := 0;
+      Result := false;
+    end;
     if (L - Offset) < ExtraSize then begin
       WriteTo.Position := 0;
       WriteTo.Size := L;

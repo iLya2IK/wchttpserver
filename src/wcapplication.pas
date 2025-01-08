@@ -2577,7 +2577,8 @@ begin
     On E : Exception do begin
       if Result in [wccrNoData, wccrOK] then
         Result := wccrProtocolError;
-      if Assigned(RefCon) then RefCon.ConnectionState:=wcDROPPED;
+      if Assigned(RefCon) then
+         RefCon.ConnectionState:=wcDROPPED;
       if Assigned(FRequest) then FreeAndNil(FRequest);
       if Assigned(FResponse) then FreeAndNil(FResponse);
       HandleRequestError(E);
