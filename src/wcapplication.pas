@@ -2345,7 +2345,7 @@ begin
     While (L<>0) and (R>0) do
     begin
       R:=Socket.Read(S[p],L);
-      If R<0 then
+      If R < 0 then
         Raise ESocketError.Create(WCSocketReadError);
       if (R>0) then
       begin
@@ -2392,6 +2392,7 @@ constructor TWCAppConnection.Create(AServer: TAbsCustomHTTPServer;
   ASocket: TSocketStream);
 begin
   inherited Create(AServer, ASocket);
+  FInputBuf := nil;
   DoInitialize;
 end;
 
@@ -2399,6 +2400,7 @@ constructor TWCAppConnection.CreateRefered(AServer: TAbsCustomHTTPServer;
   ASocketRef: TWCSocketReference; AConRef : TWCRefConnection);
 begin
   inherited CreateRefered(AServer, ASocketRef, AConRef);
+  FInputBuf := nil;
   DoInitialize;
 end;
 
@@ -2422,7 +2424,7 @@ begin
       FProtocolVersion := RefCon.Protocol;
 
     try
-      r:=SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
+      r := SocketReference.Read(FInputBuf^, WC_INITIAL_READ_BUFFER_SIZE);
       If r < 0 then begin
         Result := wccrSocketError;
         Raise ESocketError.Create(WCSocketReadError);

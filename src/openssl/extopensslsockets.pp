@@ -161,6 +161,9 @@ begin
     begin
       Result := IsNonFatalError(aErr);
     end;
+  end else
+  begin
+    aErr := ErrPeekLastError();
   end;
   ErrClearError; // we need to empty the queue
 end;
@@ -305,7 +308,7 @@ begin
         if IsSend and (IsPipeError(FLastError)) then
           raise ESSLIOError.CreateFmt('pipe error %d - %s', [FLastError, FSSLLastErrorString])
         else
-          raise ESSLIOError.CreateFmt('at %s io_error %d, ssl_error %d, ssl_result %d %s',
+          raise ESSLIOError.CreateFmt('at %s io_error %x, ssl_error %d, ssl_result %d %s',
                                                     [OpenSSLFuncToStr,
                                                      FLastError,
                                                      FSSLLastError,
@@ -591,10 +594,19 @@ begin
     FLocation := esslfWrite;
     Result:=FSsl.Write(@Buffer, Count);
     FLastResult := Result;
-    FSSLLastError:=FSsl.GetError(Result);
+    FSSLLastError:= FSsl.GetError(Result);
+    if (FSSLLastError=SSL_ERROR_WANT_WRITE) and (Socket.IOTimeout > 0) then
+      FSSLLastError:=SSL_ERROR_ZERO_RETURN;
     if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
       Result:=0 else
+    begin
       HandleSSLIOError(true);
+      if Result < 0 then
+      begin
+        FSSLLastError := SSL_ERROR_ZERO_RETURN;
+        Result := 0;
+      end;
+    end;
   end else
     Result := -1;
 end;
@@ -606,12 +618,19 @@ begin
     FLocation := esslfRead;
     Result:=FSSL.Read(@Buffer, Count);
     FLastResult := Result;
-    FSSLLastError:=FSSL.GetError(Result);
+    FSSLLastError:= FSSL.GetError(Result);
     if (FSSLLastError=SSL_ERROR_WANT_READ) and (Socket.IOTimeout > 0) then
       FSSLLastError:=SSL_ERROR_ZERO_RETURN;
     if (FSSLLastError=SSL_ERROR_ZERO_RETURN) then
       Result:=0 else
+    begin
       HandleSSLIOError(false);
+      if Result < 0 then
+      begin
+        FSSLLastError := SSL_ERROR_ZERO_RETURN;
+        Result := 0;
+      end;
+    end;
   end else
     Result := -1;
 end;
