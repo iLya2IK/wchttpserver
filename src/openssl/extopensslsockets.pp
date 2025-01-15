@@ -142,28 +142,36 @@ function IsSSLNonFatalError(const anError, aRet: Longint; out aErr : Longint): B
 begin
   aErr := SSL_ERROR_NONE;
   Result := (anError <> SSL_ERROR_SSL); // SSL_ERROR_SSL - fatal error
-  if (anError = SSL_ERROR_SYSCALL) then begin
-    aErr := ErrPeekLastError();
-    if aErr = 0 then begin // we need to check the ret
-      if aRet < 0 then
-      begin
-        {$ifdef unix}
-        aErr := fpgeterrno;
-        {$else}
-        {$ifdef windows}
-        aErr := WSAGetLastError;
-        {$endif}{$endif}
-        Result := IsNonFatalError(aErr);
-      end
-      else
-        aErr := SSL_ERROR_SYSCALL; //unexpected EOF, ignore
-    end else // check what exactly
+  aErr := ErrPeekLastError();
+  case (anError) of
+  SSL_ERROR_SYSCALL:
     begin
-      Result := IsNonFatalError(aErr);
+      if aErr = 0 then begin // we need to check the ret
+        if aRet < 0 then
+        begin
+          {$ifdef unix}
+          aErr := fpgeterrno;
+          {$else}
+          {$ifdef windows}
+          aErr := WSAGetLastError;
+          {$endif}{$endif}
+          Result := IsNonFatalError(aErr);
+        end
+        else
+          aErr := SSL_ERROR_SYSCALL; //unexpected EOF, ignore
+      end else // check what exactly
+      begin
+        Result := IsNonFatalError(aErr);
+      end;
     end;
-  end else
-  begin
-    aErr := ErrPeekLastError();
+  SSL_ERROR_SSL:
+    begin
+      case aErr of
+      // ignore unxpected EOF
+      $0A000126:
+        Result := true;
+      end;
+    end;
   end;
   ErrClearError; // we need to empty the queue
 end;
