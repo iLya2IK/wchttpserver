@@ -2406,6 +2406,7 @@ var
   lEvent: TEpollEvent;
   aHandle : THandle;
 begin
+  ACon.IncReference;
   ACon.SocketRef.IncReference;
   aHandle := ACon.SocketRef.FSocket.Handle;
 
@@ -2433,6 +2434,7 @@ begin
     epoll_ctl(FEpollReadFD, EPOLL_CTL_DEL, aHandle, nil);
   finally
     ACon.SocketRef.DecReference;
+    ACon.DecReference;
   end;
 end;
 
