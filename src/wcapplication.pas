@@ -444,7 +444,8 @@ type
   private
     FTick : QWord;
   public
-    constructor Create(aTick : QWord);
+    constructor Create(const aTick : QWord);
+    procedure Update(const aTick : QWord);
     property Tick : Qword read FTick;
   end;
 
@@ -477,10 +478,12 @@ type
     FMTime : QWord;
     FLogDB : TSqliteLogger;
     FAppHelpers : TWCHTTPAppHelpers;
-    FSocketsReferences, FReferences : TNetReferenceList;
+    FReferences : TNetAutoReferenceList;
+    FSocketsReferences : TNetReferenceList;
     FStartStamp : QWord;
     FNetDebugMode : Boolean;
     FTimeStampLog : TWCTimeStampLog;
+    FTimeStamp    : TWCTimeStampObj;
     {$IFDEF SERVER_RPC_MODE}
     FWebClientClass :  TWebClientClass;
     {$ENDIF}
@@ -580,7 +583,7 @@ type
     function CreateSizedRefMemoryStream(aSz : PtrInt) : TRefMemoryStream;
     property WCServer : TWCHttpServer read GetWCServer;
     property AppHelpers : TWCHTTPAppHelpers read FAppHelpers;
-    property GarbageCollector : TNetReferenceList read FReferences;
+    property GarbageCollector : TNetAutoReferenceList read FReferences;
     property SocketsCollector : TNetReferenceList read FSocketsReferences;
 
     //configurations
@@ -735,7 +738,7 @@ type
 
   { TWebClient }
 
-  TWebClient = class(TNetReferencedObject)
+  TWebClient = class(TNetAutoReferencedObject)
   private
     FCUID : String;
     FCurStates : TWebThreadSafeCacheStates;
@@ -1234,7 +1237,12 @@ end;
 
 { TWCTimeStampObj }
 
-constructor TWCTimeStampObj.Create(aTick : QWord);
+constructor TWCTimeStampObj.Create(const aTick : QWord);
+begin
+  Update(aTick);
+end;
+
+procedure TWCTimeStampObj.Update(const aTick : QWord);
 begin
   FTick := aTick;
 end;
@@ -3777,6 +3785,7 @@ begin
   FWebFilesIgnoreRx := nil;
   FWebFilesExceptIgnoreRx := nil;
   FTimeStampLog := TWCTimeStampLog.Create;
+  FTimeStamp := TWCTimeStampObj.Create(GetTickCount64);
 
   FMaxMainThreads:= TThreadInteger.Create(1);
   FMaxPrepareThreads:= TThreadInteger.Create(1);
@@ -3879,36 +3888,35 @@ begin
 
   FAppHelpers.Free;
   FTimeStampLog.Free;
+  FTimeStamp.Free;
   inherited Destroy;
 end;
 
 procedure TWCHTTPApplication.DoOnIdle({%H-}sender: TObject);
-var Stamp : TWCTimeStampObj;
 begin
   {$ifdef NOGUI} {$IFDEF UNIX}
   GWidgetHelper.ProcessMessages;
   {$endif}  {$endif}
-  Stamp := TWCTimeStampObj.Create(GetTickCount64);
-  try
-    if (Stamp.Tick - FMTime) >= 10000 then  //every 10 secs
-    begin
-      WCServer.UnfreezeIPs((Stamp.Tick - FMTime) div 1000);
-      FMTime := Stamp.Tick;
-      if assigned(FConfig) then FConfig.Sync(false);
-      WebContainer.DoMaintainingStep;
-      GarbageCollector.CleanDead;
-      FSocketsReferences.CleanDead;
-      FTimeStampLog.TryToLog(Stamp);
-    end;
 
-    FAppHelpers.DoHelp(TWCHTTPAppIdleHelper, Stamp);
-    //
-    WCServer.RefConnections.Idle(Stamp.Tick);
-    //
-  finally
-    Stamp.Free;
+  FTimeStamp.Update(GetTickCount64);
+  if (FTimeStamp.Tick - FMTime) >= 10000 then  //every 10 secs
+  begin
+    WCServer.UnfreezeIPs((FTimeStamp.Tick - FMTime) div 1000);
+    FMTime := FTimeStamp.Tick;
+    if assigned(FConfig) then FConfig.Sync(false);
+    WebContainer.DoMaintainingStep;
+    GarbageCollector.CleanDead;
+    FSocketsReferences.CleanDead;
+    FTimeStampLog.TryToLog(FTimeStamp);
   end;
-  Sleep(5);
+
+  FAppHelpers.DoHelp(TWCHTTPAppIdleHelper, FTimeStamp);
+  //
+  WCServer.RefConnections.Idle(FTimeStamp.Tick);
+  //
+
+  Sleep(250);
+
   if FNeedShutdown.Value then
   begin
     WCServer.Active := false;
@@ -4357,7 +4365,7 @@ procedure TWCHTTPApplication.Initialize;
 begin
   inherited Initialize;
 
-  FReferences := TNetReferenceList.Create;
+  FReferences := TNetAutoReferenceList.Create;
   FSocketsReferences :=TNetReferenceList.Create;
   WebContainer := TWebClientsContainer.Create;
   GetWebHandler.OnAcceptIdle:= @DoOnIdle;

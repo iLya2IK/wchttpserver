@@ -70,6 +70,10 @@ type
     function GetByName(const aName : String): TWCConfigRecord;
     function GetCount: Integer;
     function GetRecord(index : integer): TWCConfigRecord;
+
+    procedure Init(aParent : TWCConfigRecord; const aName : String; aKind : TWCConfigRecordKind);
+    procedure Init(aParent : TWCConfigRecord; const aName : String; aHash : Cardinal; aKind : TWCConfigRecordKind);
+
   protected
     property Count : Integer read GetCount;
   public
@@ -264,29 +268,21 @@ begin
   Result := FChildren.Records[index];
 end;
 
-constructor TWCConfigRecord.Create(aParent : TWCConfigRecord; Rec: PWCConfigRec;
-                                    aKind: TWCConfigRecordKind
-  );
-begin
-  Create(aParent, Rec^.NAME_STR, Rec^.Hash, aKind);
-end;
-
-constructor TWCConfigRecord.Create(aParent : TWCConfigRecord; const aName: String;
-  aKind: TWCConfigRecordKind);
+procedure TWCConfigRecord.Init(aParent : TWCConfigRecord; const aName : String;
+  aKind : TWCConfigRecordKind);
 var Rec : PWCConfigRec;
 begin
   if aKind in [wccrRoot] then
   begin
-    Create(aParent, aName, CFG_ROOT_HASH, aKind);
+    Init(aParent, aName, CFG_ROOT_HASH, aKind);
   end else begin
     Rec := StrToConfig(aParent.HashName, aName);
-    Create(aParent, Rec, aKind);
+    Init(aParent, Rec^.NAME_STR, Rec^.Hash, aKind);
   end;
 end;
 
-constructor TWCConfigRecord.Create(aParent : TWCConfigRecord;
-  const aName: String; aHash: Cardinal;
-  aKind: TWCConfigRecordKind);
+procedure TWCConfigRecord.Init(aParent : TWCConfigRecord; const aName : String;
+  aHash : Cardinal; aKind : TWCConfigRecordKind);
 begin
   FChildren := TWCConfigRecords.Create;
   FParent := aParent;
@@ -295,6 +291,26 @@ begin
   FKind:= aKind;
   FValue:= Null;
   FDefaultValue:= Null;
+end;
+
+constructor TWCConfigRecord.Create(aParent : TWCConfigRecord; Rec: PWCConfigRec;
+                                    aKind: TWCConfigRecordKind
+  );
+begin
+  Init(aParent, Rec^.NAME_STR, Rec^.Hash, aKind);
+end;
+
+constructor TWCConfigRecord.Create(aParent : TWCConfigRecord; const aName: String;
+  aKind: TWCConfigRecordKind);
+begin
+  Init(aParent, aName, aKind)
+end;
+
+constructor TWCConfigRecord.Create(aParent : TWCConfigRecord;
+  const aName: String; aHash: Cardinal;
+  aKind: TWCConfigRecordKind);
+begin
+  Init(aParent, aName, aHash, aKind);
 end;
 
 destructor TWCConfigRecord.Destroy;

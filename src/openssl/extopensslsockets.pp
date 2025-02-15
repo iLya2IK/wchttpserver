@@ -122,6 +122,8 @@ end;
 
 {$ENDIF}
 
+const MAX_ALPN_LEN = 4096;
+
 { TSocketHandler }
 Resourcestring
   SErrNoLibraryInit = 'Could not initialize OpenSSL library';
@@ -414,6 +416,8 @@ var
   i : integer;
   id : string;
 begin
+  if (inlen > MAX_ALPN_LEN) then Exit(SSL_TLSEXT_ERR_NOACK);
+
   protlen := 0;
   prot := inv;
   id := '';

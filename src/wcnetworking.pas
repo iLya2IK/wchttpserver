@@ -135,7 +135,7 @@ type
 
   { TWCRequestRefWrapper }
 
-  TWCRequestRefWrapper = class(TNetReferencedObject)
+  TWCRequestRefWrapper = class(TNetAutoReferencedObject)
   public
     procedure CopyToHTTP1Request(aReq : TWCConnectionRequest); virtual; abstract;
     function GetReqContentStream : TStream; virtual; abstract;
@@ -284,7 +284,7 @@ type
 
   { TWCRefConnection }
 
-  TWCRefConnection = class(TNetReferencedObject)
+  TWCRefConnection = class(TNetAutoReferencedObject)
   private
     FOwner : TWCRefConnections;
     FConnectionState : TThreadSafeConnectionState;
@@ -456,7 +456,7 @@ type
   private
     FLastUsedConnection : TIteratorObject;
     FMaintainStamp : QWord;
-    FGarbageCollector : TNetReferenceList;
+    FGarbageCollector : TNetAutoReferenceList;
     FServer       : TWCCustomHttpServer;
 
     FNeedToRemoveDeadConnections : TAtomicBoolean;
@@ -513,7 +513,7 @@ type
     procedure HandleNetworkLog(const S : String); virtual;
     procedure HandleNetworkLog(const S : String; const Params : Array of Const); virtual;
   public
-    constructor Create(aGarbageCollector : TNetReferenceList;
+    constructor Create(aGarbageCollector : TNetAutoReferenceList;
                                          aServer: TWCCustomHttpServer);
     destructor  Destroy; override;
     procedure   AddConnection(FConn : TWCRefConnection);
@@ -527,7 +527,7 @@ type
     procedure   CloseAll;
     property    Protocol[Id : TWCProtocolVersion] : TWCProtocolHelper read
                                          GetProtocolHelper;
-    property    GarbageCollector : TNetReferenceList read FGarbageCollector write
+    property    GarbageCollector : TNetAutoReferenceList read FGarbageCollector write
                                          FGarbageCollector;
     property    MaxIOThreads : Integer read GetMaxIOThreads write SetMaxIOThreads;
   end;
@@ -1707,7 +1707,7 @@ begin
          FSocketStates.OrValue(SS_ERROR) else
       begin
         if fpFD_ISSET(Socket.Handle, FReadFDSet^)>0 then
-           FSocketState.OrValue(SS_CAN_READ);
+           FSocketStates.OrValue(SS_CAN_READ);
         if fpFD_ISSET(Socket.Handle, FWriteFDSet^)>0 then
            FSocketStates.OrValue(SS_CAN_SEND);
       end;
@@ -1970,7 +1970,7 @@ begin
   TWCRefConnection(aObj).DecReference;
 end;
 
-constructor TWCRefConnections.Create(aGarbageCollector : TNetReferenceList;
+constructor TWCRefConnections.Create(aGarbageCollector : TNetAutoReferenceList;
   aServer : TWCCustomHttpServer);
 var v : TWCProtocolVersion;
   i : integer;
@@ -2148,36 +2148,45 @@ begin
     if Assigned(C) then
     begin
       SendIOEvent;
-      Con := C.Con;
-      CType := C.CType;
-      C.Free;
-      if (Con.ConnectionAvaible) then
-      begin
-        if Con.FSocketRef.HasErrors then
-          Con.ConnectionState:= wcDROPPED else
+      try
+        Con := C.Con;
+        CType := C.CType;
+        Con.IncReference;
+      finally
+        C.Free;
+      end;
+      try
+        if (Con.ConnectionAvaible) then
         begin
-          case CType of
-            ctSend : begin
-              if (not Con.TryToSendFrames(TS)) and Con.ReadyToWrite then
-              begin
-                AccumIO(Con, ctSend);
+          if Con.FSocketRef.HasErrors then
+            Con.ConnectionState:= wcDROPPED else
+          begin
+            case CType of
+              ctSend : begin
+                if (not Con.TryToSendFrames(TS)) and Con.ReadyToWrite then
+                begin
+                  AccumIO(Con, ctSend);
+                end;
+              end;
+              ctRead : begin
+                b1 := Con.ReadyToRead or Con.RequestsWaiting;
+                b2 := Con.FSocketRef.Readable;
+
+                if (not Con.TryToConsumeFrames) and b1 and b2 then
+                  AccumIO(Con, ctRead);
               end;
             end;
-            ctRead : begin
-              b1 := Con.ReadyToRead or Con.RequestsWaiting;
-              b2 := Con.FSocketRef.Readable;
 
-              if (not Con.TryToConsumeFrames) and b1 and b2 then
-                AccumIO(Con, ctRead);
-            end;
+            Result := true;
           end;
-
-          Result := true;
         end;
+      finally
+        Con.DecReference;
       end;
       Inc(i);
     end else
       Break;
+    lsleep0();
   end;
 
   FlashIO;
@@ -2229,6 +2238,7 @@ begin
       Inc(i);
     end else
       Break;
+    lsleep0();
   end;
 end;
 {$Endif}
@@ -2556,7 +2566,7 @@ begin
         if Assigned(Stream) then
           FreeAndNil(Stream);
       end;
-
+      lsleep0();
       inc(cnt);
     end;
   except

@@ -165,6 +165,7 @@ type
                        aNextFramesType : Byte;
                        aFlags, aFinalFlags: Byte);
     function Write(const Buffer; Count: Longint): Longint; override;
+    procedure Flush;
     destructor Destroy; override;
 
     property FirstFrameType : Byte read FFirstFrameType write FFirstFrameType;
@@ -176,7 +177,7 @@ type
 
   { TThreadSafeHPackEncoder }
 
-  TThreadSafeHPackEncoder = class(TNetReferencedObject)
+  TThreadSafeHPackEncoder = class(TNetAutoReferencedObject)
   private
     FEncoder : THPackEncoder;
   public
@@ -189,7 +190,7 @@ type
 
   { TThreadSafeHPackDecoder }
 
-  TThreadSafeHPackDecoder = class(TNetReferencedObject)
+  TThreadSafeHPackDecoder = class(TNetAutoReferencedObject)
   private
     FDecoder : THPackDecoder;
     function GetDecodedHeaders: THPackHeaderTextList;
@@ -1380,7 +1381,8 @@ begin
     if MaxSize < HTTP2_MIN_MAX_FRAME_SIZE then
        MaxSize := HTTP2_MIN_MAX_FRAME_SIZE;
   end;
-  if (Sz > MaxSize) and (FChunked) then Exit(-1);
+  if (Sz > MaxSize) and (FChunked) then
+     Exit(-1);
   while Sz > 0 do begin
     if Assigned(FCurFrame) and
        ((FRestFrameSz = 0) or
@@ -1410,7 +1412,7 @@ begin
          FRestFrameSz := 0;
       end else
          Dec(FRestFrameSz, BSz);
-      B := Pointer(FCurFrame.Payload + FCurFrame.Header.PayloadLength);
+      B := Pointer(@(PByte(FCurFrame.Payload)[FCurFrame.Header.PayloadLength]));
       Inc(FCurFrame.Header.PayloadLength, Bsz);
     end;
     Move(Src^, B^, BSz);
@@ -1419,12 +1421,18 @@ begin
   end;
 end;
 
-destructor TWCHTTP2SerializeStream.Destroy;
+procedure TWCHTTP2SerializeStream.Flush;
 begin
   if assigned(FCurFrame) then begin
     FCurFrame.Header.FrameFlag := FFinalFlags;
     FConn.PushFrame(FCurFrame);
+    FCurFrame := nil;
   end;
+end;
+
+destructor TWCHTTP2SerializeStream.Destroy;
+begin
+  Flush();
   if Assigned(FStream) then FStream.DecReference;
   FConn.DecReference;
   inherited Destroy;
@@ -1502,6 +1510,7 @@ begin
                                          (Ord(closeStrm) * H2FL_END_STREAM));
     try
       sc.WriteBuffer(FCurHeadersBlock^, FHeadersBlockSize);
+      sc.Flush;
     finally
       sc.Free;
     end;
@@ -1527,6 +1536,7 @@ begin
                                          (Ord(closeStrm) * H2FL_END_STREAM));
     try
       sc.WriteBuffer(FData.Memory^, DataBlockSize);
+      sc.Flush;
     finally
       sc.Free;
     end;
@@ -1552,16 +1562,22 @@ begin
                                        H2FL_END_HEADERS or
                                        (Ord(closeStrm) * H2FL_END_STREAM));
   FConnection.InitHPack;
-  pusher := TWCHTTP2StrmResponseHeaderPusher.Create(FConnection.CurHPackEncoder,
-                                                    sc);
+  FConnection.CurHPackEncoder.Lock;  // should block encoder here cause of GOAWAY(9) error
   try
-    sc.Chunked := true;
-    pusher.PushAll(R);
-    if closeStrm then
-      PushResponse;
+    pusher := TWCHTTP2StrmResponseHeaderPusher.Create(FConnection.CurHPackEncoder,
+                                                      sc);
+    try
+      sc.Chunked := true;
+      pusher.PushAll(R);
+      sc.Flush;
+      if closeStrm then
+        PushResponse;
+    finally
+      sc.Free;
+      pusher.Free;
+    end;
   finally
-    sc.Free;
-    pusher.Free;
+    FConnection.CurHPackEncoder.UnLock;
   end;
 end;
 
@@ -1582,6 +1598,7 @@ begin
       if assigned(R.ContentStream) then
       begin
         sc.CopyFrom(R.ContentStream, R.ContentStream.Size);
+        sc.Flush;
       end else
       begin
         R.Contents.SaveToStream(sc);
